@@ -1,0 +1,23 @@
+[project]
+name = "pyreqwest"
+version = "0.1.0"
+authors = [
+    { name = "Markus Sintonen", email = "pyreqwest@gmail.com" }
+]
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = []
+
+dev-dependencies = [
+    "maturin==1.9.1",
+]
+
+[tool.maturin]
+module-name = "pyreqwest._core"
+python-source = "python"
+python-packages = ["pyreqwest"]
+features = ["pyo3/extension-module"]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"

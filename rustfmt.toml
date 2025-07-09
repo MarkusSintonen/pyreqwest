@@ -1,0 +1,10 @@
+max_width = 120
+use_small_heuristics = "Max"  # Use max_width and define the granular width rules explicitly below
+fn_call_width = 90
+attr_fn_like_width = 90
+struct_lit_width = 22  # 18% of max_width (default)
+struct_variant_width = 42  # 35% of max_width (default)
+array_width = 72  # 60% of max_width (default)
+chain_width = 72  # 60% of max_width (default)
+single_line_if_else_max_width = 60 # 50% of max_width (default)
+single_line_let_else_max_width = 60 # 50% of max_width (default)
