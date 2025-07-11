@@ -6,7 +6,9 @@ authors = [
 ]
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "multidict>=6.6.3"
+]
 
 dev-dependencies = [
     "maturin==1.9.1",

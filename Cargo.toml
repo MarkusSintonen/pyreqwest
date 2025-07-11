@@ -5,7 +5,7 @@ edition = "2024"
 
 [lib]
 name = "pyreqwest"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 reqwest = { version = "=0.12.22", features = ["default", "rustls-tls", "blocking", "cookies", "gzip", "zstd", "brotli", "deflate", "multipart", "stream", "socks"] }
