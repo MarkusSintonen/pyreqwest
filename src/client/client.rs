@@ -4,6 +4,7 @@ use crate::request::RequestBuilder;
 use pyo3::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
+use http::Method;
 use tokio::sync::Semaphore;
 
 #[pyclass]
@@ -26,6 +27,30 @@ impl Client {
         let url: reqwest::Url = url.try_into()?;
         let request = self.client.request(method.0, url);
         Ok(RequestBuilder::new(runtime, request, middlewares, request_semaphore, connect_timeout))
+    }
+
+    pub fn get(&self, url: UrlExt) -> PyResult<RequestBuilder> {
+        self.request(Method::GET.into(), url)
+    }
+
+    pub fn post(&self, url: UrlExt) -> PyResult<RequestBuilder> {
+        self.request(Method::POST.into(), url)
+    }
+
+    pub fn put(&self, url: UrlExt) -> PyResult<RequestBuilder> {
+        self.request(Method::PUT.into(), url)
+    }
+
+    pub fn patch(&self, url: UrlExt) -> PyResult<RequestBuilder> {
+        self.request(Method::PATCH.into(), url)
+    }
+
+    pub fn delete(&self, url: UrlExt) -> PyResult<RequestBuilder> {
+        self.request(Method::DELETE.into(), url)
+    }
+
+    pub fn head(&self, url: UrlExt) -> PyResult<RequestBuilder> {
+        self.request(Method::HEAD.into(), url)
     }
 
     async fn __aenter__(slf: Py<Self>) -> Py<Self> {

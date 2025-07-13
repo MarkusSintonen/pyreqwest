@@ -1,4 +1,4 @@
-use crate::Response;
+use crate::response::Response;
 use crate::client::runtime::Runtime;
 use crate::exceptions::{PoolTimeoutError, SendError};
 use crate::http_types::{Extensions, HeaderMapExt, MethodExt, UrlExt};
