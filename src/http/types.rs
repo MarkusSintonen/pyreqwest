@@ -1,5 +1,3 @@
-use http::HeaderMap;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
@@ -8,21 +6,19 @@ use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct UrlExt(#[serde(with = "http_serde::uri")] pub http::Uri);
+pub struct Method(#[serde(with = "http_serde::method")] pub http::Method);
 #[derive(Serialize, Deserialize, Clone)]
-pub struct MethodExt(#[serde(with = "http_serde::method")] pub http::Method);
+pub struct HeaderMap(#[serde(with = "http_serde::header_map")] pub http::HeaderMap);
 #[derive(Serialize, Deserialize, Clone)]
-pub struct HeaderMapExt(#[serde(with = "http_serde::header_map")] pub HeaderMap);
-#[derive(Serialize, Deserialize, Clone)]
-pub struct VersionExt(#[serde(with = "http_serde::version")] pub http::Version);
+pub struct Version(#[serde(with = "http_serde::version")] pub http::Version);
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Extensions(pub serde_json::Map<String, serde_json::Value>);
 #[derive(Serialize, Deserialize, Clone)]
-pub struct StatusCodeExt(#[serde(with = "http_serde::status_code")] pub http::StatusCode);
+pub struct StatusCode(#[serde(with = "http_serde::status_code")] pub http::StatusCode);
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct JsonValue(pub serde_json::Value);
 
-impl<'py> IntoPyObject<'py> for UrlExt {
+impl<'py> IntoPyObject<'py> for Method {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
@@ -30,52 +26,18 @@ impl<'py> IntoPyObject<'py> for UrlExt {
         Ok(pythonize(py, &self)?)
     }
 }
-impl<'py> FromPyObject<'py> for UrlExt {
+impl<'py> FromPyObject<'py> for Method {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)
     }
 }
-impl TryFrom<reqwest::Url> for UrlExt {
-    type Error = PyErr;
-    fn try_from(value: reqwest::Url) -> PyResult<Self> {
-        Ok(UrlExt(
-            value
-                .as_str()
-                .parse()
-                .map_err(|e| PyValueError::new_err(format!("Invalid URL format: {}", e)))?,
-        ))
-    }
-}
-impl TryInto<reqwest::Url> for UrlExt {
-    type Error = PyErr;
-    fn try_into(self) -> PyResult<reqwest::Url> {
-        self.0
-            .to_string()
-            .parse::<reqwest::Url>()
-            .map_err(|e| PyValueError::new_err(format!("Invalid URL format: {}", e)))
-    }
-}
-
-impl<'py> IntoPyObject<'py> for MethodExt {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
-    type Error = PyErr;
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(pythonize(py, &self)?)
-    }
-}
-impl<'py> FromPyObject<'py> for MethodExt {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
-    }
-}
-impl From<reqwest::Method> for MethodExt {
+impl From<reqwest::Method> for Method {
     fn from(method: reqwest::Method) -> Self {
-        MethodExt(method)
+        Method(method)
     }
 }
 
-impl<'py> IntoPyObject<'py> for VersionExt {
+impl<'py> IntoPyObject<'py> for Version {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
@@ -83,18 +45,18 @@ impl<'py> IntoPyObject<'py> for VersionExt {
         Ok(pythonize(py, &self)?)
     }
 }
-impl<'py> FromPyObject<'py> for VersionExt {
+impl<'py> FromPyObject<'py> for Version {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)
     }
 }
-impl From<reqwest::Version> for VersionExt {
+impl From<reqwest::Version> for Version {
     fn from(version: reqwest::Version) -> Self {
-        VersionExt(version)
+        Version(version)
     }
 }
 
-impl<'py> IntoPyObject<'py> for HeaderMapExt {
+impl<'py> IntoPyObject<'py> for HeaderMap {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
@@ -106,14 +68,14 @@ impl<'py> IntoPyObject<'py> for HeaderMapExt {
         Ok(dict)
     }
 }
-impl<'py> FromPyObject<'py> for HeaderMapExt {
+impl<'py> FromPyObject<'py> for HeaderMap {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)
     }
 }
-impl From<HeaderMap> for HeaderMapExt {
-    fn from(header_map: HeaderMap) -> Self {
-        HeaderMapExt(header_map)
+impl From<http::HeaderMap> for HeaderMap {
+    fn from(header_map: http::HeaderMap) -> Self {
+        HeaderMap(header_map)
     }
 }
 
@@ -139,7 +101,7 @@ impl From<&http::Extensions> for Extensions {
     }
 }
 
-impl<'py> IntoPyObject<'py> for StatusCodeExt {
+impl<'py> IntoPyObject<'py> for StatusCode {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
@@ -147,14 +109,14 @@ impl<'py> IntoPyObject<'py> for StatusCodeExt {
         Ok(pythonize(py, &self)?)
     }
 }
-impl<'py> FromPyObject<'py> for StatusCodeExt {
+impl<'py> FromPyObject<'py> for StatusCode {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)
     }
 }
-impl From<http::StatusCode> for StatusCodeExt {
+impl From<http::StatusCode> for StatusCode {
     fn from(status: http::StatusCode) -> Self {
-        StatusCodeExt(status)
+        StatusCode(status)
     }
 }
 

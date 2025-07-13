@@ -1,1 +1,1 @@
-from _pyreqwest.middleware import *
+from pyreqwest._pyreqwest.middleware import *

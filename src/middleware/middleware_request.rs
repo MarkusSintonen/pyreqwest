@@ -1,4 +1,5 @@
-use crate::http_types::{Extensions, HeaderMapExt, MethodExt, UrlExt};
+use crate::http::types::{Extensions, HeaderMap, Method};
+use crate::http::url::{Url, UrlType};
 use crate::request::{RequestBody, RequestWrapper};
 use crate::response::Response;
 use pyo3::{Bound, Py, PyAny, PyResult, Python, pyclass, pymethods};
@@ -13,30 +14,30 @@ pub struct MiddlewareRequest {
 #[pymethods]
 impl MiddlewareRequest {
     #[getter]
-    fn get_method(&self) -> PyResult<MethodExt> {
+    fn get_method(&self) -> PyResult<Method> {
         self.inner.get_method()
     }
 
     #[setter]
-    fn set_method(&mut self, value: MethodExt) -> PyResult<()> {
+    fn set_method(&mut self, value: Method) -> PyResult<()> {
         self.inner.set_method(value)
     }
 
     #[getter]
-    fn get_url(&self) -> PyResult<UrlExt> {
+    fn get_url(&self) -> PyResult<Url> {
         self.inner.get_url()
     }
 
     #[setter]
-    fn set_url(&mut self, value: UrlExt) -> PyResult<()> {
+    fn set_url(&mut self, value: UrlType) -> PyResult<()> {
         self.inner.set_url(value)
     }
 
-    fn copy_headers(&self) -> PyResult<HeaderMapExt> {
+    fn copy_headers(&self) -> PyResult<HeaderMap> {
         self.inner.copy_headers()
     }
 
-    fn set_headers(&mut self, value: HeaderMapExt) -> PyResult<()> {
+    fn set_headers(&mut self, value: HeaderMap) -> PyResult<()> {
         self.inner.set_headers(value)
     }
 

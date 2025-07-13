@@ -1,5 +1,6 @@
 use crate::exceptions::utils::map_send_error;
-use crate::http_types::{Extensions, HeaderMapExt, MethodExt, UrlExt};
+use crate::http::types::{Extensions, HeaderMap, Method};
+use crate::http::url::{Url, UrlType};
 use crate::request::RequestBody;
 use http::{HeaderName, HeaderValue};
 use pyo3::PyResult;
@@ -22,29 +23,29 @@ impl RequestWrapper {
         }
     }
 
-    pub fn get_method(&self) -> PyResult<MethodExt> {
+    pub fn get_method(&self) -> PyResult<Method> {
         Ok(self.inner_ref()?.method().clone().into())
     }
 
-    pub fn set_method(&mut self, value: MethodExt) -> PyResult<()> {
+    pub fn set_method(&mut self, value: Method) -> PyResult<()> {
         *self.inner_mut()?.method_mut() = value.0;
         Ok(())
     }
 
-    pub fn get_url(&self) -> PyResult<UrlExt> {
-        self.inner_ref()?.url().clone().try_into()
+    pub fn get_url(&self) -> PyResult<Url> {
+        Ok(self.inner_ref()?.url().clone().into())
     }
 
-    pub fn set_url(&mut self, value: UrlExt) -> PyResult<()> {
-        *self.inner_mut()?.url_mut() = value.try_into()?;
+    pub fn set_url(&mut self, value: UrlType) -> PyResult<()> {
+        *self.inner_mut()?.url_mut() = value.0;
         Ok(())
     }
 
-    pub fn copy_headers(&self) -> PyResult<HeaderMapExt> {
+    pub fn copy_headers(&self) -> PyResult<HeaderMap> {
         Ok(self.inner_ref()?.headers().clone().into())
     }
 
-    pub fn set_headers(&mut self, value: HeaderMapExt) -> PyResult<()> {
+    pub fn set_headers(&mut self, value: HeaderMap) -> PyResult<()> {
         *self.inner_mut()?.headers_mut() = value.0;
         Ok(())
     }

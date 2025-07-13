@@ -1,1 +1,1 @@
-from _pyreqwest.response import *
+from pyreqwest._pyreqwest.response import *

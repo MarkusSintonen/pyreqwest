@@ -1,4 +1,4 @@
-use crate::http_types::{Extensions, HeaderMapExt, StatusCodeExt, VersionExt};
+use crate::http::types::{Extensions, HeaderMap, StatusCode, Version};
 use pyo3::exceptions::PyValueError;
 use pyo3::{Bound, FromPyObject, PyAny, PyErr, PyResult};
 use pythonize::depythonize;
@@ -6,9 +6,9 @@ use serde::Deserialize;
 
 #[derive(Deserialize, Default)]
 pub struct ResponseDict {
-    status_code: Option<StatusCodeExt>,
-    headers: Option<HeaderMapExt>,
-    version: Option<VersionExt>,
+    status_code: Option<StatusCode>,
+    headers: Option<HeaderMap>,
+    version: Option<Version>,
     body_bytes: Option<Vec<u8>>,
     extensions: Option<Extensions>,
 }

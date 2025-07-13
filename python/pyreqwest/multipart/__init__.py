@@ -1,1 +1,1 @@
-from _pyreqwest.multipart import *
+from pyreqwest._pyreqwest.multipart import *

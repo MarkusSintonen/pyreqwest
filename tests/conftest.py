@@ -4,21 +4,42 @@ import socket
 from contextlib import closing
 from typing import AsyncGenerator
 
+import orjson
 import pytest
 from granian.constants import Interfaces
 from granian.server.embed import Server
-from yarl import URL
+
+from pyreqwest.http import Url
 
 
 @pytest.fixture
-async def echo_server() -> AsyncGenerator[URL]:
+async def echo_server() -> AsyncGenerator[Url]:
     async def app(scope, receive, send):
         assert scope['type'] == 'http'
-        payload = {
+
+        body_parts = []
+        more_body = True
+        while more_body:
+            message = await receive()
+            if message.get('body', None):
+                body_parts.append(message['body'])
+            more_body = message.get('more_body', False)
+
+        resp = {
+            "headers": scope['headers'],
+            "http_version": scope['http_version'],
             "method": scope['method'],
             "path": scope['path'],
-            "query_string": scope['query_string'].decode('utf-8'),
+            "query_string": scope['query_string'],
+            "raw_path": scope['raw_path'],
+            "scheme": scope['scheme'],
+            "body_parts": body_parts,
         }
+
+        def default(obj):
+            if isinstance(obj, bytes):
+                return obj.decode('utf-8')
+            raise TypeError
 
         await send({
             'type': 'http.response.start',
@@ -29,14 +50,14 @@ async def echo_server() -> AsyncGenerator[URL]:
         })
         await send({
             'type': 'http.response.body',
-            'body': json.dumps(payload).encode('utf-8'),
+            'body': orjson.dumps(resp, default=default),
         })
 
     port = find_free_port()
     server = Server(app, port=port, interface=Interfaces.ASGINL)
     server_task = asyncio.create_task(server.serve())
     try:
-        yield URL(f"http://localhost:{port}")
+        yield Url(f"http://localhost:{port}")
     finally:
         server.stop()
         await server_task

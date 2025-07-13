@@ -1,1 +1,1 @@
-from _pyreqwest.exceptions import *
+from pyreqwest._pyreqwest.exceptions import *

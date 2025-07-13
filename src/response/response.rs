@@ -1,5 +1,5 @@
 use crate::exceptions::utils::map_read_error;
-use crate::http_types::{Extensions, HeaderMapExt, StatusCodeExt, VersionExt};
+use crate::http::types::{Extensions, HeaderMap, StatusCode, Version};
 use bytes::Bytes;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -90,9 +90,9 @@ impl Response {
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
     ) -> PyResult<Response> {
-        let status_code = StatusCodeExt::from(response.status());
-        let headers = HeaderMapExt(response.headers().clone());
-        let http_version = VersionExt::from(response.version());
+        let status_code = StatusCode::from(response.status());
+        let headers = HeaderMap(response.headers().clone());
+        let http_version = Version::from(response.version());
         let extensions = Extensions::from(response.extensions());
 
         let init_byte_limit = 65536;

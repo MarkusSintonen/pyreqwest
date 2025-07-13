@@ -1,10 +1,10 @@
 use crate::client::runtime::Runtime;
-use crate::http_types::{MethodExt, UrlExt};
+use crate::http::types::Method;
+use crate::http::url::UrlType;
 use crate::request::RequestBuilder;
 use pyo3::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
-use http::Method;
 use tokio::sync::Semaphore;
 
 #[pyclass]
@@ -18,39 +18,38 @@ pub struct Client {
 
 #[pymethods]
 impl Client {
-    fn request(&self, method: MethodExt, url: UrlExt) -> PyResult<RequestBuilder> {
+    fn request(&self, method: Method, url: UrlType) -> PyResult<RequestBuilder> {
         let runtime = self.runtime.clone();
         let middlewares = self.middlewares.clone();
         let request_semaphore = self.request_semaphore.clone();
         let connect_timeout = self.connect_timeout.clone();
 
-        let url: reqwest::Url = url.try_into()?;
-        let request = self.client.request(method.0, url);
+        let request = self.client.request(method.0, url.0);
         Ok(RequestBuilder::new(runtime, request, middlewares, request_semaphore, connect_timeout))
     }
 
-    pub fn get(&self, url: UrlExt) -> PyResult<RequestBuilder> {
-        self.request(Method::GET.into(), url)
+    pub fn get(&self, url: UrlType) -> PyResult<RequestBuilder> {
+        self.request(http::Method::GET.into(), url)
     }
 
-    pub fn post(&self, url: UrlExt) -> PyResult<RequestBuilder> {
-        self.request(Method::POST.into(), url)
+    pub fn post(&self, url: UrlType) -> PyResult<RequestBuilder> {
+        self.request(http::Method::POST.into(), url)
     }
 
-    pub fn put(&self, url: UrlExt) -> PyResult<RequestBuilder> {
-        self.request(Method::PUT.into(), url)
+    pub fn put(&self, url: UrlType) -> PyResult<RequestBuilder> {
+        self.request(http::Method::PUT.into(), url)
     }
 
-    pub fn patch(&self, url: UrlExt) -> PyResult<RequestBuilder> {
-        self.request(Method::PATCH.into(), url)
+    pub fn patch(&self, url: UrlType) -> PyResult<RequestBuilder> {
+        self.request(http::Method::PATCH.into(), url)
     }
 
-    pub fn delete(&self, url: UrlExt) -> PyResult<RequestBuilder> {
-        self.request(Method::DELETE.into(), url)
+    pub fn delete(&self, url: UrlType) -> PyResult<RequestBuilder> {
+        self.request(http::Method::DELETE.into(), url)
     }
 
-    pub fn head(&self, url: UrlExt) -> PyResult<RequestBuilder> {
-        self.request(Method::HEAD.into(), url)
+    pub fn head(&self, url: UrlType) -> PyResult<RequestBuilder> {
+        self.request(http::Method::HEAD.into(), url)
     }
 
     async fn __aenter__(slf: Py<Self>) -> Py<Self> {

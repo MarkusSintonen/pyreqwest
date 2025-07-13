@@ -1,10 +1,11 @@
-use crate::response::Response;
 use crate::client::runtime::Runtime;
 use crate::exceptions::{PoolTimeoutError, SendError};
-use crate::http_types::{Extensions, HeaderMapExt, MethodExt, UrlExt};
+use crate::http::types::{Extensions, HeaderMap, Method};
+use crate::http::url::{Url, UrlType};
 use crate::middleware::Next;
 use crate::request::RequestBody;
 use crate::request::RequestWrapper;
+use crate::response::Response;
 use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
@@ -61,30 +62,30 @@ impl Request {
     }
 
     #[getter]
-    fn get_method(&self) -> PyResult<MethodExt> {
+    fn get_method(&self) -> PyResult<Method> {
         self.inner_ref()?.get_method()
     }
 
     #[setter]
-    fn set_method(&mut self, value: MethodExt) -> PyResult<()> {
+    fn set_method(&mut self, value: Method) -> PyResult<()> {
         self.inner_mut()?.set_method(value)
     }
 
     #[getter]
-    fn get_url(&self) -> PyResult<UrlExt> {
+    fn get_url(&self) -> PyResult<Url> {
         self.inner_ref()?.get_url()
     }
 
     #[setter]
-    fn set_url(&mut self, value: UrlExt) -> PyResult<()> {
+    fn set_url(&mut self, value: UrlType) -> PyResult<()> {
         self.inner_mut()?.set_url(value)
     }
 
-    fn copy_headers(&self) -> PyResult<HeaderMapExt> {
+    fn copy_headers(&self) -> PyResult<HeaderMap> {
         self.inner_ref()?.copy_headers()
     }
 
-    fn set_headers(&mut self, value: HeaderMapExt) -> PyResult<()> {
+    fn set_headers(&mut self, value: HeaderMap) -> PyResult<()> {
         self.inner_mut()?.set_headers(value)
     }
 

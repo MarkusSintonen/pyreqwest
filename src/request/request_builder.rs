@@ -1,5 +1,5 @@
 use crate::client::runtime::Runtime;
-use crate::http_types::{Extensions, HeaderMapExt, JsonValue, VersionExt};
+use crate::http::types::{Extensions, HeaderMap, JsonValue, Version};
 use crate::multipart::form::Form;
 use crate::request::Request;
 use crate::request::RequestBody;
@@ -45,7 +45,7 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.header(key, value)))
     }
 
-    fn headers(slf: PyRefMut<Self>, headers: HeaderMapExt) -> PyResult<PyRefMut<Self>> {
+    fn headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.0)))
     }
 
@@ -93,7 +93,7 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.query(&query.0)))
     }
 
-    fn version(slf: PyRefMut<Self>, version: VersionExt) -> PyResult<PyRefMut<Self>> {
+    fn version(slf: PyRefMut<Self>, version: Version) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.version(version.0)))
     }
 

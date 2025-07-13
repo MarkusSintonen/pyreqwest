@@ -1,1 +1,1 @@
-from _pyreqwest.proxy import *
+from pyreqwest._pyreqwest.proxy import *

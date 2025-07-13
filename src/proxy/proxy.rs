@@ -1,4 +1,5 @@
-use crate::http_types::HeaderMapExt;
+use crate::http::types::HeaderMap;
+use crate::http::url::{Url, UrlType};
 use http::HeaderValue;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -12,20 +13,20 @@ pub struct Proxy {
 #[pymethods]
 impl Proxy {
     #[staticmethod]
-    fn http(url: &str) -> PyResult<Self> {
-        let proxy = reqwest::Proxy::http(url).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
+    fn http(url: UrlType) -> PyResult<Self> {
+        let proxy = reqwest::Proxy::http(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
         Ok(Proxy { inner: Some(proxy) })
     }
 
     #[staticmethod]
-    fn https(url: &str) -> PyResult<Self> {
-        let proxy = reqwest::Proxy::https(url).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
+    fn https(url: UrlType) -> PyResult<Self> {
+        let proxy = reqwest::Proxy::https(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
         Ok(Proxy { inner: Some(proxy) })
     }
 
     #[staticmethod]
-    fn all(url: &str) -> PyResult<Self> {
-        let proxy = reqwest::Proxy::all(url).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
+    fn all(url: UrlType) -> PyResult<Self> {
+        let proxy = reqwest::Proxy::all(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
         Ok(Proxy { inner: Some(proxy) })
     }
 
@@ -33,12 +34,13 @@ impl Proxy {
     fn custom(fun: Py<PyAny>) -> PyResult<Self> {
         let proxy = reqwest::Proxy::custom(move |url| {
             Python::with_gil(|py| {
-                fun.call1(py, (url.to_string(),))
+                fun.call1(py, (Url(url.clone()),))
                     .ok() // Just ignoring errors as reqwest does not provide a way to handle them
-                    .map(|result| result.extract::<String>(py))
+                    .map(|result| result.extract::<UrlType>(py))
                     .transpose()
                     .ok()
                     .flatten()
+                    .map(|url| url.0)
             })
         });
         Ok(Proxy { inner: Some(proxy) })
@@ -56,7 +58,7 @@ impl Proxy {
         })
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, headers: HeaderMapExt) -> PyResult<PyRefMut<'py, Self>> {
+    fn headers<'py>(slf: PyRefMut<'py, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.0)))
     }
 

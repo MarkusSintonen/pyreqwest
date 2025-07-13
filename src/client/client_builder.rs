@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::client::runtime::Runtime;
-use crate::http_types::HeaderMapExt;
+use crate::http::types::HeaderMap;
 use crate::proxy::Proxy;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::intern;
@@ -72,7 +72,7 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.user_agent(value)))
     }
 
-    fn default_headers(slf: PyRefMut<Self>, headers: HeaderMapExt) -> PyResult<PyRefMut<Self>> {
+    fn default_headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.default_headers(headers.0)))
     }
 
