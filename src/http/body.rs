@@ -10,52 +10,52 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 #[pyclass]
-pub struct RequestBody {
-    body: Body,
+pub struct Body {
+    body: InnerBody,
 }
 #[pymethods]
-impl RequestBody {
+impl Body {
     #[staticmethod]
     pub fn from_str(body: String) -> Self {
-        RequestBody {
-            body: Body::Bytes(body.into()),
+        Body {
+            body: InnerBody::Bytes(body.into()),
         }
     }
 
     #[staticmethod]
     pub fn from_bytes(body: PyBytes) -> Self {
-        RequestBody {
-            body: Body::Bytes(body.into_inner()),
+        Body {
+            body: InnerBody::Bytes(body.into_inner()),
         }
     }
 
     #[staticmethod]
     pub fn from_stream(async_gen: Py<PyAny>) -> Self {
-        RequestBody {
-            body: Body::Stream(BodyStream::new(async_gen)),
+        Body {
+            body: InnerBody::Stream(BodyStream::new(async_gen)),
         }
     }
 
     fn get_bytes(&self) -> Option<PyBytes> {
         match &self.body {
-            Body::Bytes(bytes) => Some(PyBytes::from(bytes.clone())),
-            Body::Stream(_) => None,
+            InnerBody::Bytes(bytes) => Some(PyBytes::from(bytes.clone())),
+            InnerBody::Stream(_) => None,
         }
     }
 
     fn get_stream(&self) -> Option<&Py<PyAny>> {
         match &self.body {
-            Body::Bytes(_) => None,
-            Body::Stream(stream) => Some(&stream.async_gen),
+            InnerBody::Bytes(_) => None,
+            InnerBody::Stream(stream) => Some(&stream.async_gen),
         }
     }
 }
-impl TryInto<reqwest::Body> for RequestBody {
+impl TryInto<reqwest::Body> for Body {
     type Error = PyErr;
     fn try_into(self) -> PyResult<reqwest::Body> {
         match self.body {
-            Body::Bytes(bytes) => Ok(reqwest::Body::from(bytes)),
-            Body::Stream(stream) => {
+            InnerBody::Bytes(bytes) => Ok(reqwest::Body::from(bytes)),
+            InnerBody::Stream(stream) => {
                 if stream.started {
                     return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
                 }
@@ -64,17 +64,17 @@ impl TryInto<reqwest::Body> for RequestBody {
         }
     }
 }
-impl RequestBody {
+impl Body {
     pub fn try_clone(&self) -> PyResult<Self> {
         let body = match &self.body {
-            Body::Bytes(bytes) => Body::Bytes(bytes.clone()),
-            Body::Stream(stream) => Body::Stream(stream.try_clone()?),
+            InnerBody::Bytes(bytes) => InnerBody::Bytes(bytes.clone()),
+            InnerBody::Stream(stream) => InnerBody::Stream(stream.try_clone()?),
         };
-        Ok(RequestBody { body })
+        Ok(Body { body })
     }
 }
 
-enum Body {
+enum InnerBody {
     Bytes(Bytes),
     Stream(BodyStream),
 }

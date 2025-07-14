@@ -2,18 +2,17 @@ use crate::client::runtime::Runtime;
 use crate::http::types::Method;
 use crate::http::url::UrlType;
 use crate::request::RequestBuilder;
+use crate::request::connection_limiter::ConnectionLimiter;
 use pyo3::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 
 #[pyclass]
 pub struct Client {
     client: reqwest::Client,
     runtime: Arc<Runtime>,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-    request_semaphore: Option<Arc<Semaphore>>,
-    connect_timeout: Option<Duration>,
+    connection_limiter: Option<ConnectionLimiter>,
 }
 
 #[pymethods]
@@ -21,11 +20,10 @@ impl Client {
     fn request(&self, method: Method, url: UrlType) -> PyResult<RequestBuilder> {
         let runtime = self.runtime.clone();
         let middlewares = self.middlewares.clone();
-        let request_semaphore = self.request_semaphore.clone();
-        let connect_timeout = self.connect_timeout.clone();
+        let connection_limiter = self.connection_limiter.clone();
 
         let request = self.client.request(method.0, url.0);
-        Ok(RequestBuilder::new(runtime, request, middlewares, request_semaphore, connect_timeout))
+        Ok(RequestBuilder::new(runtime, request, middlewares, connection_limiter))
     }
 
     pub fn get(&self, url: UrlType) -> PyResult<RequestBuilder> {
@@ -75,9 +73,8 @@ impl Client {
         Client {
             client,
             runtime: Arc::new(runtime),
-            request_semaphore: max_connections.map(|limit| Arc::new(Semaphore::new(limit))),
             middlewares: middlewares.map(Arc::new),
-            connect_timeout,
+            connection_limiter: max_connections.map(|max| ConnectionLimiter::new(max, connect_timeout)),
         }
     }
 }

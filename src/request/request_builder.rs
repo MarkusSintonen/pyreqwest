@@ -1,25 +1,23 @@
 use crate::client::runtime::Runtime;
+use crate::http::body::Body;
 use crate::http::types::{Extensions, HeaderMap, JsonValue, Version};
 use crate::multipart::form::Form;
 use crate::request::Request;
-use crate::request::RequestBody;
-use crate::request::RequestWrapper;
+use crate::request::connection_limiter::ConnectionLimiter;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 
 #[pyclass]
 pub struct RequestBuilder {
     runtime: Arc<Runtime>,
     inner: Option<reqwest::RequestBuilder>,
-    body: Option<RequestBody>,
-    middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-    request_semaphore: Option<Arc<Semaphore>>,
-    connect_timeout: Option<Duration>,
+    body: Option<Body>,
     extensions: Option<Extensions>,
+    middlewares: Option<Arc<Vec<Py<PyAny>>>>,
+    connection_limiter: Option<ConnectionLimiter>,
 }
 #[pymethods]
 impl RequestBuilder {
@@ -33,10 +31,11 @@ impl RequestBuilder {
         let request = Request::new(
             self.runtime.clone(),
             client,
-            RequestWrapper::new(request, self.body.take(), self.extensions.take()),
+            request,
+            self.body.take(),
+            self.extensions.take(),
             self.middlewares.clone(),
-            self.request_semaphore.clone(),
-            self.connect_timeout.clone(),
+            self.connection_limiter.clone(),
         );
         Ok(request)
     }
@@ -61,7 +60,7 @@ impl RequestBuilder {
         if slf.inner.is_none() {
             return Err(PyRuntimeError::new_err("Request was already built"));
         }
-        slf.body = Some(RequestBody::from_bytes(body));
+        slf.body = Some(Body::from_bytes(body));
         Ok(slf)
     }
 
@@ -69,7 +68,7 @@ impl RequestBuilder {
         if slf.inner.is_none() {
             return Err(PyRuntimeError::new_err("Request was already built"));
         }
-        slf.body = Some(RequestBody::from_str(body));
+        slf.body = Some(Body::from_str(body));
         Ok(slf)
     }
 
@@ -77,7 +76,7 @@ impl RequestBuilder {
         if slf.inner.is_none() {
             return Err(PyRuntimeError::new_err("Request was already built"));
         }
-        slf.body = Some(RequestBody::from_stream(async_gen));
+        slf.body = Some(Body::from_stream(async_gen));
         Ok(slf)
     }
 
@@ -114,17 +113,15 @@ impl RequestBuilder {
         runtime: Arc<Runtime>,
         inner: reqwest::RequestBuilder,
         middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-        request_semaphore: Option<Arc<Semaphore>>,
-        connect_timeout: Option<Duration>,
+        connection_limiter: Option<ConnectionLimiter>,
     ) -> Self {
         RequestBuilder {
             runtime,
             inner: Some(inner),
             body: None,
-            middlewares,
-            request_semaphore,
-            connect_timeout,
             extensions: None,
+            middlewares,
+            connection_limiter,
         }
     }
 

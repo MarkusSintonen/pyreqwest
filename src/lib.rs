@@ -14,13 +14,13 @@ use crate::exceptions::{
     PoolTimeoutError, ReadBodyError, ReadError, ReadTimeoutError, RequestError, SendBodyError, SendConnectionError,
     SendError, SendTimeoutError,
 };
+use crate::http::body::Body;
 use crate::http::url::Url;
 use crate::middleware::Next;
 use crate::proxy::Proxy;
 use crate::request::Request;
-use crate::request::RequestBody;
 use crate::request::RequestBuilder;
-use crate::response::Response;
+use crate::response::{Response, ResponseBuilder};
 use pyo3::prelude::*;
 
 #[pymodule(name = "_pyreqwest")]
@@ -36,7 +36,6 @@ fn pyreqwest(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
     let sub = PyModule::new(py, "request")?;
     sub.add_class::<RequestBuilder>()?;
     sub.add_class::<Request>()?;
-    sub.add_class::<RequestBody>()?;
     module.add_submodule(&sub)?;
     py.import("sys")?
         .getattr("modules")?
@@ -44,6 +43,7 @@ fn pyreqwest(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let sub = PyModule::new(py, "response")?;
     sub.add_class::<Response>()?;
+    sub.add_class::<ResponseBuilder>()?;
     module.add_submodule(&sub)?;
     py.import("sys")?
         .getattr("modules")?
@@ -72,6 +72,7 @@ fn pyreqwest(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let sub = PyModule::new(py, "http")?;
     sub.add_class::<Url>()?;
+    sub.add_class::<Body>()?;
     module.add_submodule(&sub)?;
     py.import("sys")?
         .getattr("modules")?
