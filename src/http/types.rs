@@ -120,6 +120,14 @@ impl From<http::StatusCode> for StatusCode {
     }
 }
 
+impl<'py> IntoPyObject<'py> for JsonValue {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(pythonize(py, &self)?)
+    }
+}
 impl<'py> FromPyObject<'py> for JsonValue {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)

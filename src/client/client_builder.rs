@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::client::runtime::Runtime;
-use crate::http::types::HeaderMap;
+use crate::http::HeaderMap;
 use crate::proxy::Proxy;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::intern;
@@ -12,21 +12,21 @@ use std::str::FromStr;
 use std::time::Duration;
 
 #[pyclass]
+#[derive(Default)]
 pub struct ClientBuilder {
     inner: Option<reqwest::ClientBuilder>,
     middlewares: Option<Vec<Py<PyAny>>>,
     max_connections: Option<usize>,
     connect_timeout: Option<Duration>,
+    error_for_status: bool,
 }
 #[pymethods]
 impl ClientBuilder {
     #[new]
     fn new() -> Self {
-        ClientBuilder {
-            inner: Some(reqwest::Client::builder()),
-            middlewares: None,
-            max_connections: None,
-            connect_timeout: None,
+        Self {
+            inner: Some(reqwest::ClientBuilder::new()),
+            ..Default::default()
         }
     }
 
@@ -42,6 +42,7 @@ impl ClientBuilder {
             self.middlewares.take(),
             self.max_connections,
             self.connect_timeout,
+            self.error_for_status,
         );
         Ok(client)
     }
@@ -66,6 +67,11 @@ impl ClientBuilder {
         }
         slf.max_connections = Some(max);
         Ok(slf)
+    }
+
+    fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyRefMut<Self> {
+        slf.error_for_status = value;
+        slf
     }
 
     fn user_agent(slf: PyRefMut<Self>, value: String) -> PyResult<PyRefMut<Self>> {

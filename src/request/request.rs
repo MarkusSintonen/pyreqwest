@@ -1,9 +1,9 @@
 use crate::client::runtime::Runtime;
-use crate::exceptions::SendError;
+use crate::exceptions::CloseError;
 use crate::exceptions::utils::map_send_error;
-use crate::http::body::Body;
-use crate::http::types::{Extensions, HeaderMap, Method};
-use crate::http::url::{Url, UrlType};
+use crate::http::Body;
+use crate::http::{Extensions, HeaderMap, Method};
+use crate::http::{Url, UrlType};
 use crate::middleware::Next;
 use crate::request::connection_limiter::ConnectionLimiter;
 use crate::response::Response;
@@ -14,6 +14,7 @@ use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -26,30 +27,38 @@ pub struct Request {
     extensions: Option<Extensions>,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
+    error_for_status: bool,
 }
 
 #[pymethods]
 impl Request {
     pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] mut cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let (runtime, middlewares) = Python::with_gil(|py| {
+        let (runtime, middlewares, error_for_status) = Python::with_gil(|py| {
             let slf = slf.try_borrow(py)?;
             let runtime = slf.runtime.clone();
             let middlewares = slf.middlewares.clone();
-            Ok::<_, PyErr>((runtime, middlewares))
+            Ok::<_, PyErr>((runtime, middlewares, slf.error_for_status))
         })?;
 
         let fut = async move {
-            if let Some(middlewares) = middlewares {
-                Next::execute_all(middlewares, slf).await
+            let resp = if let Some(middlewares) = middlewares {
+                Next::execute_all(middlewares, slf).await?
             } else {
-                Request::execute(slf).await
+                let resp = Request::execute(slf).await?;
+                Python::with_gil(|py| Py::new(py, resp))?
+            };
+            if error_for_status {
+                Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status())?;
             }
+            Ok(resp)
         };
 
         let join_handle = runtime.spawn(fut)?;
 
         tokio::select! {
-            res = join_handle => res.map_err(|join_err| SendError::new_err(format!("Client was closed: {}", join_err)))?,
+            res = join_handle => res.map_err(|e|
+                CloseError::new_err("Client was closed", Some(json!({"causes": [e.to_string()]})))
+            )?,
             _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
         }
     }
@@ -151,6 +160,7 @@ impl Request {
         extensions: Option<Extensions>,
         middlewares: Option<Arc<Vec<Py<PyAny>>>>,
         connection_limiter: Option<ConnectionLimiter>,
+        error_for_status: bool,
     ) -> Self {
         Request {
             runtime,
@@ -160,6 +170,7 @@ impl Request {
             body,
             middlewares,
             connection_limiter,
+            error_for_status,
         }
     }
 
@@ -175,7 +186,7 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
 
-    pub async fn execute(request: Py<Request>) -> PyResult<Py<Response>> {
+    pub async fn execute(request: Py<Request>) -> PyResult<Response> {
         let (client, mut request, body, ext, conn_limiter) = Python::with_gil(|py| {
             let mut this = request.try_borrow_mut(py)?;
             let client = this
@@ -201,9 +212,7 @@ impl Request {
         *request.body_mut() = body.map(|b| b.try_into()).transpose()?;
         let mut resp = client.execute(request).await.map_err(map_send_error)?;
         ext.map(|ext| Self::move_extensions(ext, resp.extensions_mut()));
-        let resp = Response::initialize(resp, permit).await?;
-
-        Python::with_gil(|py| Py::new(py, resp))
+        Response::initialize(resp, permit).await
     }
 
     pub fn try_clone(&mut self) -> PyResult<Self> {
@@ -224,6 +233,7 @@ impl Request {
             extensions: self.extensions.clone(),
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),
+            error_for_status: self.error_for_status,
         })
     }
 

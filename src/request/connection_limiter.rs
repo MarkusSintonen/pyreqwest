@@ -23,7 +23,7 @@ impl ConnectionLimiter {
         let permit = if let Some(timeout) = self.timeout {
             tokio::time::timeout(timeout, self.semaphore.clone().acquire_owned())
                 .await
-                .map_err(|_| PoolTimeoutError::new_err("Timeout acquiring semaphore"))?
+                .map_err(|_| PoolTimeoutError::new_err("Timeout acquiring semaphore", None))?
         } else {
             self.semaphore.clone().acquire_owned().await
         };

@@ -1,6 +1,6 @@
 use crate::client::runtime::Runtime;
-use crate::http::body::Body;
-use crate::http::types::{Extensions, HeaderMap, JsonValue, Version};
+use crate::http::Body;
+use crate::http::{Extensions, HeaderMap, JsonValue, Version};
 use crate::multipart::form::Form;
 use crate::request::Request;
 use crate::request::connection_limiter::ConnectionLimiter;
@@ -18,6 +18,7 @@ pub struct RequestBuilder {
     extensions: Option<Extensions>,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
+    error_for_status: bool,
 }
 #[pymethods]
 impl RequestBuilder {
@@ -36,8 +37,14 @@ impl RequestBuilder {
             self.extensions.take(),
             self.middlewares.clone(),
             self.connection_limiter.clone(),
+            self.error_for_status,
         );
         Ok(request)
+    }
+
+    fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyRefMut<Self> {
+        slf.error_for_status = value;
+        slf
     }
 
     fn header(slf: PyRefMut<Self>, key: String, value: String) -> PyResult<PyRefMut<Self>> {
@@ -114,6 +121,7 @@ impl RequestBuilder {
         inner: reqwest::RequestBuilder,
         middlewares: Option<Arc<Vec<Py<PyAny>>>>,
         connection_limiter: Option<ConnectionLimiter>,
+        error_for_status: bool,
     ) -> Self {
         RequestBuilder {
             runtime,
@@ -122,6 +130,7 @@ impl RequestBuilder {
             extensions: None,
             middlewares,
             connection_limiter,
+            error_for_status,
         }
     }
 

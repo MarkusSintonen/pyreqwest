@@ -1,10 +1,11 @@
-use crate::http::body::Body;
-use crate::http::types::{Extensions, HeaderMap, StatusCode, Version};
+use crate::http::Body;
+use crate::http::{Extensions, HeaderMap, StatusCode, Version};
 use crate::response::Response;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 #[pyclass]
+#[derive(Default)]
 pub struct ResponseBuilder {
     inner: Option<http::response::Builder>,
     body: Option<Body>,
@@ -14,10 +15,9 @@ pub struct ResponseBuilder {
 impl ResponseBuilder {
     #[new]
     pub fn new() -> Self {
-        ResponseBuilder {
+        Self {
             inner: Some(http::response::Builder::new()),
-            body: None,
-            extensions: None,
+            ..Default::default()
         }
     }
 

@@ -14,7 +14,8 @@ pub struct Next {
 impl Next {
     pub async fn run(slf: Py<Self>, request: Py<Request>) -> PyResult<Py<Response>> {
         if Next::is_last(&slf)? {
-            Request::execute(request).await
+            let resp = Request::execute(request).await?;
+            Python::with_gil(|py| Py::new(py, resp))
         } else {
             Next::call_handle(slf, request).await
         }

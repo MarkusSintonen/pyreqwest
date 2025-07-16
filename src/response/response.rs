@@ -1,29 +1,29 @@
+use crate::exceptions::StatusError;
 use crate::exceptions::utils::map_read_error;
-use crate::http::types::{Extensions, HeaderMap, StatusCode, Version};
+use crate::http::Url;
+use crate::http::{Extensions, HeaderMap, Version};
 use bytes::Bytes;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use pythonize::pythonize;
+use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass]
 pub struct Response {
-    #[pyo3(get)]
-    status_code: Py<PyAny>,
-    #[pyo3(get)]
-    headers: Py<PyAny>,
-    #[pyo3(get)]
-    http_version: Py<PyAny>,
-    #[pyo3(get)]
-    extensions: Py<PyAny>,
+    #[pyo3(get, set)]
+    status: u16,
+    headers: Option<Py<PyAny>>,
+    version: Option<Py<PyAny>>,
+    extensions: Option<Py<PyAny>>,
 
     inner: Option<reqwest::Response>,
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
-    init_chunks: VecDeque<PyBytes>,
+    init_chunks: VecDeque<Bytes>,
     body_consuming_started: bool,
-    read_body: Option<Py<PyBytes>>,
+    read_body: Option<Bytes>,
 }
 
 #[pymethods]
@@ -36,49 +36,81 @@ impl Response {
         self.inner_close(); // Not actually async at the moment, but we have it async for the future
     }
 
-    async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
-        self.body_consuming_started = true;
-
-        if let Some(chunk) = self.init_chunks.pop_front() {
-            return Ok(Some(chunk));
-        }
-
-        if let Some(inner) = self.inner.as_mut() {
-            match inner.chunk().await.map_err(map_read_error)? {
-                Some(chunk) => Ok(Some(PyBytes::new(chunk))),
-                None => {
-                    self.inner_close(); // No more chunks available, so close the response
-                    Ok(None)
-                }
-            }
-        } else {
-            Ok(None)
-        }
+    pub fn error_for_status(&mut self) -> PyResult<()> {
+        let inner = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Response was already consumed"))?;
+        let inner = inner
+            .error_for_status()
+            .map_err(|e| StatusError::new_err(&e.to_string(), Some(json!({"status": e.status().unwrap().as_u16()}))))?;
+        self.inner = Some(inner);
+        Ok(())
     }
 
-    async fn read(&mut self) -> PyResult<Py<PyBytes>> {
-        if let Some(read_body) = self.read_body.as_ref() {
-            return Ok(Python::with_gil(|py| read_body.clone_ref(py)));
-        }
+    #[getter]
+    fn get_headers(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
+        if self.headers.is_none() {
+            let headers = pythonize(py, &HeaderMap(self.try_ref()?.headers().clone()))?.unbind();
+            self.headers = Some(headers);
+        };
+        Ok(self.headers.as_ref().unwrap())
+    }
 
-        if self.body_consuming_started {
-            return Err(PyRuntimeError::new_err("Response body already consumed"));
-        }
+    #[setter]
+    fn set_headers(&mut self, py: Python, headers: HeaderMap) -> PyResult<()> {
+        self.headers = Some(pythonize(py, &headers)?.unbind());
+        Ok(())
+    }
 
-        let mut bytes: Vec<u8> = Vec::new();
-        for chunk in self.init_chunks.drain(..) {
-            bytes.extend(chunk.into_inner());
-        }
-        while let Some(chunk) = self.next_chunk().await? {
-            bytes.extend(chunk.into_inner());
-        }
+    #[getter]
+    fn get_version(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
+        if self.version.is_none() {
+            let version = pythonize(py, &Version::from(self.try_ref()?.version()))?.unbind();
+            self.version = Some(version);
+        };
+        Ok(self.version.as_ref().unwrap())
+    }
 
-        let py_bytes = PyBytes::new(Bytes::from(bytes));
-        Python::with_gil(|py| {
-            let py_bytes = Py::new(py, py_bytes)?;
-            self.read_body = Some(py_bytes.clone_ref(py));
-            Ok(py_bytes)
-        })
+    #[setter]
+    fn set_version(&mut self, py: Python, version: Version) -> PyResult<()> {
+        self.version = Some(pythonize(py, &version)?.unbind());
+        Ok(())
+    }
+
+    #[getter]
+    fn get_extensions(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
+        if self.extensions.is_none() {
+            let ext = pythonize(py, &Extensions::from(self.try_ref()?.extensions()))?.unbind();
+            self.extensions = Some(ext);
+        };
+        Ok(self.extensions.as_ref().unwrap())
+    }
+
+    #[setter]
+    fn set_extensions(&mut self, py: Python, extensions: Extensions) -> PyResult<()> {
+        self.extensions = Some(pythonize(py, &extensions)?.unbind());
+        Ok(())
+    }
+
+    async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
+        Ok(self.next_chunk_inner().await?.map(PyBytes::from))
+    }
+
+    async fn bytes(&mut self) -> PyResult<PyBytes> {
+        self.bytes_inner().await
+    }
+
+    pub fn content_length(&self) -> PyResult<Option<u64>> {
+        Ok(self.try_ref()?.content_length())
+    }
+
+    pub fn url(&self) -> PyResult<Url> {
+        Ok(self.try_ref()?.url().clone().into())
+    }
+
+    pub fn remote_addr_ip_port(&self) -> PyResult<Option<(String, u16)>> {
+        Ok(self.try_ref()?.remote_addr().map(|v| (v.ip().to_string(), v.port())))
     }
 
     async fn close(&mut self) {
@@ -90,48 +122,80 @@ impl Response {
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
     ) -> PyResult<Response> {
-        let status_code = StatusCode::from(response.status());
-        let headers = HeaderMap(response.headers().clone());
-        let http_version = Version::from(response.version());
-        let extensions = Extensions::from(response.extensions());
+        let status = response.status().as_u16();
 
         let init_byte_limit = 65536;
         let (init_chunks, has_more) = Self::read_limit(&mut response, init_byte_limit).await?;
 
-        let (resp, request_permit) = if has_more {
-            (Some(response), request_semaphore_permit)
+        let request_semaphore_permit = if has_more {
+            request_semaphore_permit
         } else {
-            // Release the semaphore right away and drop the response
-            // without waiting for user to do it (by consuming or closing).
+            // Release the semaphore right away without waiting for user to do it (by consuming or closing).
             request_semaphore_permit.take().map(drop);
-            drop(response);
-            (None, None)
+            None
         };
 
-        Python::with_gil(|py| {
-            let resp = Response {
-                status_code: pythonize(py, &status_code)?.unbind(),
-                headers: pythonize(py, &headers)?.unbind(),
-                http_version: pythonize(py, &http_version)?.unbind(),
-                extensions: pythonize(py, &extensions)?.unbind(),
-                inner: resp,
-                request_semaphore_permit: request_permit,
-                init_chunks,
-                body_consuming_started: false,
-                read_body: None,
-            };
-            Ok(resp)
-        })
+        let resp = Response {
+            status,
+            headers: None,
+            version: None,
+            extensions: None,
+            inner: Some(response),
+            request_semaphore_permit,
+            init_chunks,
+            body_consuming_started: false,
+            read_body: None,
+        };
+        Ok(resp)
     }
 
-    async fn read_limit(response: &mut reqwest::Response, byte_limit: usize) -> PyResult<(VecDeque<PyBytes>, bool)> {
-        let mut init_chunks: VecDeque<PyBytes> = VecDeque::new();
+    async fn next_chunk_inner(&mut self) -> PyResult<Option<Bytes>> {
+        self.body_consuming_started = true;
+
+        if let Some(chunk) = self.init_chunks.pop_front() {
+            return Ok(Some(chunk));
+        }
+
+        if let Some(inner) = self.inner.as_mut() {
+            match inner.chunk().await.map_err(map_read_error)? {
+                Some(chunk) => Ok(Some(chunk)),
+                None => {
+                    self.request_semaphore_permit.take().map(drop);
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn bytes_inner(&mut self) -> PyResult<PyBytes> {
+        if let Some(read_body) = self.read_body.as_ref() {
+            return Ok(PyBytes::new(read_body.clone()));
+        }
+
+        if self.body_consuming_started {
+            return Err(PyRuntimeError::new_err("Response body already consumed"));
+        }
+
+        let mut bytes: Vec<u8> = Vec::new();
+        while let Some(chunk) = self.next_chunk_inner().await? {
+            bytes.extend(chunk);
+        }
+
+        let bytes = Bytes::from(bytes);
+        self.read_body = Some(bytes.clone());
+        Ok(PyBytes::new(bytes))
+    }
+
+    async fn read_limit(response: &mut reqwest::Response, byte_limit: usize) -> PyResult<(VecDeque<Bytes>, bool)> {
+        let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
         let mut has_more = true;
         let mut tot_bytes = 0;
         while has_more && (tot_bytes < byte_limit) {
             if let Some(chunk) = response.chunk().await.map_err(map_read_error)? {
                 tot_bytes += chunk.len();
-                init_chunks.push_back(PyBytes::new(chunk));
+                init_chunks.push_back(chunk);
             } else {
                 has_more = false;
             }
@@ -142,6 +206,12 @@ impl Response {
     fn inner_close(&mut self) {
         self.request_semaphore_permit.take().map(drop);
         self.inner.take().map(drop);
+    }
+
+    fn try_ref(&self) -> PyResult<&reqwest::Response> {
+        self.inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Response was already consumed"))
     }
 }
 impl Drop for Response {

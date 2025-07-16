@@ -1,6 +1,6 @@
 use crate::client::runtime::Runtime;
-use crate::http::types::Method;
-use crate::http::url::UrlType;
+use crate::http::Method;
+use crate::http::UrlType;
 use crate::request::RequestBuilder;
 use crate::request::connection_limiter::ConnectionLimiter;
 use pyo3::prelude::*;
@@ -13,6 +13,7 @@ pub struct Client {
     runtime: Arc<Runtime>,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
+    error_for_status: bool,
 }
 
 #[pymethods]
@@ -23,7 +24,8 @@ impl Client {
         let connection_limiter = self.connection_limiter.clone();
 
         let request = self.client.request(method.0, url.0);
-        Ok(RequestBuilder::new(runtime, request, middlewares, connection_limiter))
+        let builder = RequestBuilder::new(runtime, request, middlewares, connection_limiter, self.error_for_status);
+        Ok(builder)
     }
 
     pub fn get(&self, url: UrlType) -> PyResult<RequestBuilder> {
@@ -69,12 +71,14 @@ impl Client {
         middlewares: Option<Vec<Py<PyAny>>>,
         max_connections: Option<usize>,
         connect_timeout: Option<Duration>,
+        error_for_status: bool,
     ) -> Self {
         Client {
             client,
             runtime: Arc::new(runtime),
             middlewares: middlewares.map(Arc::new),
             connection_limiter: max_connections.map(|max| ConnectionLimiter::new(max, connect_timeout)),
+            error_for_status,
         }
     }
 }

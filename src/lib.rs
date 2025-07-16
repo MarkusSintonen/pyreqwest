@@ -8,90 +8,96 @@ mod proxy;
 mod request;
 mod response;
 
-use crate::client::Client;
-use crate::client::ClientBuilder;
-use crate::exceptions::{
-    PoolTimeoutError, ReadBodyError, ReadError, ReadTimeoutError, RequestError, SendBodyError, SendConnectionError,
-    SendError, SendTimeoutError,
-};
-use crate::http::body::Body;
-use crate::http::url::Url;
-use crate::middleware::Next;
-use crate::proxy::Proxy;
-use crate::request::Request;
-use crate::request::RequestBuilder;
-use crate::response::{Response, ResponseBuilder};
 use pyo3::prelude::*;
 
 #[pymodule(name = "_pyreqwest")]
-fn pyreqwest(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let sub = PyModule::new(py, "client")?;
-    sub.add_class::<ClientBuilder>()?;
-    sub.add_class::<Client>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.client", sub)?;
+mod pyreqwest {
+    use super::*;
 
-    let sub = PyModule::new(py, "request")?;
-    sub.add_class::<RequestBuilder>()?;
-    sub.add_class::<Request>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.request", sub)?;
+    #[pymodule]
+    mod client {
+        use super::*;
+        #[pymodule_export]
+        use crate::client::{Client, ClientBuilder};
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "client")
+        }
+    }
 
-    let sub = PyModule::new(py, "response")?;
-    sub.add_class::<Response>()?;
-    sub.add_class::<ResponseBuilder>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.response", sub)?;
+    #[pymodule]
+    mod request {
+        use super::*;
+        #[pymodule_export]
+        use crate::request::{Request, RequestBuilder};
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "request")
+        }
+    }
 
-    let sub = PyModule::new(py, "middleware")?;
-    sub.add_class::<Next>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.middleware", sub)?;
+    #[pymodule]
+    mod response {
+        use super::*;
+        #[pymodule_export]
+        use crate::response::{Response, ResponseBuilder};
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "response")
+        }
+    }
 
-    let sub = PyModule::new(py, "proxy")?;
-    sub.add_class::<Proxy>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.proxy", sub)?;
+    #[pymodule]
+    mod middleware {
+        use super::*;
+        #[pymodule_export]
+        use crate::middleware::Next;
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "middleware")
+        }
+    }
 
-    let sub = PyModule::new(py, "multipart")?;
-    sub.add_class::<multipart::Form>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.multipart", sub)?;
+    #[pymodule]
+    mod proxy {
+        use super::*;
+        #[pymodule_export]
+        use crate::proxy::Proxy;
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "proxy")
+        }
+    }
 
-    let sub = PyModule::new(py, "http")?;
-    sub.add_class::<Url>()?;
-    sub.add_class::<Body>()?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.http", sub)?;
+    #[pymodule]
+    mod multipart {
+        use super::*;
+        #[pymodule_export]
+        use crate::multipart::Form;
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "multipart")
+        }
+    }
 
-    let sub = PyModule::new(py, "exceptions")?;
-    sub.add("RequestError", py.get_type::<RequestError>())?;
-    sub.add("SendError", py.get_type::<SendError>())?;
-    sub.add("SendConnectionError", py.get_type::<SendConnectionError>())?;
-    sub.add("SendBodyError", py.get_type::<SendBodyError>())?;
-    sub.add("SendTimeoutError", py.get_type::<SendTimeoutError>())?;
-    sub.add("PoolTimeoutError", py.get_type::<PoolTimeoutError>())?;
-    sub.add("ReadError", py.get_type::<ReadError>())?;
-    sub.add("ReadBodyError", py.get_type::<ReadBodyError>())?;
-    sub.add("ReadTimeoutError", py.get_type::<ReadTimeoutError>())?;
-    module.add_submodule(&sub)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("pyreqwest._pyreqwest.exceptions", sub)?;
+    #[pymodule]
+    mod http {
+        use super::*;
+        #[pymodule_export]
+        use crate::http::{Body, Url};
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_hack(module, "http")
+        }
+    }
+}
 
-    Ok(())
+// https://github.com/PyO3/pyo3/issues/759
+fn register_hack(module: &Bound<'_, PyModule>, name: &str) -> PyResult<()> {
+    let mod_name = format!("pyreqwest._pyreqwest.{}", name);
+    module
+        .py()
+        .import("sys")?
+        .getattr("modules")?
+        .set_item(mod_name, module)
 }

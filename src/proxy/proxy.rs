@@ -1,5 +1,5 @@
-use crate::http::types::HeaderMap;
-use crate::http::url::{Url, UrlType};
+use crate::http::HeaderMap;
+use crate::http::{Url, UrlType};
 use http::HeaderValue;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
