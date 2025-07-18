@@ -28,39 +28,32 @@ pub struct Request {
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
+    ctx_response: Option<Py<Response>>,
 }
 
 #[pymethods]
 impl Request {
-    pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] mut cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let (runtime, middlewares, error_for_status) = Python::with_gil(|py| {
-            let slf = slf.try_borrow(py)?;
-            let runtime = slf.runtime.clone();
-            let middlewares = slf.middlewares.clone();
-            Ok::<_, PyErr>((runtime, middlewares, slf.error_for_status))
-        })?;
-
-        let fut = async move {
-            let resp = if let Some(middlewares) = middlewares {
-                Next::execute_all(middlewares, slf).await?
-            } else {
-                let resp = Request::execute(slf).await?;
-                Python::with_gil(|py| Py::new(py, resp))?
-            };
-            if error_for_status {
-                Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status())?;
-            }
+    async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
+        let resp = Self::send_inner(&slf, cancel).await?;
+        Python::with_gil(|py| {
+            slf.try_borrow_mut(py)?.ctx_response = Some(resp.clone_ref(py));
             Ok(resp)
-        };
+        })
+    }
 
-        let join_handle = runtime.spawn(fut)?;
+    async fn __aexit__(&mut self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) -> PyResult<()> {
+        let ctx_response = self
+            .ctx_response
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?;
+        Python::with_gil(|py| {
+            ctx_response.try_borrow_mut(py)?.inner_close();
+            Ok(())
+        })
+    }
 
-        tokio::select! {
-            res = join_handle => res.map_err(|e|
-                CloseError::new_err("Client was closed", Some(json!({"causes": [e.to_string()]})))
-            )?,
-            _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
-        }
+    pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
+        Self::send_inner(&slf, cancel).await
     }
 
     #[getter]
@@ -171,6 +164,38 @@ impl Request {
             middlewares,
             connection_limiter,
             error_for_status,
+            ctx_response: None,
+        }
+    }
+
+    pub async fn send_inner(slf: &Py<Self>, mut cancel: CancelHandle) -> PyResult<Py<Response>> {
+        let (slf, runtime, middlewares, error_for_status) = Python::with_gil(|py| {
+            let this = slf.try_borrow(py)?;
+            let runtime = this.runtime.clone();
+            let middlewares = this.middlewares.clone();
+            Ok::<_, PyErr>((slf.clone_ref(py), runtime, middlewares, this.error_for_status))
+        })?;
+
+        let fut = async move {
+            let resp = if let Some(middlewares) = middlewares {
+                Next::execute_all(middlewares, &slf).await?
+            } else {
+                let resp = Request::execute(&slf).await?;
+                Python::with_gil(|py| Py::new(py, resp))?
+            };
+            if error_for_status {
+                Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status())?;
+            }
+            Ok(resp)
+        };
+
+        let join_handle = runtime.spawn(fut)?;
+
+        tokio::select! {
+            res = join_handle => res.map_err(|e|
+                CloseError::new_err("Client was closed", Some(json!({"causes": [e.to_string()]})))
+            )?,
+            _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
         }
     }
 
@@ -186,7 +211,7 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
 
-    pub async fn execute(request: Py<Request>) -> PyResult<Response> {
+    pub async fn execute(request: &Py<Request>) -> PyResult<Response> {
         let (client, mut request, body, ext, conn_limiter) = Python::with_gil(|py| {
             let mut this = request.try_borrow_mut(py)?;
             let client = this
@@ -220,6 +245,9 @@ impl Request {
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
+        if self.ctx_response.is_some() {
+            return Err(PyRuntimeError::new_err("Request was already sent"));
+        }
         let new_inner = inner
             .try_clone()
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
@@ -234,6 +262,7 @@ impl Request {
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),
             error_for_status: self.error_for_status,
+            ctx_response: None,
         })
     }
 

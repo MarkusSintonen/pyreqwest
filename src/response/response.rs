@@ -1,10 +1,11 @@
-use crate::exceptions::StatusError;
+use crate::exceptions::{JSONDecodeError, StatusError};
 use crate::exceptions::utils::map_read_error;
-use crate::http::Url;
+use crate::http::{JsonValue, Url};
 use crate::http::{Extensions, HeaderMap, Version};
 use bytes::Bytes;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
 use pyo3_bytes::PyBytes;
 use pythonize::pythonize;
 use serde_json::json;
@@ -28,30 +29,14 @@ pub struct Response {
 
 #[pymethods]
 impl Response {
-    async fn __aenter__(slf: Py<Self>) -> Py<Self> {
-        slf
-    }
-
-    async fn __aexit__(&mut self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) {
+    pub async fn close(&mut self) {
         self.inner_close(); // Not actually async at the moment, but we have it async for the future
-    }
-
-    pub fn error_for_status(&mut self) -> PyResult<()> {
-        let inner = self
-            .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Response was already consumed"))?;
-        let inner = inner
-            .error_for_status()
-            .map_err(|e| StatusError::new_err(&e.to_string(), Some(json!({"status": e.status().unwrap().as_u16()}))))?;
-        self.inner = Some(inner);
-        Ok(())
     }
 
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
         if self.headers.is_none() {
-            let headers = pythonize(py, &HeaderMap(self.try_ref()?.headers().clone()))?.unbind();
+            let headers = HeaderMap(self.try_ref()?.headers().clone()).into_py_any(py)?;
             self.headers = Some(headers);
         };
         Ok(self.headers.as_ref().unwrap())
@@ -59,7 +44,7 @@ impl Response {
 
     #[setter]
     fn set_headers(&mut self, py: Python, headers: HeaderMap) -> PyResult<()> {
-        self.headers = Some(pythonize(py, &headers)?.unbind());
+        self.headers = Some(headers.into_py_any(py)?);
         Ok(())
     }
 
@@ -98,7 +83,12 @@ impl Response {
     }
 
     async fn bytes(&mut self) -> PyResult<PyBytes> {
-        self.bytes_inner().await
+        Ok(PyBytes::new(self.bytes_inner().await?))
+    }
+
+    async unsafe fn json(&mut self) -> PyResult<JsonValue> {
+        let bytes = self.bytes_inner().await?;
+        serde_json::from_slice(&bytes).map(JsonValue).map_err(|e| JSONDecodeError::from_err(&e.to_string(), &e))
     }
 
     pub fn content_length(&self) -> PyResult<Option<u64>> {
@@ -113,8 +103,11 @@ impl Response {
         Ok(self.try_ref()?.remote_addr().map(|v| (v.ip().to_string(), v.port())))
     }
 
-    async fn close(&mut self) {
-        self.inner_close(); // Not actually async at the moment, but we have it async for the future
+    pub fn error_for_status(&mut self) -> PyResult<()> {
+        self.try_ref()?
+            .error_for_status_ref()
+            .map_err(|e| StatusError::new_err(&e.to_string(), Some(json!({"status": e.status().unwrap().as_u16()}))))
+            .map(|_| ())
     }
 }
 impl Response {
@@ -169,9 +162,9 @@ impl Response {
         }
     }
 
-    async fn bytes_inner(&mut self) -> PyResult<PyBytes> {
+    async fn bytes_inner(&mut self) -> PyResult<Bytes> {
         if let Some(read_body) = self.read_body.as_ref() {
-            return Ok(PyBytes::new(read_body.clone()));
+            return Ok(read_body.clone());
         }
 
         if self.body_consuming_started {
@@ -185,7 +178,7 @@ impl Response {
 
         let bytes = Bytes::from(bytes);
         self.read_body = Some(bytes.clone());
-        Ok(PyBytes::new(bytes))
+        Ok(bytes)
     }
 
     async fn read_limit(response: &mut reqwest::Response, byte_limit: usize) -> PyResult<(VecDeque<Bytes>, bool)> {
@@ -203,7 +196,7 @@ impl Response {
         Ok((init_chunks, has_more))
     }
 
-    fn inner_close(&mut self) {
+    pub fn inner_close(&mut self) {
         self.request_semaphore_permit.take().map(drop);
         self.inner.take().map(drop);
     }

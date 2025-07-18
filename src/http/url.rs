@@ -2,6 +2,7 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -115,6 +116,10 @@ impl Url {
         self.0.query_pairs().collect()
     }
 
+    pub fn query_dict(&self) -> HashMap<Cow<'_, str>, Cow<'_, str>> {
+        HashMap::from_iter(self.query_pairs())
+    }
+
     pub fn fragment(&self) -> Option<&str> {
         self.0.fragment()
     }
@@ -132,6 +137,10 @@ impl Url {
         for (key, value) in query.iter() {
             self.0.query_pairs_mut().append_pair(key, value);
         }
+    }
+
+    pub fn set_query_dict(&mut self, query: HashMap<String, String>) {
+        self.set_query_pairs(query.into_iter().collect())
     }
 
     pub fn set_path(&mut self, path: &str) {

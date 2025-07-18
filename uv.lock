@@ -3,6 +3,16 @@ revision = 2
 requires-python = ">=3.11"
 
 [[package]]
+name = "asgi-types"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/ef/c8a15be8ee53c3dd5d760638561bb591e55f257005cf4d3d8f9385f189b9/asgi_types-0.1.0.tar.gz", hash = "sha256:d4954d0b6dc59d9bc3ce2e5e650a6209d8ae968345f0c0702f78fadd6dcadde2", size = 795, upload-time = "2022-11-06T15:07:47.922Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/ad/303b1de83c7251ca5d780531cfddcb01585658629511af0aa3ee3e4bb1d1/asgi_types-0.1.0-py2.py3-none-any.whl", hash = "sha256:54d764c07d51b2b5e88a79842434d9e247acf331c5aecfa686d32501f50f6b1b", size = 1334, upload-time = "2022-11-06T15:07:46.686Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/4d/27a78d22f75a22525d748de97f76a7f298e4e02fe4745c21ab69af72babe/asgi_types-0.1.0-py3-none-any.whl", hash = "sha256:d65d41967fef786c1522c6096af7b9a2eb6b69ea88bf3ab9089ad3bb782c364b", size = 4973, upload-time = "2022-06-12T07:35:32.373Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -294,25 +304,29 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "multidict" },
+    { name = "orjson" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "asgi-types" },
     { name = "granian" },
     { name = "maturin" },
-    { name = "orjson" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "multidict", specifier = ">=6.6.3" }]
+requires-dist = [
+    { name = "multidict", specifier = ">=6.6.3" },
+    { name = "orjson", specifier = "==3.10.18" },
+]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "asgi-types", specifier = "==0.1.0" },
     { name = "granian", specifier = "==2.4.1" },
     { name = "maturin", specifier = "==1.9.1" },
-    { name = "orjson", specifier = "==3.10.18" },
     { name = "pytest", specifier = "==8.4.1" },
     { name = "pytest-asyncio", specifier = "==1.0.0" },
 ]

@@ -14,15 +14,15 @@ pub struct Next {
 impl Next {
     pub async fn run(slf: Py<Self>, request: Py<Request>) -> PyResult<Py<Response>> {
         if Next::is_last(&slf)? {
-            let resp = Request::execute(request).await?;
+            let resp = Request::execute(&request).await?;
             Python::with_gil(|py| Py::new(py, resp))
         } else {
-            Next::call_handle(slf, request).await
+            Next::call_handle(slf, &request).await
         }
     }
 }
 impl Next {
-    pub async fn execute_all(middlewares: Arc<Vec<Py<PyAny>>>, request: Py<Request>) -> PyResult<Py<Response>> {
+    pub async fn execute_all(middlewares: Arc<Vec<Py<PyAny>>>, request: &Py<Request>) -> PyResult<Py<Response>> {
         let next = Next {
             middlewares,
             current: 0,
@@ -31,7 +31,7 @@ impl Next {
         Next::call_handle(next, request).await
     }
 
-    pub async fn call_handle(slf: Py<Self>, request: Py<Request>) -> PyResult<Py<Response>> {
+    pub async fn call_handle(slf: Py<Self>, request: &Py<Request>) -> PyResult<Py<Response>> {
         let fut = Python::with_gil(|py| {
             let this = slf.try_borrow(py)?;
             let middleware = &this.middlewares[this.current];

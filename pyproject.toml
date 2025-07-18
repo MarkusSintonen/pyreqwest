@@ -8,6 +8,7 @@ license = {file = "LICENSE"}
 requires-python = ">=3.11"
 dependencies = [
     "multidict>=6.6.3",
+    "orjson==3.10.18",
 ]
 
 [dependency-groups]
@@ -16,7 +17,7 @@ dev = [
     "pytest==8.4.1",
     "pytest-asyncio==1.0.0",
     "granian==2.4.1",
-    "orjson==3.10.18",
+    "asgi-types==0.1.0",
 ]
 
 [tool.maturin]

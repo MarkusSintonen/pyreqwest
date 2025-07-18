@@ -1,3 +1,4 @@
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
@@ -63,7 +64,10 @@ impl<'py> IntoPyObject<'py> for HeaderMap {
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let dict = multidict(py)?;
         for (key, value) in self.0.iter() {
-            dict.set_item(key.as_str(), value.as_bytes())?;
+            let value = value
+                .to_str()
+                .map_err(|e| PyValueError::new_err(format!("Invalid header value: {}", e)))?;
+            dict.set_item(key.as_str(), value)?;
         }
         Ok(dict)
     }
