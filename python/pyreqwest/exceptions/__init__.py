@@ -1,20 +1,24 @@
 from json import JSONDecodeError as JSONDecodeError_
-from typing import TypedDict, Generic, TypeVar
-
+from typing import TypedDict, Generic, TypeVar, Any
 
 CauseErrorDetails = TypedDict("CauseErrorDetails", {"causes": list[str] | None})
 StatusErrorDetails = TypedDict("StatusErrorDetails", {"status": int})
 T = TypeVar("T", bound=CauseErrorDetails | StatusErrorDetails)
 
 
-class HTTPError(Exception, Generic[T]):
-    def __init__(self, message: str, details: T | None = None) -> None:
-        assert isinstance(message, str) and isinstance(details, dict | None)
-        super().__init__(message, details)
+class HTTPError(Exception):
+    def __init__(self, message: str, *args: Any) -> None:
+        assert isinstance(message, str)
+        super().__init__(message, *args)
         self.message = message
+
+class DetailedHTTPError(HTTPError, Generic[T]):
+    def __init__(self, message: str, details: T | None = None) -> None:
+        assert isinstance(details, dict | None)
+        super().__init__(message, details)
         self.details = details
 
-class RequestError(HTTPError[T], Generic[T]): ...
+class RequestError(DetailedHTTPError[T], Generic[T]): ...
 class TransportError(RequestError[CauseErrorDetails]): ...
 class DecodeError(RequestError[CauseErrorDetails]): ...
 class RedirectError(RequestError[CauseErrorDetails]): ...
@@ -33,5 +37,13 @@ class ReadError(NetworkError): ...
 class WriteError(NetworkError): ...
 class CloseError(NetworkError): ...
 
-class BuilderError(HTTPError[CauseErrorDetails], ValueError): ...
-class JSONDecodeError(HTTPError[CauseErrorDetails], JSONDecodeError_): ...
+class BuilderError(DetailedHTTPError[CauseErrorDetails], ValueError): ...
+
+class JSONDecodeError(HTTPError, JSONDecodeError_):
+    def __init__(self, message: str, details: dict[str, Any]) -> None:
+        assert isinstance(details, dict)
+        assert isinstance(details["doc"], str) and isinstance(details["pos"], int)
+        assert isinstance(details["line"], int) and isinstance(details["column"], int)
+        super().__init__(message, details["doc"], details["pos"])
+        self.line = details["line"]
+        self.column = details["column"]

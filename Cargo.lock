@@ -1054,9 +1054,11 @@ name = "pyreqwest"
 version = "1.0.0"
 dependencies = [
  "bytes",
+ "encoding_rs",
  "futures-util",
  "http",
  "http-serde",
+ "mime",
  "pyo3",
  "pyo3-build-config",
  "pyo3-bytes",

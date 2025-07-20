@@ -13,11 +13,7 @@ macro_rules! define_exception {
         pub struct $name(PyAny);
         impl pyo3::ToPyErr for $name {}
 
-        pyobject_native_type_core!(
-            $name,
-            $name::type_object_raw,
-            #module=Some("pyreqwest.exceptions")
-        );
+        pyobject_native_type_core!($name, $name::type_object_raw, #module=Some("pyreqwest.exceptions"));
 
         impl $name {
             fn type_object_raw(py: Python<'_>) -> *mut pyo3::ffi::PyTypeObject {

@@ -1,11 +1,14 @@
-use crate::exceptions::{JSONDecodeError, StatusError};
 use crate::exceptions::utils::map_read_error;
-use crate::http::{JsonValue, Url};
+use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, Version};
+use crate::http::{JsonValue, Url};
 use bytes::Bytes;
+use encoding_rs::{Encoding, UTF_8};
+use http::header::CONTENT_TYPE;
+use mime::Mime;
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::IntoPyObjectExt;
 use pyo3_bytes::PyBytes;
 use pythonize::pythonize;
 use serde_json::json;
@@ -86,20 +89,37 @@ impl Response {
         Ok(PyBytes::new(self.bytes_inner().await?))
     }
 
-    async unsafe fn json(&mut self) -> PyResult<JsonValue> {
+    async fn json(&mut self) -> PyResult<JsonValue> {
         let bytes = self.bytes_inner().await?;
-        serde_json::from_slice(&bytes).map(JsonValue).map_err(|e| JSONDecodeError::from_err(&e.to_string(), &e))
+        match serde_json::from_slice(&bytes) {
+            Ok(v) => Ok(v),
+            Err(e) => Err(self.json_error(&e).await?),
+        }
     }
 
-    pub fn content_length(&self) -> PyResult<Option<u64>> {
+    async fn text(&mut self) -> PyResult<String> {
+        let bytes = self.bytes_inner().await?;
+        let charset = self.content_type_charset()?.unwrap_or_else(|| "utf-8".to_string());
+        let (text, _, _) = Encoding::for_label(charset.as_bytes()).unwrap_or(UTF_8).decode(&bytes);
+        Ok(text.into_owned())
+    }
+
+    fn content_type_charset(&self) -> PyResult<Option<String>> {
+        let charset = self
+            .content_type_mime()?
+            .and_then(|mime| mime.get_param("charset").map(|charset| charset.to_string()));
+        Ok(charset)
+    }
+
+    fn content_length(&self) -> PyResult<Option<u64>> {
         Ok(self.try_ref()?.content_length())
     }
 
-    pub fn url(&self) -> PyResult<Url> {
+    fn url(&self) -> PyResult<Url> {
         Ok(self.try_ref()?.url().clone().into())
     }
 
-    pub fn remote_addr_ip_port(&self) -> PyResult<Option<(String, u16)>> {
+    fn remote_addr_ip_port(&self) -> PyResult<Option<(String, u16)>> {
         Ok(self.try_ref()?.remote_addr().map(|v| (v.ip().to_string(), v.port())))
     }
 
@@ -181,6 +201,19 @@ impl Response {
         Ok(bytes)
     }
 
+    fn content_type_mime(&self) -> PyResult<Option<Mime>> {
+        let Some(content_type) = self.try_ref()?.headers().get(CONTENT_TYPE) else {
+            return Ok(None);
+        };
+        let content_type = content_type
+            .to_str()
+            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header", &e))?;
+        let mime = content_type
+            .parse::<Mime>()
+            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
+        Ok(Some(mime))
+    }
+
     async fn read_limit(response: &mut reqwest::Response, byte_limit: usize) -> PyResult<(VecDeque<Bytes>, bool)> {
         let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
         let mut has_more = true;
@@ -205,6 +238,26 @@ impl Response {
         self.inner
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("Response was already consumed"))
+    }
+
+    async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
+        let text = self.text().await?;
+        let details = json!({
+            "line": e.line(),
+            "column": e.column(),
+            "pos": Self::json_error_pos(&text, e.line(), e.column()),
+            "doc": text,
+        });
+        Ok(JSONDecodeError::new_err(&e.to_string(), Some(details)))
+    }
+
+    fn json_error_pos(content: &str, line: usize, column: usize) -> usize {
+        content
+            .lines()
+            .take(line.saturating_sub(1))
+            .map(|l| l.len() + 1)
+            .sum::<usize>()
+            + column.saturating_sub(1)
     }
 }
 impl Drop for Response {
