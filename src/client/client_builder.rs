@@ -2,6 +2,7 @@ use crate::client::Client;
 use crate::client::runtime::Runtime;
 use crate::http::HeaderMap;
 use crate::proxy::Proxy;
+use crate::request::connection_limiter::ConnectionLimiter;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -17,7 +18,8 @@ pub struct ClientBuilder {
     inner: Option<reqwest::ClientBuilder>,
     middlewares: Option<Vec<Py<PyAny>>>,
     max_connections: Option<usize>,
-    connect_timeout: Option<Duration>,
+    total_timeout: Option<Duration>,
+    pool_timeout: Option<Duration>,
     error_for_status: bool,
 }
 #[pymethods]
@@ -40,17 +42,16 @@ impl ClientBuilder {
             inner,
             Runtime::start_new()?,
             self.middlewares.take(),
-            self.max_connections,
-            self.connect_timeout,
+            self.total_timeout,
+            self.max_connections
+                .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
             self.error_for_status,
         );
         Ok(client)
     }
 
     fn with_middleware(mut slf: PyRefMut<Self>, middleware: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
-        if slf.inner.is_none() {
-            return Err(PyRuntimeError::new_err("Client was already built"));
-        }
+        slf.check_inner()?;
         if !Python::with_gil(|py| middleware.bind(py).hasattr(intern!(py, "handle")))? {
             return Err(PyValueError::new_err("Middleware must have a 'handle' method"));
         }
@@ -61,17 +62,16 @@ impl ClientBuilder {
         Ok(slf)
     }
 
-    fn max_connections(mut slf: PyRefMut<Self>, max: usize) -> PyResult<PyRefMut<Self>> {
-        if slf.inner.is_none() {
-            return Err(PyRuntimeError::new_err("Client was already built"));
-        }
-        slf.max_connections = Some(max);
+    fn max_connections(mut slf: PyRefMut<Self>, max: Option<usize>) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.max_connections = max;
         Ok(slf)
     }
 
-    fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyRefMut<Self> {
+    fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
         slf.error_for_status = value;
-        slf
+        Ok(slf)
     }
 
     fn user_agent(slf: PyRefMut<Self>, value: String) -> PyResult<PyRefMut<Self>> {
@@ -118,17 +118,24 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.no_proxy()))
     }
 
-    fn timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.timeout(timeout)))
+    fn timeout(mut slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.total_timeout = Some(timeout);
+        Ok(slf)
     }
 
     fn read_timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.read_timeout(timeout)))
     }
 
-    fn connect_timeout(mut slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
-        slf.connect_timeout = Some(timeout);
+    fn connect_timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.connect_timeout(timeout)))
+    }
+
+    fn pool_timeout(mut slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.pool_timeout = Some(timeout);
+        Ok(slf)
     }
 
     fn connection_verbose(slf: PyRefMut<Self>, verbose: bool) -> PyResult<PyRefMut<Self>> {
@@ -338,6 +345,13 @@ impl ClientBuilder {
             .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?;
         slf.inner = Some(fun(builder)?);
         Ok(slf)
+    }
+
+    fn check_inner(&self) -> PyResult<()> {
+        self.inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("ClientBuilder was already built"))
+            .map(|_| ())
     }
 
     fn parse_tls_version(version: &str) -> PyResult<reqwest::tls::Version> {

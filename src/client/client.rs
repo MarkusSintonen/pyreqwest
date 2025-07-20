@@ -12,6 +12,7 @@ pub struct Client {
     client: reqwest::Client,
     runtime: Arc<Runtime>,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
+    total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
 }
@@ -24,7 +25,10 @@ impl Client {
         let connection_limiter = self.connection_limiter.clone();
 
         let request = self.client.request(method.0, url.0);
-        let builder = RequestBuilder::new(runtime, request, middlewares, connection_limiter, self.error_for_status);
+        let mut builder = RequestBuilder::new(runtime, request, middlewares, connection_limiter, self.error_for_status);
+        self.total_timeout
+            .map(|timeout| builder.inner_timeout(timeout))
+            .transpose()?;
         Ok(builder)
     }
 
@@ -61,7 +65,7 @@ impl Client {
     }
 
     async fn close(&self) {
-        self.runtime.close().await;
+        self.runtime.close();
     }
 }
 impl Client {
@@ -69,15 +73,16 @@ impl Client {
         client: reqwest::Client,
         runtime: Runtime,
         middlewares: Option<Vec<Py<PyAny>>>,
-        max_connections: Option<usize>,
-        connect_timeout: Option<Duration>,
+        total_timeout: Option<Duration>,
+        connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
     ) -> Self {
         Client {
             client,
             runtime: Arc::new(runtime),
             middlewares: middlewares.map(Arc::new),
-            connection_limiter: max_connections.map(|max| ConnectionLimiter::new(max, connect_timeout)),
+            total_timeout,
+            connection_limiter,
             error_for_status,
         }
     }

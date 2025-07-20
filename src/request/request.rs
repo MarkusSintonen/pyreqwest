@@ -1,6 +1,6 @@
 use crate::client::runtime::Runtime;
-use crate::exceptions::CloseError;
 use crate::exceptions::utils::map_send_error;
+use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
 use crate::http::Body;
 use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
@@ -192,9 +192,13 @@ impl Request {
         let join_handle = runtime.spawn(fut)?;
 
         tokio::select! {
-            res = join_handle => res.map_err(|e|
-                CloseError::new_err("Client was closed", Some(json!({"causes": [e.to_string()]})))
-            )?,
+            res = join_handle => res.map_err(|e| {
+                if e.is_panic() {
+                    RequestPanicError::new_err("Request panicked", Some(json!({"causes": [e.to_string()]})))
+                } else {
+                    CloseError::new_err("Client was closed", Some(json!({"causes": [e.to_string()]})))
+                }
+            })?,
             _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
         }
     }
@@ -229,7 +233,17 @@ impl Request {
         })?;
 
         let permit = if let Some(connection_limiter) = conn_limiter.clone() {
-            Some(connection_limiter.limit_connections().await?)
+            let req_timeout = request.timeout().copied();
+            let (permit, elapsed) = connection_limiter.limit_connections(req_timeout).await?;
+
+            if let Some(req_timeout) = req_timeout {
+                if elapsed >= req_timeout {
+                    return Err(PoolTimeoutError::new_err("Timeout acquiring semaphore", None));
+                } else {
+                    *request.timeout_mut() = Some(req_timeout - elapsed);
+                }
+            }
+            Some(permit)
         } else {
             None
         };

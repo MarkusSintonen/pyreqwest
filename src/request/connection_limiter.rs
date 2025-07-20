@@ -19,14 +19,26 @@ impl ConnectionLimiter {
         }
     }
 
-    pub async fn limit_connections(&self) -> PyResult<OwnedSemaphorePermit> {
-        let permit = if let Some(timeout) = self.timeout {
+    pub async fn limit_connections(
+        &self,
+        request_timeout: Option<Duration>,
+    ) -> PyResult<(OwnedSemaphorePermit, Duration)> {
+        let timeout = match (self.timeout, request_timeout) {
+            (Some(t1), Some(t2)) => Some(t1.min(t2)),
+            (Some(t1), None) => Some(t1),
+            (None, Some(t2)) => Some(t2),
+            (None, None) => None,
+        };
+
+        let now = std::time::Instant::now();
+        let permit = if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.semaphore.clone().acquire_owned())
                 .await
                 .map_err(|_| PoolTimeoutError::new_err("Timeout acquiring semaphore", None))?
         } else {
             self.semaphore.clone().acquire_owned().await
         };
-        permit.map_err(|e| PyRuntimeError::new_err(format!("Failed to acquire semaphore: {}", e)))
+        let permit = permit.map_err(|e| PyRuntimeError::new_err(format!("Failed to acquire semaphore: {}", e)))?;
+        Ok((permit, now.elapsed()))
     }
 }

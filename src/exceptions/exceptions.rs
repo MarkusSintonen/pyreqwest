@@ -5,7 +5,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
 use serde_json::json;
 use std::error::Error;
-use std::ops::Not;
+use crate::exceptions::utils::sources;
 
 macro_rules! define_exception {
     ($name:ident) => {
@@ -44,6 +44,7 @@ define_exception!(RequestError);
 define_exception!(TransportError);
 define_exception!(DecodeError);
 define_exception!(RedirectError);
+define_exception!(RequestPanicError);
 define_exception!(StatusError);
 
 define_exception!(RequestTimeoutError);
@@ -62,10 +63,7 @@ define_exception!(CloseError);
 define_exception!(BuilderError);
 define_exception!(JSONDecodeError);
 
-fn causes<E: Error>(err: E) -> Option<Vec<String>> {
-    let mut causes: Vec<String> = Vec::new();
-    while let Some(source) = err.source() {
-        causes.push(source.to_string());
-    }
-    causes.is_empty().not().then_some(causes)
+fn causes<E: Error>(err: &E) -> Option<Vec<String>> {
+    let causes: Vec<String> = sources(&err).iter().map(ToString::to_string).collect();
+    if causes.is_empty() { None } else { Some(causes) }
 }

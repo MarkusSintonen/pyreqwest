@@ -1,5 +1,6 @@
-import urllib
+import asyncio
 from typing import Any, Callable, Awaitable, AsyncIterable
+from urllib.parse import parse_qsl
 
 from orjson import orjson
 
@@ -17,24 +18,37 @@ class EchoServer(Server):
         send: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         assert scope['type'] == 'http'
+        query = [(k.decode(), v.decode()) for k, v in parse_qsl(scope['query_string'])]
+        query_dict = dict(query)
+
+        if sleep_time := float(query_dict.get('sleep_start', 0)):
+            await asyncio.sleep(sleep_time)
 
         resp = {
             "headers": scope['headers'],
             "http_version": scope['http_version'],
             "method": scope['method'],
             "path": scope['path'],
-            "query": urllib.parse.parse_qsl(scope['query_string']),
+            "query": query,
             "raw_path": scope['raw_path'],
             "scheme": scope['scheme'],
             "body_parts": [b async for b in receive_all(receive)],
         }
+        resp_body = json_dump(resp)
 
         await send({
             'type': 'http.response.start',
-            'status': 200,
+            'status': int(query_dict.get('status', 200)),
             'headers': [[b'content-type', b'application/json']],
         })
-        await send({'type': 'http.response.body', 'body': json_dump(resp)})
+
+        if sleep_time := float(query_dict.get('sleep_body', 0)):
+            part1, part2 = resp_body[:len(resp_body) // 2], resp_body[len(resp_body) // 2:]
+            await send({'type': 'http.response.body', 'body': part1, 'more_body': True})
+            await asyncio.sleep(sleep_time)
+            await send({'type': 'http.response.body', 'body': part2})
+        else:
+            await send({'type': 'http.response.body', 'body': resp_body})
 
 
 def json_dump(obj: Any) -> bytes:

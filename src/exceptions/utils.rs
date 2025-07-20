@@ -1,3 +1,4 @@
+use std::error::Error;
 use crate::exceptions::exceptions::{
     BuilderError, ConnectError, ConnectTimeoutError, DecodeError, ReadError, ReadTimeoutError, RedirectError,
     RequestError, StatusError, WriteError, WriteTimeoutError,
@@ -15,7 +16,7 @@ pub fn map_read_error(e: reqwest::Error) -> PyErr {
 
 fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
     if e.is_timeout() {
-        if e.is_body() {
+        if is_body_error(&e) {
             match kind {
                 ErrorKind::Send => WriteTimeoutError::from_err("request body timeout", &e),
                 ErrorKind::Read => ReadTimeoutError::from_err("response body timeout", &e),
@@ -24,7 +25,7 @@ fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
             ConnectTimeoutError::from_err("connection timeout", &e)
         }
     } else if e.is_connect() {
-        if e.is_body() {
+        if is_body_error(&e) {
             match kind {
                 ErrorKind::Send => WriteError::from_err("request body connection error", &e),
                 ErrorKind::Read => ReadError::from_err("response body connection error", &e),
@@ -50,7 +51,22 @@ fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
     }
 }
 
+#[derive(PartialEq, Debug)]
 enum ErrorKind {
     Send,
     Read,
+}
+
+pub fn is_body_error<E: Error>(err: &E) -> bool {
+    sources(err).iter().any(|src| src.downcast_ref::<reqwest::Error>().map_or(false, |e| e.is_body()))
+}
+
+pub fn sources<'a, E: Error>(err: &'a E) -> Vec<&'a (dyn Error + 'static)> {
+    let mut causes = Vec::new();
+    let mut cur = err.source();
+    while let Some(source) = cur {
+        causes.push(source);
+        cur = source.source();
+    }
+    causes
 }

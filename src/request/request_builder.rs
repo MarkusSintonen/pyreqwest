@@ -42,9 +42,10 @@ impl RequestBuilder {
         Ok(request)
     }
 
-    fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyRefMut<Self> {
+    fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
         slf.error_for_status = value;
-        slf
+        Ok(slf)
     }
 
     fn header(slf: PyRefMut<Self>, key: String, value: String) -> PyResult<PyRefMut<Self>> {
@@ -64,25 +65,19 @@ impl RequestBuilder {
     }
 
     fn body_bytes(mut slf: PyRefMut<Self>, body: PyBytes) -> PyResult<PyRefMut<Self>> {
-        if slf.inner.is_none() {
-            return Err(PyRuntimeError::new_err("Request was already built"));
-        }
+        slf.check_inner()?;
         slf.body = Some(Body::from_bytes(body));
         Ok(slf)
     }
 
     fn body_str(mut slf: PyRefMut<Self>, body: String) -> PyResult<PyRefMut<Self>> {
-        if slf.inner.is_none() {
-            return Err(PyRuntimeError::new_err("Request was already built"));
-        }
+        slf.check_inner()?;
         slf.body = Some(Body::from_str(body));
         Ok(slf)
     }
 
     fn body_stream(mut slf: PyRefMut<Self>, async_gen: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
-        if slf.inner.is_none() {
-            return Err(PyRuntimeError::new_err("Request was already built"));
-        }
+        slf.check_inner()?;
         slf.body = Some(Body::from_stream(async_gen));
         Ok(slf)
     }
@@ -108,9 +103,7 @@ impl RequestBuilder {
     }
 
     fn extensions(mut slf: PyRefMut<Self>, extensions: Extensions) -> PyResult<PyRefMut<Self>> {
-        if slf.inner.is_none() {
-            return Err(PyRuntimeError::new_err("Request was already built"));
-        }
+        slf.check_inner()?;
         slf.extensions = Some(extensions);
         Ok(slf)
     }
@@ -132,6 +125,22 @@ impl RequestBuilder {
             connection_limiter,
             error_for_status,
         }
+    }
+
+    pub fn inner_timeout(&mut self, timeout: Duration) -> PyResult<&mut RequestBuilder> {
+        let builder = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?;
+        self.inner = Some(builder.timeout(timeout));
+        Ok(self)
+    }
+
+    fn check_inner(&self) -> PyResult<()> {
+        self.inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))
+            .map(|_| ())
     }
 
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
