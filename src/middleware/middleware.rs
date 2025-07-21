@@ -22,7 +22,7 @@ impl Next {
     }
 }
 impl Next {
-    pub async fn execute_all(middlewares: Arc<Vec<Py<PyAny>>>, request: &Py<Request>) -> PyResult<Py<Response>> {
+    pub async fn execute_all(request: &Py<Request>, middlewares: Arc<Vec<Py<PyAny>>>) -> PyResult<Py<Response>> {
         let next = Next {
             middlewares,
             current: 0,

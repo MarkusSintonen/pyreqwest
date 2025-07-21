@@ -15,13 +15,13 @@ async def test_error_for_status(echo_server: EchoServer, value: bool):
     url.set_query_dict({"status": str(400)})
 
     async with ClientBuilder().error_for_status(value).build() as client:
+        req = client.get(url).build_consumed()
         if value:
             with pytest.raises(StatusError) as e:
-                async with client.get(url).build() as _: pass
+                await req.send()
             assert e.value.details["status"] == 400
         else:
-            async with client.get(url).build() as resp:
-                assert resp.status == 400
+            assert (await req.send()).status == 400
 
 
 @pytest.mark.parametrize("value", [1, 2, None])
@@ -33,8 +33,7 @@ async def test_max_connections(echo_server: EchoServer, value: int | None):
 
     async with builder.build() as client:
         async def request():
-            async with client.get(url).build() as r:
-                await r.bytes()
+            await client.get(url).build_consumed().send()
 
         coro = asyncio.gather(request(), request())
         if value == 1:
@@ -57,8 +56,7 @@ async def test_timeout(echo_server: EchoServer, value: float | None, sleep_kind:
 
     async with builder.build() as client:
         async def request():
-            async with client.get(url).build() as r:
-                await r.bytes()
+            await client.get(url).build_consumed().send()
 
         coro = request()
         if value and value < 0.2:
@@ -74,15 +72,15 @@ async def test_timeout(echo_server: EchoServer, value: float | None, sleep_kind:
 async def test_http_methods(echo_server: EchoServer, str_url: bool):
     url = str(echo_server.address) if str_url else echo_server.address
     async with ClientBuilder().error_for_status(True).build() as client:
-        async with client.get(url).build() as response:
+        async with client.get(url).build_streamed() as response:
             assert (await response.json())['method'] == 'GET'
-        async with client.post(url).build() as response:
+        async with client.post(url).build_streamed() as response:
             assert (await response.json())['method'] == 'POST'
-        async with client.put(url).build() as response:
+        async with client.put(url).build_streamed() as response:
             assert (await response.json())['method'] == 'PUT'
-        async with client.patch(url).build() as response:
+        async with client.patch(url).build_streamed() as response:
             assert (await response.json())['method'] == 'PATCH'
-        async with client.delete(url).build() as response:
+        async with client.delete(url).build_streamed() as response:
             assert (await response.json())['method'] == 'DELETE'
-        async with client.request("QUERY", url).build() as response:
+        async with client.request("QUERY", url).build_streamed() as response:
             assert (await response.json())['method'] == 'QUERY'

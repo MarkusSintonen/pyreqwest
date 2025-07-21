@@ -1,10 +1,11 @@
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
+use crate::http::JsonValue;
 use crate::http::{Extensions, HeaderMap, Version};
-use crate::http::{JsonValue, Url};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
 use http::header::CONTENT_TYPE;
+use http_body_util::BodyExt;
 use mime::Mime;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyRuntimeError;
@@ -15,7 +16,7 @@ use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 
-#[pyclass]
+#[pyclass(subclass)]
 pub struct Response {
     #[pyo3(get, set)]
     status: u16,
@@ -23,8 +24,13 @@ pub struct Response {
     version: Option<Py<PyAny>>,
     extensions: Option<Py<PyAny>>,
 
-    inner: Option<reqwest::Response>,
+    inner_status: http::StatusCode,
+    inner_version: http::Version,
+    inner_headers: http::HeaderMap<http::HeaderValue>,
+    inner_extensions: Option<http::Extensions>,
+
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
+    body_stream: Option<reqwest::Body>,
     init_chunks: VecDeque<Bytes>,
     body_consuming_started: bool,
     read_body: Option<Bytes>,
@@ -32,15 +38,11 @@ pub struct Response {
 
 #[pymethods]
 impl Response {
-    pub async fn close(&mut self) {
-        self.inner_close(); // Not actually async at the moment, but we have it async for the future
-    }
-
     #[getter]
-    fn get_headers(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
+    fn get_headers(&mut self) -> PyResult<&Py<PyAny>> {
         if self.headers.is_none() {
-            let headers = HeaderMap(self.try_ref()?.headers().clone()).into_py_any(py)?;
-            self.headers = Some(headers);
+            let headers = HeaderMap(self.inner_headers.to_owned());
+            self.headers = Some(Python::with_gil(|py| headers.into_py_any(py))?);
         };
         Ok(self.headers.as_ref().unwrap())
     }
@@ -52,10 +54,10 @@ impl Response {
     }
 
     #[getter]
-    fn get_version(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
+    fn get_version(&mut self) -> PyResult<&Py<PyAny>> {
         if self.version.is_none() {
-            let version = pythonize(py, &Version::from(self.try_ref()?.version()))?.unbind();
-            self.version = Some(version);
+            let version = Version(self.inner_version);
+            self.version = Some(Python::with_gil(|py| Ok::<_, PyErr>(pythonize(py, &version)?.unbind()))?);
         };
         Ok(self.version.as_ref().unwrap())
     }
@@ -67,10 +69,9 @@ impl Response {
     }
 
     #[getter]
-    fn get_extensions(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
-        if self.extensions.is_none() {
-            let ext = pythonize(py, &Extensions::from(self.try_ref()?.extensions()))?.unbind();
-            self.extensions = Some(ext);
+    fn get_extensions(&mut self) -> PyResult<&Py<PyAny>> {
+        if let Some(ext) = self.inner_extensions.take().as_ref().map(Extensions::from) {
+            self.extensions = Some(Python::with_gil(|py| Ok::<_, PyErr>(pythonize(py, &ext)?.unbind()))?);
         };
         Ok(self.extensions.as_ref().unwrap())
     }
@@ -111,50 +112,62 @@ impl Response {
         Ok(charset)
     }
 
-    fn content_length(&self) -> PyResult<Option<u64>> {
-        Ok(self.try_ref()?.content_length())
-    }
-
-    fn url(&self) -> PyResult<Url> {
-        Ok(self.try_ref()?.url().clone().into())
-    }
-
-    fn remote_addr_ip_port(&self) -> PyResult<Option<(String, u16)>> {
-        Ok(self.try_ref()?.remote_addr().map(|v| (v.ip().to_string(), v.port())))
-    }
-
     pub fn error_for_status(&mut self) -> PyResult<()> {
-        self.try_ref()?
-            .error_for_status_ref()
-            .map_err(|e| StatusError::new_err(&e.to_string(), Some(json!({"status": e.status().unwrap().as_u16()}))))
-            .map(|_| ())
+        if self.inner_status.is_success() {
+            return Ok(());
+        }
+        let msg = if self.inner_status.is_client_error() {
+            "HTTP status client error"
+        } else {
+            debug_assert!(self.inner_status.is_server_error());
+            "HTTP status server error"
+        };
+        Err(StatusError::new_err(msg, Some(json!({"status": self.inner_status.as_u16()}))))
     }
 }
 impl Response {
     pub async fn initialize(
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
+        consume_body: bool,
     ) -> PyResult<Response> {
-        let status = response.status().as_u16();
+        let (head, init_chunks, body_stream, permit) = if consume_body {
+            let (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
+            assert_eq!(has_more, false, "Should have fully consumed the response");
 
-        let init_byte_limit = 65536;
-        let (init_chunks, has_more) = Self::read_limit(&mut response, init_byte_limit).await?;
-
-        let request_semaphore_permit = if has_more {
-            request_semaphore_permit
-        } else {
             // Release the semaphore right away without waiting for user to do it (by consuming or closing).
             request_semaphore_permit.take().map(drop);
-            None
+
+            let (head, body) = Self::response_parts(response);
+            drop(body); // Was already read
+            (head, init_chunks, None, None)
+        } else {
+            let init_byte_limit = 65536;
+            let (init_chunks, has_more) = Self::read_limit(&mut response, Some(init_byte_limit)).await?;
+
+            let (head, body) = Self::response_parts(response);
+            let (body, permit) = if has_more {
+                (Some(body), request_semaphore_permit)
+            } else {
+                // Release the semaphore right away without waiting for user to do it (by consuming or closing).
+                request_semaphore_permit.take().map(drop);
+                drop(body); // Was already read
+                (None, None)
+            };
+            (head, init_chunks, body, permit)
         };
 
         let resp = Response {
-            status,
+            status: head.status.as_u16(),
             headers: None,
             version: None,
             extensions: None,
-            inner: Some(response),
-            request_semaphore_permit,
+            inner_status: head.status,
+            inner_version: head.version,
+            inner_headers: head.headers,
+            inner_extensions: Some(head.extensions),
+            body_stream,
+            request_semaphore_permit: permit,
             init_chunks,
             body_consuming_started: false,
             read_body: None,
@@ -169,16 +182,22 @@ impl Response {
             return Ok(Some(chunk));
         }
 
-        if let Some(inner) = self.inner.as_mut() {
-            match inner.chunk().await.map_err(map_read_error)? {
-                Some(chunk) => Ok(Some(chunk)),
-                None => {
+        if let Some(body_stream) = self.body_stream.as_mut() {
+            loop {
+                if let Some(frame) = body_stream.frame().await {
+                    if let Ok(chunk) = frame.map_err(map_read_error)?.into_data() {
+                        return Ok(Some(chunk));
+                    } else {
+                        // Skip non-DATA frame
+                    }
+                } else {
                     self.request_semaphore_permit.take().map(drop);
-                    Ok(None)
+                    self.body_stream.take().map(drop);
+                    return Ok(None); // All was consumed
                 }
             }
         } else {
-            Ok(None)
+            Ok(None) // Nothing to consume
         }
     }
 
@@ -201,8 +220,36 @@ impl Response {
         Ok(bytes)
     }
 
+    fn response_parts(response: reqwest::Response) -> (http::response::Parts, reqwest::Body) {
+        let resp: http::Response<reqwest::Body> = response.into();
+        resp.into_parts()
+    }
+
+    async fn read_limit(
+        response: &mut reqwest::Response,
+        byte_limit: Option<usize>,
+    ) -> PyResult<(VecDeque<Bytes>, bool)> {
+        let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
+        let mut has_more = true;
+        let mut consumed_bytes = 0;
+        while has_more {
+            if let Some(chunk) = response.chunk().await.map_err(map_read_error)? {
+                consumed_bytes += chunk.len();
+                init_chunks.push_back(chunk);
+                if let Some(byte_limit) = byte_limit {
+                    if consumed_bytes >= byte_limit {
+                        break;
+                    }
+                }
+            } else {
+                has_more = false;
+            }
+        }
+        Ok((init_chunks, has_more))
+    }
+
     fn content_type_mime(&self) -> PyResult<Option<Mime>> {
-        let Some(content_type) = self.try_ref()?.headers().get(CONTENT_TYPE) else {
+        let Some(content_type) = self.inner_headers.get(CONTENT_TYPE) else {
             return Ok(None);
         };
         let content_type = content_type
@@ -214,30 +261,9 @@ impl Response {
         Ok(Some(mime))
     }
 
-    async fn read_limit(response: &mut reqwest::Response, byte_limit: usize) -> PyResult<(VecDeque<Bytes>, bool)> {
-        let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
-        let mut has_more = true;
-        let mut tot_bytes = 0;
-        while has_more && (tot_bytes < byte_limit) {
-            if let Some(chunk) = response.chunk().await.map_err(map_read_error)? {
-                tot_bytes += chunk.len();
-                init_chunks.push_back(chunk);
-            } else {
-                has_more = false;
-            }
-        }
-        Ok((init_chunks, has_more))
-    }
-
     pub fn inner_close(&mut self) {
         self.request_semaphore_permit.take().map(drop);
-        self.inner.take().map(drop);
-    }
-
-    fn try_ref(&self) -> PyResult<&reqwest::Response> {
-        self.inner
-            .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Response was already consumed"))
+        self.body_stream.take().map(drop);
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {

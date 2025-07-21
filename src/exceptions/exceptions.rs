@@ -1,3 +1,4 @@
+use crate::exceptions::utils::sources;
 use crate::http::JsonValue;
 use pyo3::prelude::*;
 use pyo3::pyobject_native_type_core;
@@ -5,7 +6,6 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
 use serde_json::json;
 use std::error::Error;
-use crate::exceptions::utils::sources;
 
 macro_rules! define_exception {
     ($name:ident) => {

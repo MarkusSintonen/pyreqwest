@@ -1,10 +1,10 @@
-use std::error::Error;
 use crate::exceptions::exceptions::{
     BuilderError, ConnectError, ConnectTimeoutError, DecodeError, ReadError, ReadTimeoutError, RedirectError,
     RequestError, StatusError, WriteError, WriteTimeoutError,
 };
 use pyo3::PyErr;
 use serde_json::json;
+use std::error::Error;
 
 pub fn map_send_error(e: reqwest::Error) -> PyErr {
     inner_map_io_error(e, ErrorKind::Send)
@@ -58,7 +58,9 @@ enum ErrorKind {
 }
 
 pub fn is_body_error<E: Error>(err: &E) -> bool {
-    sources(err).iter().any(|src| src.downcast_ref::<reqwest::Error>().map_or(false, |e| e.is_body()))
+    sources(err)
+        .iter()
+        .any(|src| src.downcast_ref::<reqwest::Error>().map_or(false, |e| e.is_body()))
 }
 
 pub fn sources<'a, E: Error>(err: &'a E) -> Vec<&'a (dyn Error + 'static)> {

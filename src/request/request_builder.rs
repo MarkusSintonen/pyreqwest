@@ -4,6 +4,8 @@ use crate::http::{Extensions, HeaderMap, JsonValue, Version};
 use crate::multipart::form::Form;
 use crate::request::Request;
 use crate::request::connection_limiter::ConnectionLimiter;
+use crate::request::consumed_request::ConsumedRequest;
+use crate::request::stream_request::StreamRequest;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
@@ -22,24 +24,12 @@ pub struct RequestBuilder {
 }
 #[pymethods]
 impl RequestBuilder {
-    fn build(&mut self) -> PyResult<Request> {
-        let (client, request) = self
-            .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?
-            .build_split();
-        let request = request.map_err(|e| PyValueError::new_err(format!("Failed to build request: {}", e)))?;
-        let request = Request::new(
-            self.runtime.clone(),
-            client,
-            request,
-            self.body.take(),
-            self.extensions.take(),
-            self.middlewares.clone(),
-            self.connection_limiter.clone(),
-            self.error_for_status,
-        );
-        Ok(request)
+    fn build_consumed(&mut self) -> PyResult<Py<ConsumedRequest>> {
+        ConsumedRequest::new_py(self.inner_build(true)?)
+    }
+
+    fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
+        StreamRequest::new_py(self.inner_build(false)?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
@@ -125,6 +115,27 @@ impl RequestBuilder {
             connection_limiter,
             error_for_status,
         }
+    }
+
+    fn inner_build(&mut self, consume_body: bool) -> PyResult<Request> {
+        let (client, request) = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?
+            .build_split();
+        let request = request.map_err(|e| PyValueError::new_err(format!("Failed to build request: {}", e)))?;
+        let request = Request::new(
+            self.runtime.clone(),
+            client,
+            request,
+            self.body.take(),
+            self.extensions.take(),
+            self.middlewares.clone(),
+            self.connection_limiter.clone(),
+            self.error_for_status,
+            consume_body,
+        );
+        Ok(request)
     }
 
     pub fn inner_timeout(&mut self, timeout: Duration) -> PyResult<&mut RequestBuilder> {

@@ -35,7 +35,7 @@ impl ResponseBuilder {
             .body(body)
             .map_err(|e| PyValueError::new_err(format!("Failed to build response: {}", e)))?;
         let resp = reqwest::Response::from(resp);
-        Response::initialize(resp, None).await
+        Response::initialize(resp, None, true).await
     }
 
     pub fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {

@@ -1057,6 +1057,7 @@ dependencies = [
  "encoding_rs",
  "futures-util",
  "http",
+ "http-body-util",
  "http-serde",
  "mime",
  "pyo3",

@@ -18,7 +18,7 @@ use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 
-#[pyclass]
+#[pyclass(subclass)]
 pub struct Request {
     runtime: Arc<Runtime>,
     client: Option<reqwest::Client>,
@@ -28,34 +28,11 @@ pub struct Request {
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
-    ctx_response: Option<Py<Response>>,
+    consume_body: bool,
 }
 
 #[pymethods]
 impl Request {
-    async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let resp = Self::send_inner(&slf, cancel).await?;
-        Python::with_gil(|py| {
-            slf.try_borrow_mut(py)?.ctx_response = Some(resp.clone_ref(py));
-            Ok(resp)
-        })
-    }
-
-    async fn __aexit__(&mut self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) -> PyResult<()> {
-        let ctx_response = self
-            .ctx_response
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?;
-        Python::with_gil(|py| {
-            ctx_response.try_borrow_mut(py)?.inner_close();
-            Ok(())
-        })
-    }
-
-    pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        Self::send_inner(&slf, cancel).await
-    }
-
     #[getter]
     pub fn get_method(&self) -> PyResult<Method> {
         Ok(self.inner_ref()?.method().clone().into())
@@ -93,7 +70,7 @@ impl Request {
             .get(key)
             .map(|v| {
                 v.to_str()
-                    .map(|s| s.to_string())
+                    .map(ToString::to_string)
                     .map_err(|e| PyRuntimeError::new_err(format!("Invalid header value: {}", e)))
             })
             .transpose()
@@ -109,7 +86,7 @@ impl Request {
             .insert(key, value)
             .map(|v| {
                 v.to_str()
-                    .map(|s| s.to_string())
+                    .map(ToString::to_string)
                     .map_err(|e| PyRuntimeError::new_err(format!("Invalid header value: {}", e)))
             })
             .transpose()
@@ -154,6 +131,7 @@ impl Request {
         middlewares: Option<Arc<Vec<Py<PyAny>>>>,
         connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
+        consume_body: bool,
     ) -> Self {
         Request {
             runtime,
@@ -164,21 +142,22 @@ impl Request {
             middlewares,
             connection_limiter,
             error_for_status,
-            ctx_response: None,
+            consume_body,
         }
     }
 
-    pub async fn send_inner(slf: &Py<Self>, mut cancel: CancelHandle) -> PyResult<Py<Response>> {
+    pub async fn send_inner(slf: &Py<PyAny>, mut cancel: CancelHandle) -> PyResult<Py<Response>> {
         let (slf, runtime, middlewares, error_for_status) = Python::with_gil(|py| {
-            let this = slf.try_borrow(py)?;
-            let runtime = this.runtime.clone();
-            let middlewares = this.middlewares.clone();
-            Ok::<_, PyErr>((slf.clone_ref(py), runtime, middlewares, this.error_for_status))
+            let req = slf.clone_ref(py).into_bound(py).downcast_into::<Self>()?;
+            let borrow = req.try_borrow()?;
+            let runtime = borrow.runtime.clone();
+            let middlewares = borrow.middlewares.clone();
+            Ok::<_, PyErr>((req.unbind(), runtime, middlewares, borrow.error_for_status))
         })?;
 
         let fut = async move {
             let resp = if let Some(middlewares) = middlewares {
-                Next::execute_all(middlewares, &slf).await?
+                Next::execute_all(&slf, middlewares).await?
             } else {
                 let resp = Request::execute(&slf).await?;
                 Python::with_gil(|py| Py::new(py, resp))?
@@ -216,7 +195,7 @@ impl Request {
     }
 
     pub async fn execute(request: &Py<Request>) -> PyResult<Response> {
-        let (client, mut request, body, ext, conn_limiter) = Python::with_gil(|py| {
+        let (client, mut request, body, ext, conn_limiter, consume_body) = Python::with_gil(|py| {
             let mut this = request.try_borrow_mut(py)?;
             let client = this
                 .client
@@ -229,7 +208,8 @@ impl Request {
             let body = this.body.take();
             let extensions = this.extensions.take();
             let connection_limiter = this.connection_limiter.take();
-            Ok::<_, PyErr>((client, request, body, extensions, connection_limiter))
+            let consume_body = this.consume_body;
+            Ok::<_, PyErr>((client, request, body, extensions, connection_limiter, consume_body))
         })?;
 
         let permit = if let Some(connection_limiter) = conn_limiter.clone() {
@@ -251,7 +231,7 @@ impl Request {
         *request.body_mut() = body.map(|b| b.try_into()).transpose()?;
         let mut resp = client.execute(request).await.map_err(map_send_error)?;
         ext.map(|ext| Self::move_extensions(ext, resp.extensions_mut()));
-        Response::initialize(resp, permit).await
+        Response::initialize(resp, permit, consume_body).await
     }
 
     pub fn try_clone(&mut self) -> PyResult<Self> {
@@ -259,9 +239,6 @@ impl Request {
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
-        if self.ctx_response.is_some() {
-            return Err(PyRuntimeError::new_err("Request was already sent"));
-        }
         let new_inner = inner
             .try_clone()
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
@@ -276,7 +253,7 @@ impl Request {
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),
             error_for_status: self.error_for_status,
-            ctx_response: None,
+            consume_body: self.consume_body,
         })
     }
 
