@@ -18,6 +18,7 @@ dev = [
     "pytest-asyncio==1.0.0",
     "granian==2.4.1",
     "asgi-types==0.1.0",
+    "trustme==1.2.1",
 ]
 
 [tool.maturin]

@@ -21,6 +21,7 @@ pub struct ClientBuilder {
     total_timeout: Option<Duration>,
     pool_timeout: Option<Duration>,
     error_for_status: bool,
+    default_headers: Option<HeaderMap>,
 }
 #[pymethods]
 impl ClientBuilder {
@@ -37,7 +38,10 @@ impl ClientBuilder {
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?;
-        let inner = builder.build().map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+        let inner = builder
+            .use_rustls_tls()
+            .build()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let client = Client::new(
             inner,
             Runtime::start_new()?,
@@ -46,6 +50,7 @@ impl ClientBuilder {
             self.max_connections
                 .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
             self.error_for_status,
+            self.default_headers.take(),
         );
         Ok(client)
     }
@@ -78,8 +83,10 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.user_agent(value)))
     }
 
-    fn default_headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.default_headers(headers.0)))
+    fn default_headers(mut slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.default_headers = Some(headers);
+        Ok(slf)
     }
 
     fn cookie_store(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
@@ -136,10 +143,6 @@ impl ClientBuilder {
         slf.check_inner()?;
         slf.pool_timeout = Some(timeout);
         Ok(slf)
-    }
-
-    fn connection_verbose(slf: PyRefMut<Self>, verbose: bool) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.connection_verbose(verbose)))
     }
 
     fn pool_idle_timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
@@ -222,7 +225,7 @@ impl ClientBuilder {
             let addr = addr
                 .map(|v| IpAddr::from_str(v.as_str()))
                 .transpose()
-                .map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.local_address(addr))
         })
     }
@@ -262,7 +265,7 @@ impl ClientBuilder {
     fn add_root_certificate_der(slf: PyRefMut<Self>, cert: PyBytes) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| {
             let cert =
-                reqwest::Certificate::from_der(cert.as_slice()).map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+                reqwest::Certificate::from_der(cert.as_slice()).map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.add_root_certificate(cert))
         })
     }
@@ -270,7 +273,7 @@ impl ClientBuilder {
     fn add_root_certificate_pem(slf: PyRefMut<Self>, cert: PyBytes) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| {
             let cert =
-                reqwest::Certificate::from_pem(cert.as_slice()).map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+                reqwest::Certificate::from_pem(cert.as_slice()).map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.add_root_certificate(cert))
         })
     }
@@ -278,7 +281,7 @@ impl ClientBuilder {
     fn add_crl_pem(slf: PyRefMut<Self>, cert: PyBytes) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| {
             let cert = reqwest::tls::CertificateRevocationList::from_pem(cert.as_slice())
-                .map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.add_crl(cert))
         })
     }
@@ -294,7 +297,7 @@ impl ClientBuilder {
     fn identity_pem(slf: PyRefMut<Self>, buf: PyBytes) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| {
             let identity =
-                reqwest::Identity::from_pem(buf.as_slice()).map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+                reqwest::Identity::from_pem(buf.as_slice()).map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.identity(identity))
         })
     }
@@ -319,17 +322,13 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.max_tls_version(Self::parse_tls_version(value.as_str())?)))
     }
 
-    fn tls_info(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.tls_info(enable)))
-    }
-
     fn https_only(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.https_only(enable)))
     }
 
     fn resolve(slf: PyRefMut<Self>, domain: String, ip: String, port: u16) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| {
-            let ip = IpAddr::from_str(ip.as_str()).map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+            let ip = IpAddr::from_str(ip.as_str()).map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.resolve(domain.as_str(), SocketAddr::new(ip, port)))
         })
     }
@@ -350,7 +349,7 @@ impl ClientBuilder {
     fn check_inner(&self) -> PyResult<()> {
         self.inner
             .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("ClientBuilder was already built"))
+            .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))
             .map(|_| ())
     }
 

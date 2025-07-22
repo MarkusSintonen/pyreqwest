@@ -1,23 +1,24 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::types::PyType;
+use pyo3::types::{PyDict, PyMapping, PyType};
 use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Method(#[serde(with = "http_serde::method")] pub http::Method);
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct HeaderMap(#[serde(with = "http_serde::header_map")] pub http::HeaderMap);
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Version(#[serde(with = "http_serde::version")] pub http::Version);
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct Extensions(pub serde_json::Map<String, serde_json::Value>);
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StatusCode(#[serde(with = "http_serde::status_code")] pub http::StatusCode);
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct JsonValue(pub serde_json::Value);
+#[derive(FromPyObject, IntoPyObject)]
+pub struct Extensions(pub Py<PyDict>);
 
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyAny;
@@ -74,7 +75,14 @@ impl<'py> IntoPyObject<'py> for HeaderMap {
 }
 impl<'py> FromPyObject<'py> for HeaderMap {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
+        let mut headers = http::HeaderMap::new();
+        for item in ob.downcast::<PyMapping>()?.items()?.try_iter()? {
+            let tup: (String, String) = item?.extract()?;
+            let name = http::HeaderName::from_str(&tup.0).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let value = http::HeaderValue::from_str(&tup.1).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            headers.append(name, value);
+        }
+        Ok(HeaderMap::from(headers))
     }
 }
 impl From<http::HeaderMap> for HeaderMap {
@@ -83,25 +91,14 @@ impl From<http::HeaderMap> for HeaderMap {
     }
 }
 
-impl<'py> IntoPyObject<'py> for Extensions {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
-    type Error = PyErr;
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(pythonize(py, &self)?)
+impl Extensions {
+    pub fn copy_dict(&self) -> PyResult<Extensions> {
+        Python::with_gil(|py| Ok(Extensions(self.0.bind(py).copy()?.unbind())))
     }
 }
-impl<'py> FromPyObject<'py> for Extensions {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
-    }
-}
-impl From<&http::Extensions> for Extensions {
-    fn from(http_extensions: &http::Extensions) -> Self {
-        match http_extensions.get::<Extensions>() {
-            Some(ext) => Extensions(ext.0.clone()),
-            None => Extensions(serde_json::Map::new()),
-        }
+impl Clone for Extensions {
+    fn clone(&self) -> Self {
+        Extensions(Python::with_gil(|py| self.0.clone_ref(py)))
     }
 }
 

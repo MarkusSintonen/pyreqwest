@@ -14,6 +14,7 @@ use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -52,6 +53,20 @@ impl Request {
     #[setter]
     pub fn set_url(&mut self, value: UrlType) -> PyResult<()> {
         *self.inner_mut()?.url_mut() = value.0;
+        Ok(())
+    }
+
+    #[getter]
+    pub fn get_extensions(&mut self) -> &Py<PyDict> {
+        if self.extensions.is_none() {
+            self.extensions = Some(Extensions(Python::with_gil(|py| PyDict::new(py).unbind())));
+        }
+        &self.extensions.as_ref().unwrap().0
+    }
+
+    #[setter]
+    pub fn set_extensions(&mut self, value: Extensions) -> PyResult<()> {
+        self.extensions = Some(value);
         Ok(())
     }
 
@@ -96,21 +111,11 @@ impl Request {
         self.body.as_ref().map(|b| b.try_clone()).transpose()
     }
 
-    pub fn set_body(&mut self, value: Bound<PyAny>) -> PyResult<()> {
-        if value.is_none() {
-            self.body = None;
-        } else {
-            self.body = Some(value.downcast::<Body>()?.try_borrow()?.try_clone()?);
-        }
+    pub fn set_body(&mut self, value: Option<Bound<Body>>) -> PyResult<()> {
+        self.body = value
+            .map(|b| Ok::<_, PyErr>(b.try_borrow()?.try_clone()?))
+            .transpose()?;
         Ok(())
-    }
-
-    pub fn copy_extensions(&self) -> Option<Extensions> {
-        self.extensions.clone()
-    }
-
-    pub fn set_extensions(&mut self, value: Option<Extensions>) {
-        self.extensions = value;
     }
 
     fn copy(&mut self) -> PyResult<Self> {
@@ -230,7 +235,8 @@ impl Request {
 
         *request.body_mut() = body.map(|b| b.try_into()).transpose()?;
         let mut resp = client.execute(request).await.map_err(map_send_error)?;
-        ext.map(|ext| Self::move_extensions(ext, resp.extensions_mut()));
+        ext.map(|ext| Self::move_extensions(ext, resp.extensions_mut()))
+            .transpose()?;
         Response::initialize(resp, permit, consume_body).await
     }
 
@@ -249,7 +255,7 @@ impl Request {
             client: self.client.clone(),
             inner: Some(new_inner),
             body: self.body.as_ref().map(|b| b.try_clone()).transpose()?,
-            extensions: self.extensions.clone(),
+            extensions: self.extensions.as_ref().map(|ext| ext.copy_dict()).transpose()?,
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),
             error_for_status: self.error_for_status,
@@ -257,13 +263,15 @@ impl Request {
         })
     }
 
-    fn move_extensions(from: Extensions, to: &mut http::Extensions) -> &mut Extensions {
-        let to = to.get_or_insert_default::<Extensions>();
-        for (k, v) in from.0.into_iter() {
-            if !to.0.contains_key(&k) {
-                to.0.insert(k, v);
+    fn move_extensions(request_extensions: Extensions, response_extensions: &mut http::Extensions) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let result_ext = request_extensions.0.into_bound(py);
+            if let Some(resp_ext) = response_extensions.remove::<Extensions>() {
+                let resp_ext = resp_ext.0.into_bound(py);
+                result_ext.update(resp_ext.as_mapping())?;
             }
-        }
-        to
+            response_extensions.insert(Extensions(result_ext.unbind()));
+            Ok(())
+        })
     }
 }

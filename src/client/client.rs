@@ -1,6 +1,6 @@
 use crate::client::runtime::Runtime;
-use crate::http::Method;
 use crate::http::UrlType;
+use crate::http::{HeaderMap, Method};
 use crate::request::RequestBuilder;
 use crate::request::connection_limiter::ConnectionLimiter;
 use pyo3::prelude::*;
@@ -15,6 +15,7 @@ pub struct Client {
     total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
+    default_headers: Option<HeaderMap>,
 }
 
 #[pymethods]
@@ -28,6 +29,10 @@ impl Client {
         let mut builder = RequestBuilder::new(runtime, request, middlewares, connection_limiter, self.error_for_status);
         self.total_timeout
             .map(|timeout| builder.inner_timeout(timeout))
+            .transpose()?;
+        self.default_headers
+            .clone()
+            .map(|default_headers| builder.inner_headers(default_headers))
             .transpose()?;
         Ok(builder)
     }
@@ -76,6 +81,7 @@ impl Client {
         total_timeout: Option<Duration>,
         connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
+        default_headers: Option<HeaderMap>,
     ) -> Self {
         Client {
             client,
@@ -84,6 +90,7 @@ impl Client {
             total_timeout,
             connection_limiter,
             error_for_status,
+            default_headers,
         }
     }
 }

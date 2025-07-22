@@ -1,11 +1,18 @@
 import asyncio
 from datetime import timedelta
+from typing import Any, Mapping
 
 import pytest
+import trustme
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from multidict import CIMultiDict
 
 from pyreqwest.client import ClientBuilder
-from pyreqwest.exceptions import StatusError, PoolTimeoutError, ConnectTimeoutError, ReadTimeoutError
+from pyreqwest.exceptions import StatusError, PoolTimeoutError, ConnectTimeoutError, ReadTimeoutError, CloseError, \
+    BuilderError, ConnectError
 from pyreqwest.http import Url
+from .servers.server import find_free_port
 from .servers.echo_server import EchoServer
 
 
@@ -25,23 +32,20 @@ async def test_error_for_status(echo_server: EchoServer, value: bool):
 
 
 @pytest.mark.parametrize("value", [1, 2, None])
-async def test_max_connections(echo_server: EchoServer, value: int | None):
+async def test_max_connections_pool_timeout(echo_server: EchoServer, value: int | None):
     url = Url(str(echo_server.address))
     url.set_query_dict({"sleep_start": str(0.1)})
 
-    builder = ClientBuilder().error_for_status(True).max_connections(value).pool_timeout(timedelta(seconds=0.05))
+    builder = ClientBuilder().max_connections(value).pool_timeout(timedelta(seconds=0.05)).error_for_status(True)
 
     async with builder.build() as client:
-        async def request():
-            await client.get(url).build_consumed().send()
-
-        coro = asyncio.gather(request(), request())
+        coros = [client.get(url).build_consumed().send() for _ in range(2)]
         if value == 1:
             with pytest.raises(PoolTimeoutError) as e:
-                await coro
+                await asyncio.gather(*coros)
             assert isinstance(e.value, TimeoutError)
         else:
-            await coro
+            await asyncio.gather(*coros)
 
 
 @pytest.mark.parametrize("value", [0.05, 0.2, None])
@@ -55,17 +59,68 @@ async def test_timeout(echo_server: EchoServer, value: float | None, sleep_kind:
         builder = builder.timeout(timedelta(seconds=value))
 
     async with builder.build() as client:
-        async def request():
-            await client.get(url).build_consumed().send()
-
-        coro = request()
+        req = client.get(url).build_consumed()
         if value and value < 0.2:
             exc = ConnectTimeoutError if sleep_kind == "sleep_start" else ReadTimeoutError
             with pytest.raises(exc) as e:
-                await coro
+                await req.send()
             assert isinstance(e.value, TimeoutError)
         else:
-            await coro
+            await req.send()
+
+
+async def test_no_connection(echo_server: EchoServer):
+    port = find_free_port()
+    async with ClientBuilder().error_for_status(True).build() as client:
+        req = client.get(Url(f"http://localhost:{port}")).build_consumed()
+        with pytest.raises(ConnectError) as e:
+            await req.send()
+        assert {'message': 'tcp connect error'} in e.value.details["causes"]
+
+
+async def test_user_agent(echo_server: EchoServer):
+    async with ClientBuilder().user_agent("ua-test").error_for_status(True).build() as client:
+        res = await (await client.get(echo_server.address).build_consumed().send()).json()
+        assert ["user-agent", "ua-test"] in res["headers"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [CIMultiDict({"X-Test": "foobar"}), {"X-Test": "foobar"}, CIMultiDict([("X-Test", "foo"), ("X-Test", "bar")])],
+)
+async def test_default_headers__good(echo_server: EchoServer, value: Mapping[str, str]):
+    async with ClientBuilder().default_headers(value).error_for_status(True).build() as client:
+        res = await (await client.get(echo_server.address).build_consumed().send()).json()
+        for name, value in value.items():
+            assert [name.lower(), value] in res["headers"]
+
+
+async def test_default_headers__bad(echo_server: EchoServer):
+    with pytest.raises(TypeError, match="argument 'headers': 'list' object cannot be converted to 'Mapping'"):
+        ClientBuilder().default_headers([("X-Test", "foo"), ("X-Test", "bar")])
+    with pytest.raises(TypeError, match="argument 'headers': 'int' object cannot be converted to 'PyString'"):
+        ClientBuilder().default_headers({"X-Test": 123})
+    with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'Mapping'"):
+        ClientBuilder().default_headers("bad")
+    with pytest.raises(ValueError, match="invalid HTTP header name"):
+        ClientBuilder().default_headers({"X-Test\n": "foo"})
+    with pytest.raises(ValueError, match="failed to parse header value"):
+        ClientBuilder().default_headers({"X-Test": "bad\n"})
+
+
+async def test_response_compression(echo_server: EchoServer):
+    async with ClientBuilder().error_for_status(True).build() as client:
+        res = await (await client.get(echo_server.address).build_consumed().send()).json()
+        assert ['accept-encoding', 'gzip, br, zstd, deflate'] in res["headers"]
+        url = Url(str(echo_server.address))
+        url.set_query_dict({"compress": "gzip"})
+        resp = await client.get(url).build_consumed().send()
+        assert resp.headers["x-content-encoding"] == "gzip"
+        assert await resp.json()
+
+    async with ClientBuilder().gzip(False).error_for_status(True).build() as client:
+        res = await (await client.get(echo_server.address).build_consumed().send()).json()
+        assert ['accept-encoding', 'br, zstd, deflate'] in res["headers"]
 
 
 @pytest.mark.parametrize("str_url", [False, True])
@@ -74,6 +129,7 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
     async with ClientBuilder().error_for_status(True).build() as client:
         async with client.get(url).build_streamed() as response:
             assert (await response.json())['method'] == 'GET'
+            assert (await response.json())['scheme'] == 'http'
         async with client.post(url).build_streamed() as response:
             assert (await response.json())['method'] == 'POST'
         async with client.put(url).build_streamed() as response:
@@ -84,3 +140,76 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
             assert (await response.json())['method'] == 'DELETE'
         async with client.request("QUERY", url).build_streamed() as response:
             assert (await response.json())['method'] == 'QUERY'
+
+
+async def test_use_after_close(echo_server: EchoServer):
+    async with ClientBuilder().error_for_status(True).build() as client:
+        assert (await client.get(echo_server.address).build_consumed().send()).status == 200
+    with pytest.raises(CloseError, match="Client was closed"):
+        await client.get(echo_server.address).build_consumed().send()
+
+    client = ClientBuilder().error_for_status(True).build()
+    await client.close()
+    with pytest.raises(CloseError, match="Client was closed"):
+        await client.get(echo_server.address).build_consumed().send()
+
+
+async def test_close_in_request(echo_server: EchoServer):
+    url = Url(str(echo_server.address))
+    url.set_query_dict({"sleep_start": str(1)})
+
+    async with ClientBuilder().error_for_status(True).build() as client:
+        req = client.get(url).build_consumed()
+        task = asyncio.create_task(req.send())
+        await asyncio.sleep(0.05)
+        await client.close()
+        with pytest.raises(CloseError, match="Client was closed"):
+            await task
+
+
+async def test_builder_use_after_build(echo_server: EchoServer):
+    builder = ClientBuilder()
+    client = builder.build()
+    with pytest.raises(RuntimeError, match="Client was already built"):
+        builder.error_for_status(True)
+    with pytest.raises(RuntimeError, match="Client was already built"):
+        builder.build()
+    await client.close()
+
+
+async def test_https_only(echo_server: EchoServer):
+    async with ClientBuilder().https_only(True).error_for_status(True).build() as client:
+        req = client.get(echo_server.address).build_consumed()
+        with pytest.raises(BuilderError, match="builder error") as e:
+            await req.send()
+        assert {'message': 'URL scheme is not allowed'} in e.value.details["causes"]
+
+
+async def test_https(https_echo_server: EchoServer, cert_authority: trustme.CA):
+    cert_pem = cert_authority.cert_pem.bytes()
+    builder = ClientBuilder().add_root_certificate_pem(cert_pem).https_only(True).error_for_status(True)
+    async with builder.build() as client:
+        resp = await client.get(https_echo_server.address).build_consumed().send()
+        assert (await resp.json())['scheme'] == 'https'
+
+    cert_der = x509.load_pem_x509_certificate(cert_pem).public_bytes(serialization.Encoding.DER)
+    builder = ClientBuilder().add_root_certificate_der(cert_der).https_only(True).error_for_status(True)
+    async with builder.build() as client:
+        resp = await client.get(https_echo_server.address).build_consumed().send()
+        assert (await resp.json())['scheme'] == 'https'
+
+
+async def test_https__no_trust(https_echo_server: EchoServer, cert_authority: trustme.CA):
+    builder = ClientBuilder().https_only(True).error_for_status(True)
+    async with builder.build() as client:
+        req = client.get(https_echo_server.address).build_consumed()
+        with pytest.raises(ConnectError) as e:
+            await req.send()
+        assert {'message': 'invalid peer certificate: UnknownIssuer'} in e.value.details["causes"]
+
+
+async def test_https__accept_invalid_certs(https_echo_server: EchoServer, cert_authority: trustme.CA):
+    builder = ClientBuilder().danger_accept_invalid_certs(True).https_only(True).error_for_status(True)
+    async with builder.build() as client:
+        resp = await client.get(https_echo_server.address).build_consumed().send()
+        assert (await resp.json())['scheme'] == 'https'

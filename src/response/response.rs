@@ -10,6 +10,7 @@ use mime::Mime;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3_bytes::PyBytes;
 use pythonize::pythonize;
 use serde_json::json;
@@ -20,9 +21,9 @@ use tokio::sync::OwnedSemaphorePermit;
 pub struct Response {
     #[pyo3(get, set)]
     status: u16,
-    headers: Option<Py<PyAny>>,
-    version: Option<Py<PyAny>>,
-    extensions: Option<Py<PyAny>>,
+    py_headers: Option<Py<PyAny>>,
+    py_version: Option<Py<PyAny>>,
+    py_extensions: Option<Extensions>,
 
     inner_status: http::StatusCode,
     inner_version: http::Version,
@@ -40,45 +41,50 @@ pub struct Response {
 impl Response {
     #[getter]
     fn get_headers(&mut self) -> PyResult<&Py<PyAny>> {
-        if self.headers.is_none() {
+        if self.py_headers.is_none() {
             let headers = HeaderMap(self.inner_headers.to_owned());
-            self.headers = Some(Python::with_gil(|py| headers.into_py_any(py))?);
+            self.py_headers = Some(Python::with_gil(|py| headers.into_py_any(py))?);
         };
-        Ok(self.headers.as_ref().unwrap())
+        Ok(self.py_headers.as_ref().unwrap())
     }
 
     #[setter]
     fn set_headers(&mut self, py: Python, headers: HeaderMap) -> PyResult<()> {
-        self.headers = Some(headers.into_py_any(py)?);
+        self.py_headers = Some(headers.into_py_any(py)?);
         Ok(())
     }
 
     #[getter]
     fn get_version(&mut self) -> PyResult<&Py<PyAny>> {
-        if self.version.is_none() {
+        if self.py_version.is_none() {
             let version = Version(self.inner_version);
-            self.version = Some(Python::with_gil(|py| Ok::<_, PyErr>(pythonize(py, &version)?.unbind()))?);
+            self.py_version = Some(Python::with_gil(|py| Ok::<_, PyErr>(pythonize(py, &version)?.unbind()))?);
         };
-        Ok(self.version.as_ref().unwrap())
+        Ok(self.py_version.as_ref().unwrap())
     }
 
     #[setter]
     fn set_version(&mut self, py: Python, version: Version) -> PyResult<()> {
-        self.version = Some(pythonize(py, &version)?.unbind());
+        self.py_version = Some(pythonize(py, &version)?.unbind());
         Ok(())
     }
 
     #[getter]
-    fn get_extensions(&mut self) -> PyResult<&Py<PyAny>> {
-        if let Some(ext) = self.inner_extensions.take().as_ref().map(Extensions::from) {
-            self.extensions = Some(Python::with_gil(|py| Ok::<_, PyErr>(pythonize(py, &ext)?.unbind()))?);
-        };
-        Ok(self.extensions.as_ref().unwrap())
+    fn get_extensions(&mut self, py: Python) -> PyResult<&Py<PyDict>> {
+        if self.py_extensions.is_none() {
+            let ext = self
+                .inner_extensions
+                .take()
+                .map(|mut ext| ext.remove::<Extensions>())
+                .flatten();
+            self.py_extensions = Some(ext.unwrap_or_else(|| Extensions(PyDict::new(py).unbind())));
+        }
+        Ok(&self.py_extensions.as_ref().unwrap().0)
     }
 
     #[setter]
-    fn set_extensions(&mut self, py: Python, extensions: Extensions) -> PyResult<()> {
-        self.extensions = Some(pythonize(py, &extensions)?.unbind());
+    fn set_extensions(&mut self, extensions: Extensions) -> PyResult<()> {
+        self.py_extensions = Some(extensions);
         Ok(())
     }
 
@@ -159,9 +165,9 @@ impl Response {
 
         let resp = Response {
             status: head.status.as_u16(),
-            headers: None,
-            version: None,
-            extensions: None,
+            py_headers: None,
+            py_version: None,
+            py_extensions: None,
             inner_status: head.status,
             inner_version: head.version,
             inner_headers: head.headers,

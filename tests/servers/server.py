@@ -1,6 +1,8 @@
 import asyncio
 import socket
+from abc import abstractmethod, ABC
 from contextlib import asynccontextmanager, closing
+from pathlib import Path
 from typing import Protocol, Any, Callable, Awaitable
 
 from granian.constants import Interfaces
@@ -18,13 +20,38 @@ class ASGIApp(Protocol):
     ) -> None: ...
 
 
-class Server(GranianServer):
-    def __init__(self, app: ASGIApp):
-        super().__init__(app, port=Server.find_free_port(), interface=Interfaces.ASGINL)
+class Server(GranianServer, ABC):
+    def __init__(
+        self,
+        ssl_cert: Path | None = None,
+        ssl_key: Path | None = None,
+        ssl_key_password: str | None = None,
+        ssl_ca: Path | None = None,
+        ssl_client_verify: bool = False,
+    ):
+        self.proto = 'https' if ssl_key else 'http'
+        super().__init__(
+            self.app,
+            port=find_free_port(),
+            interface=Interfaces.ASGINL,
+            ssl_cert=ssl_cert,
+            ssl_key=ssl_key,
+            ssl_key_password=ssl_key_password,
+            ssl_ca=ssl_ca,
+            ssl_client_verify=ssl_client_verify,
+        )
+
+    @abstractmethod
+    async def app(
+        self,
+        scope: dict[str, Any],
+        receive: Callable[[], Awaitable[dict[str, Any]]],
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> None: ...
 
     @property
     def address(self) -> Url:
-        return Url(f"http://{self.bind_addr}:{self.bind_port}")
+        return Url(f"{self.proto}://{self.bind_addr}:{self.bind_port}")
 
     @asynccontextmanager
     async def serve_context(self):
@@ -35,9 +62,9 @@ class Server(GranianServer):
             self.stop()
             await task
 
-    @staticmethod
-    def find_free_port() -> int:
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-            s.bind(('', 0))
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            return s.getsockname()[1]
+
+def find_free_port() -> int:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]

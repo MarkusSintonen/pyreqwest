@@ -7,8 +7,12 @@ edition = "2024"
 name = "pyreqwest"
 crate-type = ["cdylib"]
 
+[dependencies.reqwest]
+version = "=0.12.22"
+default-features = false
+features = ["http2", "rustls-tls", "cookies", "gzip", "zstd", "brotli", "deflate", "multipart", "stream", "socks"]
+
 [dependencies]
-reqwest = { version = "=0.12.22", features = ["default", "rustls-tls", "blocking", "cookies", "gzip", "zstd", "brotli", "deflate", "multipart", "stream", "socks"] }
 pyo3 = { version = "=0.25.1", features = ["extension-module", "experimental-async"] }
 pyo3-bytes = "=0.3.0"
 pythonize = "=0.25.0"
@@ -17,7 +21,7 @@ http-serde = "=2.1.1"
 tokio = { version = "=1.46.1", features = ["rt", "time", "sync", "macros"] }
 futures-util = "=0.3.31"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "=1.0.140"
+serde_json = "=1.0.141"
 bytes = "=1.10.1"
 url = { version = "=2.5.4", features = ["serde"] }
 mime = "=0.3.17"

@@ -1,4 +1,5 @@
 import asyncio
+import gzip
 from typing import Any, Callable, Awaitable, AsyncIterable
 from urllib.parse import parse_qsl
 
@@ -8,9 +9,6 @@ from .server import Server
 
 
 class EchoServer(Server):
-    def __init__(self):
-        super().__init__(self.app)
-
     async def app(
         self,
         scope: dict[str, Any],
@@ -21,8 +19,8 @@ class EchoServer(Server):
         query = [(k.decode(), v.decode()) for k, v in parse_qsl(scope['query_string'])]
         query_dict = dict(query)
 
-        if sleep_time := float(query_dict.get('sleep_start', 0)):
-            await asyncio.sleep(sleep_time)
+        if sleep_start := float(query_dict.get('sleep_start', 0)):
+            await asyncio.sleep(sleep_start)
 
         resp = {
             "headers": scope['headers'],
@@ -34,30 +32,26 @@ class EchoServer(Server):
             "scheme": scope['scheme'],
             "body_parts": [b async for b in receive_all(receive)],
         }
+        resp_headers = [[b'content-type', b'application/json']]
+
         resp_body = json_dump(resp)
+        if query_dict.get('compress') == "gzip":
+            resp_body = gzip.compress(resp_body)
+            resp_headers.extend([[b'content-encoding', b'gzip'], [b'x-content-encoding', b'gzip']])
 
         await send({
             'type': 'http.response.start',
             'status': int(query_dict.get('status', 200)),
-            'headers': [[b'content-type', b'application/json']],
+            'headers': resp_headers,
         })
 
-        if sleep_time := float(query_dict.get('sleep_body', 0)):
+        if sleep_body := float(query_dict.get('sleep_body', 0)):
             part1, part2 = resp_body[:len(resp_body) // 2], resp_body[len(resp_body) // 2:]
             await send({'type': 'http.response.body', 'body': part1, 'more_body': True})
-            await asyncio.sleep(sleep_time)
+            await asyncio.sleep(sleep_body)
             await send({'type': 'http.response.body', 'body': part2})
         else:
             await send({'type': 'http.response.body', 'body': resp_body})
-
-
-def json_dump(obj: Any) -> bytes:
-    def default(val):
-        if isinstance(val, bytes):
-            return val.decode('utf-8')
-        raise TypeError
-
-    return orjson.dumps(obj, default=default)
 
 
 async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> AsyncIterable[bytes]:
@@ -67,3 +61,12 @@ async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> Async
         if message.get('body', None):
             yield message['body']
         more_body = message.get('more_body', False)
+
+
+def json_dump(obj: Any) -> bytes:
+    def default(val):
+        if isinstance(val, bytes):
+            return val.decode('utf-8')
+        raise TypeError
+
+    return orjson.dumps(obj, default=default)

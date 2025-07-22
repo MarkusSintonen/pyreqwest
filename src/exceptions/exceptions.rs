@@ -31,8 +31,7 @@ macro_rules! define_exception {
 
             #[allow(unused)]
             pub fn from_err<E: Error>(message: &str, err: &E) -> PyErr {
-                let details = json!({"causes": causes(err)});
-                Self::new_err(message, Some(details))
+                Self::new_err(message, Some(details(err)))
             }
         }
     }
@@ -63,7 +62,11 @@ define_exception!(CloseError);
 define_exception!(BuilderError);
 define_exception!(JSONDecodeError);
 
-fn causes<E: Error>(err: &E) -> Option<Vec<String>> {
-    let causes: Vec<String> = sources(&err).iter().map(ToString::to_string).collect();
-    if causes.is_empty() { None } else { Some(causes) }
+fn details<E: Error>(err: &E) -> serde_json::value::Value {
+    let causes: Vec<serde_json::value::Value> = sources(&err)
+        .iter()
+        .map(|e| json!({"message": e.to_string()}))
+        .collect();
+    let causes = if causes.is_empty() { None } else { Some(causes) };
+    json!({"causes": causes})
 }

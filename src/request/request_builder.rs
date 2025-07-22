@@ -139,12 +139,11 @@ impl RequestBuilder {
     }
 
     pub fn inner_timeout(&mut self, timeout: Duration) -> PyResult<&mut RequestBuilder> {
-        let builder = self
-            .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?;
-        self.inner = Some(builder.timeout(timeout));
-        Ok(self)
+        self.apply_inner(|b| Ok(b.timeout(timeout)))
+    }
+
+    pub fn inner_headers(&mut self, headers: HeaderMap) -> PyResult<&mut RequestBuilder> {
+        self.apply_inner(|b| Ok(b.headers(headers.0)))
     }
 
     fn check_inner(&self) -> PyResult<()> {
@@ -164,5 +163,17 @@ impl RequestBuilder {
             .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?;
         slf.inner = Some(fun(builder)?);
         Ok(slf)
+    }
+
+    fn apply_inner<F>(&mut self, fun: F) -> PyResult<&mut RequestBuilder>
+    where
+        F: FnOnce(reqwest::RequestBuilder) -> PyResult<reqwest::RequestBuilder>,
+    {
+        let builder = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?;
+        self.inner = Some(fun(builder)?);
+        Ok(self)
     }
 }
