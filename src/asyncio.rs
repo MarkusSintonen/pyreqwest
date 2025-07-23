@@ -6,14 +6,16 @@ use pyo3::{Bound, Py, PyAny, PyResult, Python, pyclass, pymethods};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub fn py_coro_waiter<'py>(py: Python<'py>, py_coro: Bound<'py, PyAny>) -> PyResult<PyCoroWaiter> {
+fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
     static GET_EV_LOOP: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+    GET_EV_LOOP.import(py, "asyncio", "get_running_loop")?.call0()
+}
 
+pub fn py_coro_waiter<'py>(py_coro: &Bound<'py, PyAny>, event_loop: &Bound<'py, PyAny>) -> PyResult<PyCoroWaiter> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let cb = TaskCallback { tx: Some(tx) };
 
-    let ev_loop = GET_EV_LOOP.import(py, "asyncio", "get_event_loop")?.call0()?;
-    let py_task = ev_loop.call_method1("create_task", (py_coro,))?;
+    let py_task = event_loop.call_method1("create_task", (py_coro,))?;
     py_task.call_method1("add_done_callback", (cb,))?;
 
     Ok(PyCoroWaiter { rx })
@@ -62,5 +64,21 @@ impl TaskCallback {
             }
             Err(err) => Err(err),
         }
+    }
+}
+
+pub struct EventLoopCell {
+    event_loop: Option<Py<PyAny>>
+}
+impl EventLoopCell {
+    pub fn new() -> Self {
+        EventLoopCell { event_loop: None }
+    }
+
+    pub fn get_running_loop(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
+        if self.event_loop.is_none() {
+            self.event_loop = Some(get_running_loop(py)?.unbind());
+        }
+        Ok(self.event_loop.as_ref().unwrap())
     }
 }

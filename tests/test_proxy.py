@@ -1,8 +1,12 @@
+from typing import Callable
+
 import pytest
 import trustme
 
 from pyreqwest.client import ClientBuilder
-from pyreqwest.exceptions import ConnectError
+from pyreqwest.exceptions import ConnectError, RequestPanicError
+from pyreqwest.http import Url
+from pyreqwest.http.types import UrlType
 from pyreqwest.proxy import Proxy
 from .servers.echo_server import EchoServer
 
@@ -35,7 +39,10 @@ async def test_proxy_simple(
 
 
 async def test_proxy_custom(echo_server: EchoServer):
-    proxy = Proxy.custom(lambda url: echo_server.address if "unknown.example" in str(url) else None)
+    def proxy_func(url: Url) -> UrlType | None:
+        return echo_server.address if "unknown.example" in str(url) else None
+
+    proxy = Proxy.custom(proxy_func)
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
         resp = await client.get(f"http://unknown.example/").build_consumed().send()
@@ -44,6 +51,32 @@ async def test_proxy_custom(echo_server: EchoServer):
 
         with pytest.raises(ConnectError):
             await client.get(f"http://unknown2.example/").build_consumed().send()  # not captured
+
+
+@pytest.mark.parametrize("case", ["raises", "bad_return"])
+async def test_proxy_custom__fail(echo_server: EchoServer, case: str):
+    def proxy_func_raises(url: Url) -> UrlType | None:
+        raise Exception("Custom error")
+
+    def proxy_func_bad_return(url: Url) -> UrlType | None:
+        return "not_a_valid_url"
+
+    bad_fn: Callable[[Url], UrlType | None] = {
+        "raises": proxy_func_raises,
+        "bad_return": proxy_func_bad_return
+    }[case]
+    expect_cause = {
+        "raises": {'message': 'Exception: Custom error'},
+        "bad_return": {'message': 'ValueError: relative URL without a base'}
+    }[case]
+
+    proxy = Proxy.custom(bad_fn)
+
+    async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
+        req = client.get(f"http://unknown.example/").build_consumed()
+        with pytest.raises(RequestPanicError) as e:
+            await req.send()
+        assert expect_cause in e.value.details["causes"]
 
 
 async def test_proxy_headers(echo_server: EchoServer):

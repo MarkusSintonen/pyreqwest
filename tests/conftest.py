@@ -4,12 +4,20 @@ from typing import AsyncGenerator, Generator
 import pytest
 import trustme
 
+from .servers.echo_body_parts_server import EchoBodyPartsServer
 from .servers.echo_server import EchoServer
 
 
 @pytest.fixture(scope="session")
 async def echo_server() -> AsyncGenerator[EchoServer]:
     async with EchoServer().serve_context() as server:
+        assert str(server.address).startswith("http://")
+        yield server
+
+
+@pytest.fixture(scope="session")
+async def echo_body_parts_server() -> AsyncGenerator[EchoBodyPartsServer]:
+    async with EchoBodyPartsServer().serve_context() as server:
         assert str(server.address).startswith("http://")
         yield server
 

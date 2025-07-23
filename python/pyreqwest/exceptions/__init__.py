@@ -1,7 +1,8 @@
 from json import JSONDecodeError as JSONDecodeError_
 from typing import TypedDict, Generic, TypeVar, Any
 
-CauseErrorDetails = TypedDict("CauseErrorDetails", {"causes": list[str] | None})
+Cause = TypedDict("Cause", {"message": str})
+CauseErrorDetails = TypedDict("CauseErrorDetails", {"causes": list[Cause] | None})
 StatusErrorDetails = TypedDict("StatusErrorDetails", {"status": int})
 T = TypeVar("T", bound=CauseErrorDetails | StatusErrorDetails)
 

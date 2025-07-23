@@ -3,7 +3,7 @@ import socket
 from abc import abstractmethod, ABC
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
-from typing import Protocol, Any, Callable, Awaitable
+from typing import Protocol, Any, Callable, Awaitable, AsyncIterable
 
 from granian.constants import Interfaces
 from granian.server.embed import Server as GranianServer
@@ -68,3 +68,12 @@ def find_free_port() -> int:
         s.bind(('', 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         return s.getsockname()[1]
+
+
+async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> AsyncIterable[bytes]:
+    more_body = True
+    while more_body:
+        message = await receive()
+        if message.get('body', None):
+            yield message['body']
+        more_body = message.get('more_body', False)

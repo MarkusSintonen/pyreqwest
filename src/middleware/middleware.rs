@@ -1,4 +1,4 @@
-use crate::asyncio::py_coro_waiter;
+use crate::asyncio::{py_coro_waiter, EventLoopCell};
 use crate::request::Request;
 use crate::response::Response;
 use pyo3::intern;
@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub struct Next {
     middlewares: Arc<Vec<Py<PyAny>>>,
     current: usize,
+    event_loop: Py<PyAny>,
 }
 #[pymethods]
 impl Next {
@@ -22,13 +23,13 @@ impl Next {
     }
 }
 impl Next {
-    pub async fn execute_all(request: &Py<Request>, middlewares: Arc<Vec<Py<PyAny>>>) -> PyResult<Py<Response>> {
+    pub fn py_new(py: Python, middlewares: Arc<Vec<Py<PyAny>>>, event_loop: &mut EventLoopCell) -> PyResult<Py<Next>> {
         let next = Next {
             middlewares,
             current: 0,
+            event_loop: event_loop.get_running_loop(py)?.clone_ref(py),
         };
-        let next = Python::with_gil(|py| Py::new(py, next))?;
-        Next::call_handle(next, request).await
+        Python::with_gil(|py| Py::new(py, next))
     }
 
     pub async fn call_handle(slf: Py<Self>, request: &Py<Request>) -> PyResult<Py<Response>> {
@@ -38,12 +39,13 @@ impl Next {
             let next = Next {
                 middlewares: this.middlewares.clone(),
                 current: this.current + 1,
+                event_loop: this.event_loop.clone_ref(py),
             };
 
             let coro = middleware
                 .bind(py)
                 .call_method1(intern!(py, "handle"), (request, next))?;
-            py_coro_waiter(py, coro)
+            py_coro_waiter(&coro, this.event_loop.bind(py))
         })?;
 
         let resp = fut.await?;

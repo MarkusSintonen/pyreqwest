@@ -1,4 +1,4 @@
-use crate::asyncio::{PyCoroWaiter, py_coro_waiter};
+use crate::asyncio::{PyCoroWaiter, py_coro_waiter, EventLoopCell};
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
@@ -72,6 +72,13 @@ impl Body {
         };
         Ok(Body { body })
     }
+
+    pub fn set_stream_event_loop(&mut self, py: Python, ev_loop: &mut EventLoopCell) -> PyResult<()> {
+        if let InnerBody::Stream(stream) = &mut self.body {
+            stream.set_event_loop(ev_loop.get_running_loop(py)?.clone_ref(py))?;
+        }
+        Ok(())
+    }
 }
 
 enum InnerBody {
@@ -81,6 +88,7 @@ enum InnerBody {
 
 pub struct BodyStream {
     async_gen: Py<PyAny>,
+    event_loop: Option<Py<PyAny>>,
     cur_waiter: Option<PyCoroWaiter>,
     started: bool,
 }
@@ -111,9 +119,18 @@ impl BodyStream {
     pub fn new(async_gen: Py<PyAny>) -> Self {
         BodyStream {
             async_gen,
+            event_loop: None,
             cur_waiter: None,
             started: false,
         }
+    }
+
+    pub fn set_event_loop(&mut self, event_loop: Py<PyAny>) -> PyResult<()> {
+        if self.started {
+            return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
+        }
+        self.event_loop = Some(event_loop);
+        Ok(())
     }
 
     fn py_anext(&mut self) -> PyResult<PyCoroWaiter> {
@@ -122,9 +139,13 @@ impl BodyStream {
         self.started = true;
 
         Python::with_gil(|py| {
+            let event_loop = self
+                .event_loop
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("Event loop not set for BodyStream"))?;
             let anext = ONCE_ANEXT.import(py, "builtins", "anext")?;
             let coro = anext.call((self.async_gen.bind(py), PyNone::get(py)), None)?;
-            py_coro_waiter(py, coro)
+            py_coro_waiter(&coro, event_loop.bind(py))
         })
     }
 

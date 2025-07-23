@@ -1,3 +1,4 @@
+use std::panic::panic_any;
 use crate::http::HeaderMap;
 use crate::http::{Url, UrlType};
 use http::HeaderValue;
@@ -33,15 +34,10 @@ impl Proxy {
     #[staticmethod]
     fn custom(fun: Py<PyAny>) -> PyResult<Self> {
         let proxy = reqwest::Proxy::custom(move |url| {
-            Python::with_gil(|py| {
-                fun.call1(py, (Url(url.clone()),))
-                    .ok() // Just ignoring errors as reqwest does not provide a way to handle them
-                    .map(|result| result.extract::<UrlType>(py))
-                    .transpose()
-                    .ok()
-                    .flatten()
-                    .map(|url| url.0)
-            })
+            match Self::handle_custom_proxy(&fun, url) {
+                Ok(res) => res,
+                Err(err) => panic_any(err) // No better way to handle this in reqwest custom proxy
+            }
         });
         Ok(Proxy { inner: Some(proxy) })
     }
@@ -72,6 +68,12 @@ impl Proxy {
         self.inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Proxy was already built"))
+    }
+
+    fn handle_custom_proxy(fun: &Py<PyAny>, url: &reqwest::Url) -> PyResult<Option<reqwest::Url>> {
+        Python::with_gil(|py| {
+            Ok(fun.call1(py, (Url(url.clone()),))?.extract::<Option<UrlType>>(py)?.map(|v| v.0))
+        })
     }
 
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>

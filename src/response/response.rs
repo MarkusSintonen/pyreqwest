@@ -128,7 +128,7 @@ impl Response {
             debug_assert!(self.inner_status.is_server_error());
             "HTTP status server error"
         };
-        Err(StatusError::new_err(msg, Some(json!({"status": self.inner_status.as_u16()}))))
+        Err(StatusError::from_custom(msg, json!({"status": self.inner_status.as_u16()})))
     }
 }
 impl Response {
@@ -280,7 +280,7 @@ impl Response {
             "pos": Self::json_error_pos(&text, e.line(), e.column()),
             "doc": text,
         });
-        Ok(JSONDecodeError::new_err(&e.to_string(), Some(details)))
+        Ok(JSONDecodeError::from_custom(&e.to_string(), details))
     }
 
     fn json_error_pos(content: &str, line: usize, column: usize) -> usize {

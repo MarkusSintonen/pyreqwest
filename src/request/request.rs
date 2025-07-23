@@ -15,9 +15,9 @@ use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
+use crate::asyncio::EventLoopCell;
 
 #[pyclass(subclass)]
 pub struct Request {
@@ -152,17 +152,27 @@ impl Request {
     }
 
     pub async fn send_inner(slf: &Py<PyAny>, mut cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let (slf, runtime, middlewares, error_for_status) = Python::with_gil(|py| {
+        let (slf, runtime, middlewares_next, error_for_status) = Python::with_gil(|py| {
             let req = slf.clone_ref(py).into_bound(py).downcast_into::<Self>()?;
-            let borrow = req.try_borrow()?;
-            let runtime = borrow.runtime.clone();
-            let middlewares = borrow.middlewares.clone();
-            Ok::<_, PyErr>((req.unbind(), runtime, middlewares, borrow.error_for_status))
+            let mut req_borrow = req.try_borrow_mut()?;
+            let runtime = req_borrow.runtime.clone();
+
+            let mut ev_loop = EventLoopCell::new();
+            let middlewares_next = req_borrow
+                .middlewares
+                .as_ref()
+                .map(|middlewares| Next::py_new(py, middlewares.clone(), &mut ev_loop))
+                .transpose()?;
+            if let Some(body) = req_borrow.body.as_mut() {
+                body.set_stream_event_loop(py, &mut ev_loop)?;
+            }
+
+            Ok::<_, PyErr>((req.unbind(), runtime, middlewares_next, req_borrow.error_for_status))
         })?;
 
         let fut = async move {
-            let resp = if let Some(middlewares) = middlewares {
-                Next::execute_all(&slf, middlewares).await?
+            let resp = if let Some(middlewares_next) = middlewares_next {
+                Next::call_handle(middlewares_next, &slf).await?
             } else {
                 let resp = Request::execute(&slf).await?;
                 Python::with_gil(|py| Py::new(py, resp))?
@@ -177,10 +187,9 @@ impl Request {
 
         tokio::select! {
             res = join_handle => res.map_err(|e| {
-                if e.is_panic() {
-                    RequestPanicError::new_err("Request panicked", Some(json!({"causes": [e.to_string()]})))
-                } else {
-                    CloseError::new_err("Client was closed", Some(json!({"causes": [e.to_string()]})))
+                match e.try_into_panic() {
+                    Ok(payload) => RequestPanicError::from_panic_payload("Request panicked", payload),
+                    Err(e) => CloseError::from_err("Client was closed", &e),
                 }
             })?,
             _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
@@ -223,7 +232,7 @@ impl Request {
 
             if let Some(req_timeout) = req_timeout {
                 if elapsed >= req_timeout {
-                    return Err(PoolTimeoutError::new_err("Timeout acquiring semaphore", None));
+                    return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", Vec::new()));
                 } else {
                     *request.timeout_mut() = Some(req_timeout - elapsed);
                 }

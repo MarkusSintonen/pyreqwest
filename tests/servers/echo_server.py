@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl
 
 from orjson import orjson
 
-from .server import Server
+from .server import Server, receive_all
 
 
 class EchoServer(Server):
@@ -52,15 +52,6 @@ class EchoServer(Server):
             await send({'type': 'http.response.body', 'body': part2})
         else:
             await send({'type': 'http.response.body', 'body': resp_body})
-
-
-async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> AsyncIterable[bytes]:
-    more_body = True
-    while more_body:
-        message = await receive()
-        if message.get('body', None):
-            yield message['body']
-        more_body = message.get('more_body', False)
 
 
 def json_dump(obj: Any) -> bytes:
