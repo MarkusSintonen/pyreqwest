@@ -1,10 +1,10 @@
-use std::panic::panic_any;
 use crate::http::HeaderMap;
 use crate::http::{Url, UrlType};
 use http::HeaderValue;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use reqwest::NoProxy;
+use std::panic::panic_any;
 
 #[pyclass]
 pub struct Proxy {
@@ -36,7 +36,7 @@ impl Proxy {
         let proxy = reqwest::Proxy::custom(move |url| {
             match Self::handle_custom_proxy(&fun, url) {
                 Ok(res) => res,
-                Err(err) => panic_any(err) // No better way to handle this in reqwest custom proxy
+                Err(err) => panic_any(err), // No better way to handle this in reqwest custom proxy
             }
         });
         Ok(Proxy { inner: Some(proxy) })
@@ -72,7 +72,10 @@ impl Proxy {
 
     fn handle_custom_proxy(fun: &Py<PyAny>, url: &reqwest::Url) -> PyResult<Option<reqwest::Url>> {
         Python::with_gil(|py| {
-            Ok(fun.call1(py, (Url(url.clone()),))?.extract::<Option<UrlType>>(py)?.map(|v| v.0))
+            Ok(fun
+                .call1(py, (Url(url.clone()),))?
+                .extract::<Option<UrlType>>(py)?
+                .map(|v| v.0))
         })
     }
 

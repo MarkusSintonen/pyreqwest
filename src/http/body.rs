@@ -1,4 +1,4 @@
-use crate::asyncio::{PyCoroWaiter, py_coro_waiter, EventLoopCell};
+use crate::asyncio::{EventLoopCell, PyCoroWaiter, py_coro_waiter};
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
@@ -144,7 +144,7 @@ impl BodyStream {
                 .as_ref()
                 .ok_or_else(|| PyRuntimeError::new_err("Event loop not set for BodyStream"))?;
             let anext = ONCE_ANEXT.import(py, "builtins", "anext")?;
-            let coro = anext.call((self.async_gen.bind(py), PyNone::get(py)), None)?;
+            let coro = anext.call1((self.async_gen.bind(py), PyNone::get(py)))?;
             py_coro_waiter(&coro, event_loop.bind(py))
         })
     }

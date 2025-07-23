@@ -1,6 +1,8 @@
 from typing import Any
 from typing_extensions import Self
 
+from pyreqwest.http.types import Stream
+
 
 class Body:
     @staticmethod
@@ -8,7 +10,7 @@ class Body:
     @staticmethod
     def from_bytes(body: bytes) -> "Body": ...
     @staticmethod
-    def from_stream(async_gen: object) -> "Body": ...
+    def from_stream(async_gen: Stream) -> "Body": ...
     def get_bytes(self) -> bytes | None: ...
     def get_stream(self) -> object | None: ...
 

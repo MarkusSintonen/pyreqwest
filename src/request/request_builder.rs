@@ -6,11 +6,14 @@ use crate::request::Request;
 use crate::request::connection_limiter::ConnectionLimiter;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
+use crate::response::ConsumeBodyConfig;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::sync::Arc;
 use std::time::Duration;
+
+const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
 
 #[pyclass]
 pub struct RequestBuilder {
@@ -25,11 +28,11 @@ pub struct RequestBuilder {
 #[pymethods]
 impl RequestBuilder {
     fn build_consumed(&mut self) -> PyResult<Py<ConsumedRequest>> {
-        ConsumedRequest::new_py(self.inner_build(true)?)
+        ConsumedRequest::new_py(self.inner_build(ConsumeBodyConfig::Fully)?)
     }
 
     fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
-        StreamRequest::new_py(self.inner_build(false)?)
+        StreamRequest::new_py(self.inner_build(ConsumeBodyConfig::Partially(DEFAULT_INITIAL_READ_SIZE))?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
@@ -117,7 +120,7 @@ impl RequestBuilder {
         }
     }
 
-    fn inner_build(&mut self, consume_body: bool) -> PyResult<Request> {
+    fn inner_build(&mut self, consume_body: ConsumeBodyConfig) -> PyResult<Request> {
         let (client, request) = self
             .inner
             .take()

@@ -1,6 +1,6 @@
 use crate::http::Body;
 use crate::http::{Extensions, HeaderMap, StatusCode, Version};
-use crate::response::Response;
+use crate::response::{ConsumeBodyConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
@@ -36,7 +36,7 @@ impl ResponseBuilder {
             .map_err(|e| PyValueError::new_err(format!("Failed to build response: {}", e)))?;
         self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
         let resp = reqwest::Response::from(resp);
-        Response::initialize(resp, None, true).await
+        Response::initialize(resp, None, ConsumeBodyConfig::Fully).await
     }
 
     pub fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {

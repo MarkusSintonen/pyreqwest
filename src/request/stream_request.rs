@@ -1,5 +1,5 @@
 use crate::request::Request;
-use crate::response::Response;
+use crate::response::{ConsumeBodyConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -28,6 +28,25 @@ impl StreamRequest {
             ctx_response.try_borrow_mut(py)?.inner_close();
             Ok(())
         })
+    }
+
+    #[getter]
+    fn get_initial_read_size(slf: PyRef<Self>) -> PyResult<usize> {
+        match slf.as_super().consume_body_config() {
+            ConsumeBodyConfig::Partially(size) => Ok(*size),
+            ConsumeBodyConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+        }
+    }
+
+    #[setter]
+    fn set_initial_read_size(mut slf: PyRefMut<Self>, init_size: usize) -> PyResult<()> {
+        match slf.as_super().consume_body_config_mut() {
+            ConsumeBodyConfig::Partially(size) => {
+                *size = init_size;
+                Ok(())
+            }
+            ConsumeBodyConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+        }
     }
 }
 impl StreamRequest {

@@ -1,3 +1,4 @@
+use crate::asyncio::EventLoopCell;
 use crate::client::runtime::Runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
@@ -6,7 +7,7 @@ use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
 use crate::request::connection_limiter::ConnectionLimiter;
-use crate::response::Response;
+use crate::response::{ConsumeBodyConfig, Response};
 use futures_util::FutureExt;
 use http::{HeaderName, HeaderValue};
 use pyo3::PyResult;
@@ -17,7 +18,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::str::FromStr;
 use std::sync::Arc;
-use crate::asyncio::EventLoopCell;
 
 #[pyclass(subclass)]
 pub struct Request {
@@ -29,7 +29,7 @@ pub struct Request {
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
-    consume_body: bool,
+    consume_body_config: ConsumeBodyConfig,
 }
 
 #[pymethods]
@@ -136,7 +136,7 @@ impl Request {
         middlewares: Option<Arc<Vec<Py<PyAny>>>>,
         connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
-        consume_body: bool,
+        consume_body_config: ConsumeBodyConfig,
     ) -> Self {
         Request {
             runtime,
@@ -147,7 +147,7 @@ impl Request {
             middlewares,
             connection_limiter,
             error_for_status,
-            consume_body,
+            consume_body_config,
         }
     }
 
@@ -172,14 +172,16 @@ impl Request {
 
         let fut = async move {
             let resp = if let Some(middlewares_next) = middlewares_next {
-                Next::call_handle(middlewares_next, &slf).await?
+                let resp = Next::call_handle(middlewares_next, &slf).await?;
+                error_for_status
+                    .then(|| Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status()))
+                    .transpose()?;
+                resp
             } else {
                 let resp = Request::execute(&slf).await?;
+                error_for_status.then(|| resp.error_for_status()).transpose()?;
                 Python::with_gil(|py| Py::new(py, resp))?
             };
-            if error_for_status {
-                Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status())?;
-            }
             Ok(resp)
         };
 
@@ -222,7 +224,7 @@ impl Request {
             let body = this.body.take();
             let extensions = this.extensions.take();
             let connection_limiter = this.connection_limiter.take();
-            let consume_body = this.consume_body;
+            let consume_body = this.consume_body_config;
             Ok::<_, PyErr>((client, request, body, extensions, connection_limiter, consume_body))
         })?;
 
@@ -268,7 +270,7 @@ impl Request {
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),
             error_for_status: self.error_for_status,
-            consume_body: self.consume_body,
+            consume_body_config: self.consume_body_config,
         })
     }
 
@@ -282,5 +284,13 @@ impl Request {
             response_extensions.insert(Extensions(result_ext.unbind()));
             Ok(())
         })
+    }
+
+    pub fn consume_body_config(&self) -> &ConsumeBodyConfig {
+        &self.consume_body_config
+    }
+
+    pub fn consume_body_config_mut(&mut self) -> &mut ConsumeBodyConfig {
+        &mut self.consume_body_config
     }
 }

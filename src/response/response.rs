@@ -118,7 +118,7 @@ impl Response {
         Ok(charset)
     }
 
-    pub fn error_for_status(&mut self) -> PyResult<()> {
+    pub fn error_for_status(&self) -> PyResult<()> {
         if self.inner_status.is_success() {
             return Ok(());
         }
@@ -135,32 +135,34 @@ impl Response {
     pub async fn initialize(
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
-        consume_body: bool,
+        consume_body: ConsumeBodyConfig,
     ) -> PyResult<Response> {
-        let (head, init_chunks, body_stream, permit) = if consume_body {
-            let (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
-            assert_eq!(has_more, false, "Should have fully consumed the response");
+        let (head, init_chunks, body_stream, permit) = match consume_body {
+            ConsumeBodyConfig::Fully => {
+                let (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
+                assert_eq!(has_more, false, "Should have fully consumed the response");
 
-            // Release the semaphore right away without waiting for user to do it (by consuming or closing).
-            request_semaphore_permit.take().map(drop);
-
-            let (head, body) = Self::response_parts(response);
-            drop(body); // Was already read
-            (head, init_chunks, None, None)
-        } else {
-            let init_byte_limit = 65536;
-            let (init_chunks, has_more) = Self::read_limit(&mut response, Some(init_byte_limit)).await?;
-
-            let (head, body) = Self::response_parts(response);
-            let (body, permit) = if has_more {
-                (Some(body), request_semaphore_permit)
-            } else {
                 // Release the semaphore right away without waiting for user to do it (by consuming or closing).
                 request_semaphore_permit.take().map(drop);
+
+                let (head, body) = Self::response_parts(response);
                 drop(body); // Was already read
-                (None, None)
-            };
-            (head, init_chunks, body, permit)
+                (head, init_chunks, None, None)
+            }
+            ConsumeBodyConfig::Partially(amount) => {
+                let (init_chunks, has_more) = Self::read_limit(&mut response, Some(amount)).await?;
+
+                let (head, body) = Self::response_parts(response);
+                let (body, permit) = if has_more {
+                    (Some(body), request_semaphore_permit)
+                } else {
+                    // Release the semaphore right away without waiting for user to do it (by consuming or closing).
+                    request_semaphore_permit.take().map(drop);
+                    drop(body); // Was already read
+                    (None, None)
+                };
+                (head, init_chunks, body, permit)
+            }
         };
 
         let resp = Response {
@@ -235,6 +237,10 @@ impl Response {
         response: &mut reqwest::Response,
         byte_limit: Option<usize>,
     ) -> PyResult<(VecDeque<Bytes>, bool)> {
+        if byte_limit == Some(0) {
+            return Ok((VecDeque::new(), true));
+        }
+
         let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
         let mut has_more = true;
         let mut consumed_bytes = 0;
@@ -296,4 +302,10 @@ impl Drop for Response {
     fn drop(&mut self) {
         self.inner_close()
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ConsumeBodyConfig {
+    Fully,
+    Partially(usize),
 }

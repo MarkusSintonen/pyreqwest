@@ -1,11 +1,11 @@
-use std::any::Any;
-use crate::exceptions::utils::sources;
+use crate::exceptions::utils::error_causes_iter;
 use crate::http::JsonValue;
 use pyo3::prelude::*;
 use pyo3::pyobject_native_type_core;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
 use serde_json::json;
+use std::any::Any;
 use std::error::Error;
 
 macro_rules! define_exception {
@@ -27,11 +27,11 @@ macro_rules! define_exception {
 
             #[allow(unused)]
             pub fn from_causes(message: &str, err_causes: Vec<&'_ (dyn Error + 'static)>) -> PyErr {
-                PyErr::new::<Self, _>((message.to_string(), details_from_causes(None, err_causes)))
+                PyErr::new::<Self, _>((message.to_string(), details_from_causes(err_causes.into_iter())))
             }
 
             #[allow(unused)]
-            pub fn from_err<E: Error>(message: &str, err: &E) -> PyErr {
+            pub fn from_err<E: Error + 'static>(message: &str, err: &E) -> PyErr {
                 PyErr::new::<Self, _>((message.to_string(), details_from_err(err)))
             }
 
@@ -51,11 +51,14 @@ macro_rules! define_exception {
 define_exception!(HTTPError);
 
 define_exception!(RequestError);
-define_exception!(TransportError);
-define_exception!(DecodeError);
+
+define_exception!(StatusError);
 define_exception!(RedirectError);
 define_exception!(RequestPanicError);
-define_exception!(StatusError);
+define_exception!(BodyError);
+define_exception!(TransportError);
+
+define_exception!(DecodeError);
 
 define_exception!(RequestTimeoutError);
 define_exception!(NetworkError);
@@ -73,29 +76,25 @@ define_exception!(CloseError);
 define_exception!(BuilderError);
 define_exception!(JSONDecodeError);
 
-fn details_from_err(err: &dyn Error) -> JsonValue {
-    details_from_causes(Some(err), sources(err))
+fn details_from_err(err: &(dyn Error + 'static)) -> JsonValue {
+    details_from_causes(error_causes_iter(err))
 }
 
 fn details_from_panic(payload: Box<dyn Any>) -> JsonValue {
     if let Some(e) = payload.downcast_ref::<PyErr>() {
-        return details_from_err(e)
+        return details_from_err(e);
     }
     if let Some(s) = payload.downcast_ref::<String>() {
-        return JsonValue(json!({"causes": [s]}))
+        return JsonValue(json!({"causes": [s]}));
     }
     if let Some(s) = payload.downcast_ref::<&'static str>() {
-        return JsonValue(json!({"causes": [s]}))
+        return JsonValue(json!({"causes": [s]}));
     }
     JsonValue(json!({"causes": serde_json::Value::Null}))
 }
 
-fn details_from_causes(err: Option<&dyn Error>, err_causes: Vec<&'_ (dyn Error + 'static)>) -> JsonValue {
-    let mut causes: Vec<serde_json::value::Value> = Vec::new();
-    if let Some(e) = err {
-        causes.push(json!({"message": e.to_string()}));
-    }
-    causes.extend(err_causes.iter().map(|e| json!({"message": e.to_string()})));
+fn details_from_causes<'a>(err_causes: impl Iterator<Item = &'a (dyn Error + 'static)>) -> JsonValue {
+    let causes: Vec<serde_json::value::Value> = err_causes.map(|e| json!({"message": e.to_string()})).collect();
     let causes = if causes.is_empty() { None } else { Some(causes) };
     JsonValue(json!({"causes": causes}))
 }

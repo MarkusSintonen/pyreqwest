@@ -1,4 +1,4 @@
-use crate::asyncio::{py_coro_waiter, EventLoopCell};
+use crate::asyncio::{EventLoopCell, py_coro_waiter};
 use crate::request::Request;
 use crate::response::Response;
 use pyo3::intern;

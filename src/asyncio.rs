@@ -68,7 +68,7 @@ impl TaskCallback {
 }
 
 pub struct EventLoopCell {
-    event_loop: Option<Py<PyAny>>
+    event_loop: Option<Py<PyAny>>,
 }
 impl EventLoopCell {
     pub fn new() -> Self {

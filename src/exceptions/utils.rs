@@ -1,8 +1,9 @@
+use crate::exceptions::BodyError;
 use crate::exceptions::exceptions::{
     BuilderError, ConnectError, ConnectTimeoutError, DecodeError, ReadError, ReadTimeoutError, RedirectError,
     RequestError, StatusError, WriteError, WriteTimeoutError,
 };
-use pyo3::PyErr;
+use pyo3::{PyErr, Python};
 use serde_json::json;
 use std::error::Error;
 
@@ -15,7 +16,10 @@ pub fn map_read_error(e: reqwest::Error) -> PyErr {
 }
 
 fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
-    let causes = sources(&e);
+    if let Some(py_err) = inner_py_err(&e) {
+        return py_err;
+    }
+    let causes = error_causes_iter(&e).collect::<Vec<_>>();
     if e.is_timeout() {
         if is_body_error(&e) {
             match kind {
@@ -42,13 +46,13 @@ fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
         BuilderError::from_causes("builder error", causes)
     } else if e.is_status() {
         StatusError::from_custom(&e.to_string(), json!({"status": e.status().unwrap().as_u16()}))
-    } else if e.is_body() {
+    } else if is_body_error(&e) {
         match kind {
-            ErrorKind::Send => RequestError::from_causes("request body error", causes),
-            ErrorKind::Read => RequestError::from_causes("response body error", causes),
+            ErrorKind::Send => BodyError::from_causes("request body error", causes),
+            ErrorKind::Read => BodyError::from_causes("response body error", causes),
         }
     } else {
-        RequestError::from_causes("error sending request", causes)
+        RequestError::from_err("error sending request", &e)
     }
 }
 
@@ -58,18 +62,31 @@ enum ErrorKind {
     Read,
 }
 
-pub fn is_body_error<E: Error>(err: &E) -> bool {
-    sources(err)
-        .iter()
-        .any(|src| src.downcast_ref::<reqwest::Error>().map_or(false, |e| e.is_body()))
+pub fn error_causes_iter<'a>(err: &'a (dyn Error + 'static)) -> impl Iterator<Item = &'a (dyn Error + 'static)> {
+    let mut next = Some(err);
+    std::iter::from_fn(move || {
+        let res = next;
+        next = next.and_then(|e| e.source());
+        res
+    })
 }
 
-pub fn sources<'a>(err: &'a dyn Error) -> Vec<&'a (dyn Error + 'static)> {
-    let mut causes = Vec::new();
-    let mut cur = err.source();
-    while let Some(source) = cur {
-        causes.push(source);
-        cur = source.source();
+fn inner_py_err(err: &(dyn Error + 'static)) -> Option<PyErr> {
+    for e in error_causes_iter(err) {
+        if let Some(py_err) = e.downcast_ref::<PyErr>() {
+            return Some(Python::with_gil(|py| py_err.clone_ref(py)));
+        }
     }
-    causes
+    None
+}
+
+fn is_body_error<E: Error + 'static>(err: &E) -> bool {
+    for e in error_causes_iter(err) {
+        if let Some(e) = e.downcast_ref::<reqwest::Error>() {
+            if e.is_body() {
+                return true;
+            }
+        }
+    }
+    false
 }
