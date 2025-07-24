@@ -244,7 +244,7 @@ impl Request {
             None
         };
 
-        *request.body_mut() = body.map(|b| b.try_into()).transpose()?;
+        *request.body_mut() = body.map(|b| b.to_reqwest()).transpose()?;
         let mut resp = client.execute(request).await.map_err(map_send_error)?;
         ext.map(|ext| Self::move_extensions(ext, resp.extensions_mut()))
             .transpose()?;

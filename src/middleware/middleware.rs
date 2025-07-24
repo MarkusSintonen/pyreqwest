@@ -45,7 +45,7 @@ impl Next {
             let coro = middleware
                 .bind(py)
                 .call_method1(intern!(py, "handle"), (request, next))?;
-            py_coro_waiter(&coro, this.event_loop.bind(py))
+            py_coro_waiter(coro, this.event_loop.bind(py))
         })?;
 
         let resp = fut.await?;

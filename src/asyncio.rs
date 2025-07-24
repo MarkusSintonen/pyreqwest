@@ -11,14 +11,32 @@ fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
     GET_EV_LOOP.import(py, "asyncio", "get_running_loop")?.call0()
 }
 
-pub fn py_coro_waiter<'py>(py_coro: &Bound<'py, PyAny>, event_loop: &Bound<'py, PyAny>) -> PyResult<PyCoroWaiter> {
+pub fn py_coro_waiter<'py>(py_coro: Bound<'py, PyAny>, event_loop: &Bound<'py, PyAny>) -> PyResult<PyCoroWaiter> {
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let cb = TaskCallback { tx: Some(tx) };
 
-    let py_task = event_loop.call_method1("create_task", (py_coro,))?;
-    py_task.call_method1("add_done_callback", (cb,))?;
+    let task_creator = TaskCreator {
+        event_loop: event_loop.as_unbound().clone_ref(py_coro.py()),
+        callback: Py::new(py_coro.py(), TaskCallback { tx: Some(tx) })?,
+        coro: py_coro.unbind(),
+    };
+    event_loop.call_method1("call_soon_threadsafe", (task_creator,))?;
 
     Ok(PyCoroWaiter { rx })
+}
+
+#[pyclass]
+struct TaskCreator {
+    event_loop: Py<PyAny>,
+    callback: Py<TaskCallback>,
+    coro: Py<PyAny>,
+}
+#[pymethods]
+impl TaskCreator {
+    fn __call__(&self, py: Python) -> PyResult<()> {
+        let py_task = self.event_loop.bind(py).call_method1("create_task", (&self.coro,))?;
+        py_task.call_method1("add_done_callback", (&self.callback,))?;
+        Ok(())
+    }
 }
 
 pub struct PyCoroWaiter {

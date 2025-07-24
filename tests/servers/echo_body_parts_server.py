@@ -33,6 +33,7 @@ class EchoBodyPartsServer(Server):
 
 def try_json(data: bytes) -> dict[str, Any] | None:
     try:
-        return orjson.loads(data)
+        val = orjson.loads(data)
+        return val if isinstance(val, dict) else None
     except JSONDecodeError:
         return None

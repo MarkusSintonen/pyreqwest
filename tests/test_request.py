@@ -9,6 +9,7 @@ from orjson import orjson
 from pyreqwest.client import ClientBuilder, Client
 from pyreqwest.exceptions import StatusError, ReadTimeoutError, ConnectTimeoutError
 from pyreqwest.http import Url
+from pyreqwest.response import Response
 from .servers.echo_body_parts_server import EchoBodyPartsServer
 from .servers.echo_server import EchoServer
 
@@ -34,15 +35,20 @@ async def client() -> AsyncGenerator[Client, None]:
         yield client
 
 
+async def read_chunks(resp: Response):
+    while (chunk := await resp.next_chunk()) is not None:
+        yield chunk
+
+
 @pytest.mark.parametrize("initial_read_size", [None, 0, 10, 999999])
-@pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
-async def test_body_stream(
-    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, yield_type: type
+@pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
+async def test_body_stream__initial_read_size(
+    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, read: str
 ):
     async def stream_gen():
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
-            yield yield_type(f"part {i}".encode("utf-8"))
+            yield f"part {i}".encode("utf-8")
 
     req = client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_streamed()
     if initial_read_size is not None:
@@ -52,10 +58,58 @@ async def test_body_stream(
         assert req.initial_read_size == 65536
 
     async with req as resp:
-        chunks = []
-        while (chunk := await resp.next_chunk()) is not None:
-            chunks.append(chunk)
-        assert chunks == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
+        if read == "chunks":
+            assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
+        elif read == "bytes":
+            assert (await resp.bytes()) == b"part 0part 1part 2part 3part 4"
+            assert (await resp.bytes()) == b"part 0part 1part 2part 3part 4"
+        else:
+            assert read == "text"
+            assert (await resp.text()) == "part 0part 1part 2part 3part 4"
+            assert (await resp.text()) == "part 0part 1part 2part 3part 4"
+
+
+@pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
+async def test_body_stream__consumed(client: Client, echo_body_parts_server: EchoBodyPartsServer, read: str):
+    async def stream_gen():
+        for i in range(5):
+            await asyncio.sleep(0)  # Simulate some work
+            yield f"part {i}".encode("utf-8")
+
+    resp = await client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_consumed().send()
+    if read == "chunks":
+        assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
+    elif read == "bytes":
+        assert (await resp.bytes()) == b"part 0part 1part 2part 3part 4"
+        assert (await resp.bytes()) == b"part 0part 1part 2part 3part 4"
+    else:
+        assert read == "text"
+        assert (await resp.text()) == "part 0part 1part 2part 3part 4"
+        assert (await resp.text()) == "part 0part 1part 2part 3part 4"
+
+
+@pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
+async def test_body_stream__yield_type(
+    client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_type: type
+):
+    async def stream_gen():
+        for i in range(5):
+            await asyncio.sleep(0)  # Simulate some work
+            yield yield_type(f"part {i}".encode("utf-8"))
+
+    async with client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_streamed() as resp:
+        assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
+
+
+async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+    async def stream_gen():
+        yield "part 0"
+
+    req = client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_streamed()
+
+    with pytest.raises(TypeError, match="a bytes-like object is required, not 'str'"):
+        async with req as _:
+            assert False
 
 
 @pytest.mark.parametrize("initial_read_size", [None, 0, 5, 999999])
@@ -112,7 +166,7 @@ async def test_body_stream__gen_error(
             assert False
 
     tb_names = [tb.name for tb in traceback.extract_tb(e.value.__traceback__)]
-    assert "test_stream__gen_error" in tb_names
+    assert "test_body_stream__gen_error" in tb_names
     assert "stream_gen" in tb_names
 
 
@@ -131,3 +185,52 @@ async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: 
         with pytest.raises(TypeError, match="object is not an async iterator"):
             async with req as _:
                 assert False
+
+
+async def test_body_consumed(client: Client, echo_server: EchoServer):
+    resp = await client.get(echo_server.address).build_consumed().send()
+
+    first = await resp.json()
+    assert first["path"] == "/"
+    assert (await resp.json()) == first
+
+    first = await resp.text()
+    assert '"path":"/"' in first
+    assert await resp.text() == first
+
+    first = await resp.bytes()
+    assert b'"path":"/"' in first
+    assert await resp.bytes() == first
+
+    assert (await resp.next_chunk()) is None
+
+
+async def test_body_consumed__already_started(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+    async def stream_gen():
+        yield b"part 0"
+        yield b"part 1"
+
+    resp = await client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_consumed().send()
+
+    assert await resp.next_chunk()
+
+    with pytest.raises(RuntimeError, match="Response body already consumed"):
+        await resp.json()
+    with pytest.raises(RuntimeError, match="Response body already consumed"):
+        await resp.text()
+    with pytest.raises(RuntimeError, match="Response body already consumed"):
+        await resp.bytes()
+
+    assert await resp.next_chunk()
+    assert not await resp.next_chunk()
+
+
+async def test_body_response_bad_json(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+    async def stream_gen():
+        yield b"1"
+        yield b""
+        yield b"3"
+
+    resp = await client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_consumed().send()
+
+    await resp.json()

@@ -5,7 +5,7 @@ from typing_extensions import Self
 from multidict import CIMultiDict
 
 from pyreqwest.http import Url, Body
-from pyreqwest.http.types import Stream
+from pyreqwest.http.types import Stream, UrlType
 from pyreqwest.multipart import Form
 from pyreqwest.response import Response
 

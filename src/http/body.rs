@@ -50,20 +50,6 @@ impl Body {
         }
     }
 }
-impl TryInto<reqwest::Body> for Body {
-    type Error = PyErr;
-    fn try_into(self) -> PyResult<reqwest::Body> {
-        match self.body {
-            InnerBody::Bytes(bytes) => Ok(reqwest::Body::from(bytes)),
-            InnerBody::Stream(stream) => {
-                if stream.started {
-                    return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
-                }
-                Ok(reqwest::Body::wrap_stream(stream))
-            }
-        }
-    }
-}
 impl Body {
     pub fn try_clone(&self) -> PyResult<Self> {
         let body = match &self.body {
@@ -78,6 +64,18 @@ impl Body {
             stream.set_event_loop(ev_loop.get_running_loop(py)?.clone_ref(py))?;
         }
         Ok(())
+    }
+
+    pub fn to_reqwest(self) -> PyResult<reqwest::Body> {
+        match self.body {
+            InnerBody::Bytes(bytes) => Ok(reqwest::Body::from(bytes)),
+            InnerBody::Stream(stream) => {
+                if stream.started {
+                    return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
+                }
+                Ok(reqwest::Body::wrap_stream(stream))
+            }
+        }
     }
 }
 
@@ -106,10 +104,19 @@ impl Stream for BodyStream {
         match self.cur_waiter.as_mut().unwrap().poll_unpin(cx) {
             Poll::Ready(res) => {
                 self.cur_waiter = None;
-                Poll::Ready(
-                    res.and_then(|r| Python::with_gil(|py| r.extract::<Option<PyBytes>>(py)))
-                        .transpose(),
-                )
+                match res.and_then(|r| Python::with_gil(|py| r.extract::<Option<PyBytes>>(py))) {
+                    Ok(Some(bytes)) => {
+                        if bytes.as_slice().len() > 0 {
+                            Poll::Ready(Some(Ok(bytes)))
+                        } else {
+                            // Wake the waker to poll again for the next item, as we skipped a Ready poll
+                            cx.waker().wake_by_ref();
+                            Poll::Pending // Skip empty
+                        }
+                    }
+                    Ok(None) => Poll::Ready(None), // Stream ended
+                    Err(e) => Poll::Ready(Some(Err(e))),
+                }
             }
             Poll::Pending => Poll::Pending,
         }
@@ -145,7 +152,7 @@ impl BodyStream {
                 .ok_or_else(|| PyRuntimeError::new_err("Event loop not set for BodyStream"))?;
             let anext = ONCE_ANEXT.import(py, "builtins", "anext")?;
             let coro = anext.call1((self.async_gen.bind(py), PyNone::get(py)))?;
-            py_coro_waiter(&coro, event_loop.bind(py))
+            py_coro_waiter(coro, event_loop.bind(py))
         })
     }
 
