@@ -107,23 +107,23 @@ impl Request {
             .transpose()
     }
 
-    pub fn copy_body(&self) -> PyResult<Option<Body>> {
-        self.body.as_ref().map(|b| b.try_clone()).transpose()
+    pub fn copy_body(&self, py: Python) -> PyResult<Option<Body>> {
+        self.body.as_ref().map(|b| b.try_clone(py)).transpose()
     }
 
-    pub fn set_body(&mut self, value: Option<Bound<Body>>) -> PyResult<()> {
+    pub fn set_body(&mut self, py: Python, value: Option<Bound<Body>>) -> PyResult<()> {
         self.body = value
-            .map(|b| Ok::<_, PyErr>(b.try_borrow()?.try_clone()?))
+            .map(|b| Ok::<_, PyErr>(b.try_borrow()?.try_clone(py)?))
             .transpose()?;
         Ok(())
     }
 
-    fn copy(&mut self) -> PyResult<Self> {
-        self.try_clone()
+    fn copy(&mut self, py: Python) -> PyResult<Self> {
+        self.try_clone(py)
     }
 
-    fn __copy__(&mut self) -> PyResult<Self> {
-        self.copy()
+    fn __copy__(&mut self, py: Python) -> PyResult<Self> {
+        self.try_clone(py)
     }
 }
 impl Request {
@@ -251,7 +251,7 @@ impl Request {
         Response::initialize(resp, permit, consume_body).await
     }
 
-    pub fn try_clone(&mut self) -> PyResult<Self> {
+    pub fn try_clone(&mut self, py: Python) -> PyResult<Self> {
         let inner = self
             .inner
             .take()
@@ -265,8 +265,8 @@ impl Request {
             runtime: self.runtime.clone(),
             client: self.client.clone(),
             inner: Some(new_inner),
-            body: self.body.as_ref().map(|b| b.try_clone()).transpose()?,
-            extensions: self.extensions.as_ref().map(|ext| ext.copy_dict()).transpose()?,
+            body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
+            extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),
             error_for_status: self.error_for_status,

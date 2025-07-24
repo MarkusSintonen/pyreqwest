@@ -92,8 +92,8 @@ impl From<http::HeaderMap> for HeaderMap {
 }
 
 impl Extensions {
-    pub fn copy_dict(&self) -> PyResult<Extensions> {
-        Python::with_gil(|py| Ok(Extensions(self.0.bind(py).copy()?.unbind())))
+    pub fn copy_dict(&self, py: Python) -> PyResult<Extensions> {
+        Ok(Extensions(self.0.bind(py).copy()?.unbind()))
     }
 }
 impl Clone for Extensions {

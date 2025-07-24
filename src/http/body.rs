@@ -4,7 +4,7 @@ use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::types::PyNone;
+use pyo3::types::PyEllipsis;
 use pyo3_bytes::PyBytes;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -30,9 +30,9 @@ impl Body {
     }
 
     #[staticmethod]
-    pub fn from_stream(async_gen: Py<PyAny>) -> Self {
+    pub fn from_stream(py: Python, async_gen: Py<PyAny>) -> Self {
         Body {
-            body: InnerBody::Stream(BodyStream::new(async_gen)),
+            body: InnerBody::Stream(BodyStream::new(py, async_gen)),
         }
     }
 
@@ -51,10 +51,10 @@ impl Body {
     }
 }
 impl Body {
-    pub fn try_clone(&self) -> PyResult<Self> {
+    pub fn try_clone(&self, py: Python) -> PyResult<Self> {
         let body = match &self.body {
             InnerBody::Bytes(bytes) => InnerBody::Bytes(bytes.clone()),
-            InnerBody::Stream(stream) => InnerBody::Stream(stream.try_clone()?),
+            InnerBody::Stream(stream) => InnerBody::Stream(stream.try_clone(py)?),
         };
         Ok(Body { body })
     }
@@ -89,6 +89,7 @@ pub struct BodyStream {
     event_loop: Option<Py<PyAny>>,
     cur_waiter: Option<PyCoroWaiter>,
     started: bool,
+    ellipsis: Py<PyEllipsis>,
 }
 impl Stream for BodyStream {
     type Item = PyResult<PyBytes>;
@@ -104,17 +105,17 @@ impl Stream for BodyStream {
         match self.cur_waiter.as_mut().unwrap().poll_unpin(cx) {
             Poll::Ready(res) => {
                 self.cur_waiter = None;
-                match res.and_then(|r| Python::with_gil(|py| r.extract::<Option<PyBytes>>(py))) {
-                    Ok(Some(bytes)) => {
-                        if bytes.as_slice().len() > 0 {
-                            Poll::Ready(Some(Ok(bytes)))
+                match res {
+                    Ok(res) => {
+                        if res.is(self.ellipsis.as_ref()) {
+                            Poll::Ready(None) // Stream ended
                         } else {
-                            // Wake the waker to poll again for the next item, as we skipped a Ready poll
-                            cx.waker().wake_by_ref();
-                            Poll::Pending // Skip empty
+                            Python::with_gil(|py| {
+                                let bytes = res.extract::<PyBytes>(py)?;
+                                Poll::Ready(Some(Ok(bytes)))
+                            })
                         }
                     }
-                    Ok(None) => Poll::Ready(None), // Stream ended
                     Err(e) => Poll::Ready(Some(Err(e))),
                 }
             }
@@ -123,12 +124,16 @@ impl Stream for BodyStream {
     }
 }
 impl BodyStream {
-    pub fn new(async_gen: Py<PyAny>) -> Self {
+    pub fn new(py: Python, async_gen: Py<PyAny>) -> Self {
+        static ONCE_ELLIPSIS: GILOnceCell<Py<PyEllipsis>> = GILOnceCell::new();
+        let ellipsis = ONCE_ELLIPSIS.get_or_init(py, || PyEllipsis::get(py).into());
+
         BodyStream {
             async_gen,
             event_loop: None,
             cur_waiter: None,
             started: false,
+            ellipsis: ellipsis.clone_ref(py),
         }
     }
 
@@ -151,15 +156,15 @@ impl BodyStream {
                 .as_ref()
                 .ok_or_else(|| PyRuntimeError::new_err("Event loop not set for BodyStream"))?;
             let anext = ONCE_ANEXT.import(py, "builtins", "anext")?;
-            let coro = anext.call1((self.async_gen.bind(py), PyNone::get(py)))?;
+            let coro = anext.call1((self.async_gen.bind(py), &self.ellipsis))?;
             py_coro_waiter(coro, event_loop.bind(py))
         })
     }
 
-    pub fn try_clone(&self) -> PyResult<Self> {
+    pub fn try_clone(&self, py: Python) -> PyResult<Self> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot clone a stream that was already consumed"));
         }
-        Ok(BodyStream::new(Python::with_gil(|py| self.async_gen.clone_ref(py))))
+        Ok(BodyStream::new(py, self.async_gen.clone_ref(py)))
     }
 }

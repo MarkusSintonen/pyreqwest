@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 from datetime import timedelta
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Any
 
 import pytest
 from orjson import orjson
@@ -42,13 +42,17 @@ async def read_chunks(resp: Response):
 
 @pytest.mark.parametrize("initial_read_size", [None, 0, 10, 999999])
 @pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
+@pytest.mark.parametrize("yield_empty", [False, True])
 async def test_body_stream__initial_read_size(
-    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, read: str
+    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, read: str, yield_empty: bool
 ):
     async def stream_gen():
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
-            yield f"part {i}".encode("utf-8")
+            if yield_empty and i == 2:
+                yield b""  # Empty is skipped
+            else:
+                yield f"part {i}".encode("utf-8")
 
     req = client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_streamed()
     if initial_read_size is not None:
@@ -57,16 +61,20 @@ async def test_body_stream__initial_read_size(
     else:
         assert req.initial_read_size == 65536
 
+    expected = [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
+    if yield_empty:
+        expected.remove(b"part 2")
+
     async with req as resp:
         if read == "chunks":
-            assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
+            assert [c async for c in read_chunks(resp)] == expected
         elif read == "bytes":
-            assert (await resp.bytes()) == b"part 0part 1part 2part 3part 4"
-            assert (await resp.bytes()) == b"part 0part 1part 2part 3part 4"
+            assert (await resp.bytes()) == b"".join(expected)
+            assert (await resp.bytes()) == b"".join(expected)
         else:
             assert read == "text"
-            assert (await resp.text()) == "part 0part 1part 2part 3part 4"
-            assert (await resp.text()) == "part 0part 1part 2part 3part 4"
+            assert (await resp.text()) == "".join([c.decode("utf-8") for c in expected])
+            assert (await resp.text()) == "".join([c.decode("utf-8") for c in expected])
 
 
 @pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
@@ -101,13 +109,14 @@ async def test_body_stream__yield_type(
         assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
 
 
-async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+@pytest.mark.parametrize("yield_val", ["bad", [b"a"], None])
+async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_val: Any):
     async def stream_gen():
-        yield "part 0"
+        yield yield_val
 
     req = client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_streamed()
 
-    with pytest.raises(TypeError, match="a bytes-like object is required, not 'str'"):
+    with pytest.raises(TypeError, match="a bytes-like object is required"):
         async with req as _:
             assert False
 
@@ -178,7 +187,6 @@ async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: 
         yield 1
 
     cases = [gen(), gen, async_gen, b"123", [b"123"]]
-
     for case in cases:
         req = client.post(echo_body_parts_server.address).body_stream(case).build_streamed()
 
@@ -212,7 +220,7 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
 
     resp = await client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_consumed().send()
 
-    assert await resp.next_chunk()
+    assert await resp.next_chunk() == b"part 0"
 
     with pytest.raises(RuntimeError, match="Response body already consumed"):
         await resp.json()
@@ -221,16 +229,19 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
     with pytest.raises(RuntimeError, match="Response body already consumed"):
         await resp.bytes()
 
-    assert await resp.next_chunk()
+    assert await resp.next_chunk() == b"part 1"
     assert not await resp.next_chunk()
 
 
-async def test_body_response_bad_json(client: Client, echo_body_parts_server: EchoBodyPartsServer):
-    async def stream_gen():
-        yield b"1"
+async def test_body_response_empty(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+    async def yield_empty():
         yield b""
-        yield b"3"
 
-    resp = await client.post(echo_body_parts_server.address).body_stream(stream_gen()).build_consumed().send()
+    async def no_yield():
+        if False:
+            yield b""
 
-    await resp.json()
+    cases = [yield_empty(), no_yield()]
+    for case in cases:
+        async with client.post(echo_body_parts_server.address).body_stream(case).build_streamed() as resp:
+            assert await resp.next_chunk() is None

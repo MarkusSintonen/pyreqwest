@@ -71,7 +71,7 @@ impl RequestBuilder {
 
     fn body_stream(mut slf: PyRefMut<Self>, async_gen: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
-        slf.body = Some(Body::from_stream(async_gen));
+        slf.body = Some(Body::from_stream(slf.py(), async_gen));
         Ok(slf)
     }
 

@@ -65,7 +65,7 @@ impl ResponseBuilder {
         if value.is_none() {
             self.body = None;
         } else {
-            self.body = Some(value.downcast::<Body>()?.try_borrow()?.try_clone()?);
+            self.body = Some(value.downcast::<Body>()?.try_borrow()?.try_clone(value.py())?);
         }
         Ok(())
     }
