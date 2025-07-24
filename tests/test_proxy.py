@@ -19,10 +19,10 @@ async def test_proxy_simple(
     proxy_type: str
 ):
     if proxy_type == "http":
-        proxy = Proxy.http(https_echo_server.address)
+        proxy = Proxy.http(https_echo_server.url)
     else:
         assert proxy_type == "all"
-        proxy = Proxy.all(https_echo_server.address)
+        proxy = Proxy.all(https_echo_server.url)
 
     cert_pem = cert_authority.cert_pem.bytes()
     async with ClientBuilder().proxy(proxy).add_root_certificate_pem(cert_pem).error_for_status(True).build() as client:
@@ -40,7 +40,7 @@ async def test_proxy_simple(
 
 async def test_proxy_custom(echo_server: EchoServer):
     def proxy_func(url: Url) -> UrlType | None:
-        return echo_server.address if "unknown.example" in str(url) else None
+        return echo_server.url if "unknown.example" in str(url) else None
 
     proxy = Proxy.custom(proxy_func)
 
@@ -80,7 +80,7 @@ async def test_proxy_custom__fail(echo_server: EchoServer, case: str):
 
 
 async def test_proxy_headers(echo_server: EchoServer):
-    proxy = Proxy.custom(lambda _: echo_server.address).headers({"X-Custom-Header": "CustomValue"})
+    proxy = Proxy.custom(lambda _: echo_server.url).headers({"X-Custom-Header": "CustomValue"})
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
         req = client.get(f"http://unknown.example/").build_consumed()

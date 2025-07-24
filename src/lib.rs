@@ -29,7 +29,7 @@ mod pyreqwest {
     mod request {
         use super::*;
         #[pymodule_export]
-        use crate::request::{Request, RequestBuilder};
+        use crate::request::{ConsumedRequest, Request, RequestBuilder, StreamRequest};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_hack(module, "request")

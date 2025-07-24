@@ -50,7 +50,7 @@ class Server(GranianServer, ABC):
     ) -> None: ...
 
     @property
-    def address(self) -> Url:
+    def url(self) -> Url:
         return Url(f"{self.proto}://{self.bind_addr}:{self.bind_port}")
 
     @asynccontextmanager

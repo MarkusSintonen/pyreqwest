@@ -1,7 +1,7 @@
 use crate::client::runtime::Runtime;
 use crate::http::Body;
 use crate::http::{Extensions, HeaderMap, JsonValue, Version};
-use crate::multipart::form::Form;
+use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::connection_limiter::ConnectionLimiter;
 use crate::request::consumed_request::ConsumedRequest;
@@ -12,8 +12,6 @@ use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::sync::Arc;
 use std::time::Duration;
-
-const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
 
 #[pyclass]
 pub struct RequestBuilder {
@@ -32,7 +30,8 @@ impl RequestBuilder {
     }
 
     fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
-        StreamRequest::new_py(self.inner_build(ConsumeBodyConfig::Partially(DEFAULT_INITIAL_READ_SIZE))?)
+        let init_read = StreamRequest::default_initial_read_size();
+        StreamRequest::new_py(self.inner_build(ConsumeBodyConfig::Partially(init_read))?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
@@ -63,7 +62,7 @@ impl RequestBuilder {
         Ok(slf)
     }
 
-    fn body_str(mut slf: PyRefMut<Self>, body: String) -> PyResult<PyRefMut<Self>> {
+    fn body_text(mut slf: PyRefMut<Self>, body: String) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
         slf.body = Some(Body::from_str(body));
         Ok(slf)

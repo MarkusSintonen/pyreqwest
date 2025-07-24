@@ -4,6 +4,8 @@ use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
+const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
+
 #[pyclass(extends=Request)]
 pub struct StreamRequest {
     ctx_response: Option<Py<Response>>,
@@ -47,6 +49,11 @@ impl StreamRequest {
             }
             ConsumeBodyConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
         }
+    }
+
+    #[staticmethod]
+    pub fn default_initial_read_size() -> usize {
+        DEFAULT_INITIAL_READ_SIZE
     }
 }
 impl StreamRequest {

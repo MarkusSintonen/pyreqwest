@@ -1,8 +1,7 @@
 use crate::client::runtime::Runtime;
 use crate::http::UrlType;
 use crate::http::{HeaderMap, Method};
-use crate::request::RequestBuilder;
-use crate::request::connection_limiter::ConnectionLimiter;
+use crate::request::{ConnectionLimiter, RequestBuilder};
 use pyo3::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
