@@ -34,8 +34,7 @@ async def test_build_streamed(client: Client, echo_body_parts_server: Server):
 
 @pytest.mark.parametrize("value", [True, False])
 async def test_error_for_status(echo_server: Server, value: bool):
-    url = Url(echo_server.url)
-    url.set_query_dict({"status": str(400)})
+    url = echo_server.url.with_query({"status": 400})
 
     async with ClientBuilder().error_for_status(False).build() as client:
         req = client.get(url).error_for_status(value).build_consumed()
@@ -112,8 +111,7 @@ async def test_body_stream(client: Client, echo_body_parts_server: Server):
 
 @pytest.mark.parametrize("server_sleep", [0.1, 0.01, None])
 async def test_timeout(client: Client, echo_server: Server, server_sleep: float | None):
-    url = Url(echo_server.url)
-    url.set_query_dict({"sleep_start": str(server_sleep or 0)})
+    url = echo_server.url.with_query({"sleep_start": server_sleep or 0})
 
     req = client.get(url).timeout(timedelta(seconds=0.05)).build_consumed()
     if server_sleep and server_sleep > 0.05:

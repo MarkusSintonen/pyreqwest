@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
@@ -22,6 +23,7 @@ pub struct JsonValue(pub serde_json::Value);
 #[derive(FromPyObject, IntoPyObject)]
 pub struct Extensions(pub Py<PyDict>);
 pub struct EncodablePairs(pub Vec<(String, JsonValue)>);
+pub struct MultiDictProxy<'a>(pub Vec<(Cow<'a, str>, Cow<'a, str>)>);
 
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyAny;
@@ -63,14 +65,14 @@ impl<'py> IntoPyObject<'py> for HeaderMap {
     type Output = Bound<'py, PyAny>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let dict = multidict(py)?;
+        let mut kvs: Vec<(String, String)> = Vec::with_capacity(self.0.len());
         for (key, value) in self.0.iter() {
             let value = value
                 .to_str()
                 .map_err(|e| PyValueError::new_err(format!("Invalid header value: {}", e)))?;
-            dict.set_item(key.as_str(), value)?;
+            kvs.push((key.to_string(), value.to_string()));
         }
-        Ok(dict)
+        ci_multi_dict(py)?.call1((kvs,))
     }
 }
 impl<'py> FromPyObject<'py> for HeaderMap {
@@ -130,6 +132,16 @@ impl EncodableParams<'_> {
             res.push(item?.extract()?);
         }
         Ok(res)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for MultiDictProxy<'py> {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let dict = multi_dict(py)?.call1((self.0,))?;
+        multi_dict_proxy(py)?.call1((dict,))
     }
 }
 
@@ -196,7 +208,17 @@ impl<'py> FromPyObject<'py> for JsonValue {
     }
 }
 
-fn multidict(py: Python) -> PyResult<Bound<PyAny>> {
+fn ci_multi_dict(py: Python) -> PyResult<&Bound<PyType>> {
     static MULTIDICT_CELL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
-    MULTIDICT_CELL.import(py, "multidict", "CIMultiDict")?.call0()
+    MULTIDICT_CELL.import(py, "multidict", "CIMultiDict")
+}
+
+fn multi_dict(py: Python) -> PyResult<&Bound<PyType>> {
+    static MULTIDICT_CELL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+    MULTIDICT_CELL.import(py, "multidict", "MultiDict")
+}
+
+fn multi_dict_proxy(py: Python) -> PyResult<&Bound<PyType>> {
+    static MULTIDICT_CELL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+    MULTIDICT_CELL.import(py, "multidict", "MultiDictProxy")
 }
