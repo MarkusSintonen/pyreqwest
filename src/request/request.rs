@@ -3,20 +3,18 @@ use crate::client::runtime::Runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
 use crate::http::Body;
-use crate::http::{Extensions, HeaderMap, Method};
+use crate::http::{Extensions, HeaderMap, HeaderName, HeaderValue, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
 use crate::request::connection_limiter::ConnectionLimiter;
 use crate::response::{ConsumeBodyConfig, Response};
 use futures_util::FutureExt;
-use http::{HeaderName, HeaderValue};
 use pyo3::PyResult;
 use pyo3::coroutine::CancelHandle;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::asyncio::CancelledError;
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use std::str::FromStr;
 use std::sync::Arc;
 
 #[pyclass(subclass)]
@@ -79,10 +77,10 @@ impl Request {
         Ok(())
     }
 
-    pub fn get_header(&self, key: &str) -> PyResult<Option<String>> {
+    pub fn get_header(&self, name: &str) -> PyResult<Option<String>> {
         self.inner_ref()?
             .headers()
-            .get(key)
+            .get(name)
             .map(|v| {
                 v.to_str()
                     .map(ToString::to_string)
@@ -91,14 +89,10 @@ impl Request {
             .transpose()
     }
 
-    pub fn set_header(&mut self, key: &str, value: &str) -> PyResult<Option<String>> {
-        let key =
-            HeaderName::from_str(key).map_err(|e| PyValueError::new_err(format!("Invalid header name: {}", e)))?;
-        let value =
-            HeaderValue::from_str(value).map_err(|e| PyValueError::new_err(format!("Invalid header value: {}", e)))?;
+    pub fn set_header(&mut self, name: HeaderName, value: HeaderValue) -> PyResult<Option<String>> {
         self.inner_mut()?
             .headers_mut()
-            .insert(key, value)
+            .insert(name.0, value.0)
             .map(|v| {
                 v.to_str()
                     .map(ToString::to_string)
@@ -244,10 +238,15 @@ impl Request {
             None
         };
 
-        *request.body_mut() = body.map(|b| b.to_reqwest()).transpose()?;
+        if let Some(body) = body {
+            *request.body_mut() = Some(body.to_reqwest()?);
+        }
+
         let mut resp = client.execute(request).await.map_err(map_send_error)?;
+
         ext.map(|ext| Self::move_extensions(ext, resp.extensions_mut()))
             .transpose()?;
+
         Response::initialize(resp, permit, consume_body).await
     }
 

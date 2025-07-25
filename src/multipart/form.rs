@@ -8,14 +8,18 @@ pub struct Form {
 #[pymethods]
 impl Form {
     #[new]
-    pub fn new() -> Self {
+    fn new() -> Self {
         Form {
             inner: Some(reqwest::multipart::Form::new()),
         }
     }
 
-    pub fn text(slf: PyRefMut<Self>, name: String, value: String) -> PyResult<PyRefMut<Self>> {
+    fn text(slf: PyRefMut<Self>, name: String, value: String) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.text(name, value)))
+    }
+
+    fn boundary(&self) -> PyResult<&str> {
+        Ok(self.inner_ref()?.boundary())
     }
 }
 impl Form {
@@ -29,6 +33,12 @@ impl Form {
             .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))?;
         slf.inner = Some(fun(builder)?);
         Ok(slf)
+    }
+
+    fn inner_ref(&self) -> PyResult<&reqwest::multipart::Form> {
+        self.inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
 
     pub fn build(&mut self) -> PyResult<reqwest::multipart::Form> {

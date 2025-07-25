@@ -1,4 +1,4 @@
-use crate::http::Body;
+use crate::http::{Body, HeaderName, HeaderValue};
 use crate::http::{Extensions, HeaderMap, StatusCode, Version};
 use crate::response::{ConsumeBodyConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -47,8 +47,8 @@ impl ResponseBuilder {
         Self::apply(slf, |builder| Ok(builder.version(value.0)))
     }
 
-    pub fn header(slf: PyRefMut<Self>, key: String, value: String) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.header(key, value)))
+    pub fn header(slf: PyRefMut<Self>, name: HeaderName, value: HeaderValue) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
     pub fn headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {

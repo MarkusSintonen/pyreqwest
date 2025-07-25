@@ -73,7 +73,8 @@ def find_free_port() -> int:
 async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> AsyncIterable[bytes]:
     more_body = True
     while more_body:
-        message = await receive()
+        async with asyncio.timeout(5.0):
+            message = await receive()
         if message.get('body', None):
             yield message['body']
         more_body = message.get('more_body', False)

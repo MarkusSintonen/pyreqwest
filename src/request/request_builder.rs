@@ -1,17 +1,18 @@
 use crate::client::runtime::Runtime;
-use crate::http::Body;
-use crate::http::{Extensions, HeaderMap, JsonValue, Version};
+use crate::exceptions::BuilderError;
+use crate::http::{Body, EncodablePairs, Extensions, HeaderMap, HeaderName, HeaderValue};
 use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::connection_limiter::ConnectionLimiter;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
 use crate::response::ConsumeBodyConfig;
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::sync::Arc;
 use std::time::Duration;
+use pyo3::types::PyDict;
 
 #[pyclass]
 pub struct RequestBuilder {
@@ -40,8 +41,8 @@ impl RequestBuilder {
         Ok(slf)
     }
 
-    fn header(slf: PyRefMut<Self>, key: String, value: String) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.header(key, value)))
+    fn header(slf: PyRefMut<Self>, name: HeaderName, value: HeaderValue) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
     fn headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
@@ -82,21 +83,17 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.multipart(multipart.try_borrow_mut()?.build()?)))
     }
 
-    fn query(slf: PyRefMut<Self>, query: JsonValue) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.query(&query.0)))
+    fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.query(&query.extract::<EncodablePairs>()?.0)))
     }
 
-    fn version(slf: PyRefMut<Self>, version: Version) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.version(version.0)))
+    fn form<'py>(slf: PyRefMut<'py, Self>, form: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.form(&form.extract::<EncodablePairs>()?.0)))
     }
 
-    fn form(slf: PyRefMut<Self>, form: JsonValue) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.form(&form.0)))
-    }
-
-    fn extensions(mut slf: PyRefMut<Self>, extensions: Extensions) -> PyResult<PyRefMut<Self>> {
+    fn extensions<'py>(mut slf: PyRefMut<'py, Self>, extensions: Bound<'py, PyDict>) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
-        slf.extensions = Some(extensions);
+        slf.extensions = Some(Extensions(extensions.unbind()));
         Ok(slf)
     }
 }
@@ -125,7 +122,12 @@ impl RequestBuilder {
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?
             .build_split();
-        let request = request.map_err(|e| PyValueError::new_err(format!("Failed to build request: {}", e)))?;
+        let request = request.map_err(|e| BuilderError::from_err("Failed to build request", &e))?;
+
+        if request.body().is_some() && self.body.is_some() {
+            return Err(BuilderError::from_causes("Can not set body when multipart or form is used", Vec::new()));
+        }
+
         let request = Request::new(
             self.runtime.clone(),
             client,

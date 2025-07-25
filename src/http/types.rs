@@ -1,24 +1,27 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::types::{PyDict, PyMapping, PyType};
+use pyo3::types::{PyDict, PyDictItems, PyList, PyMapping, PyTuple, PyType};
 use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Method(#[serde(with = "http_serde::method")] pub http::Method);
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct HeaderMap(#[serde(with = "http_serde::header_map")] pub http::HeaderMap);
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Clone)]
+pub struct HeaderMap(pub http::HeaderMap);
+pub struct HeaderName(pub http::HeaderName);
+pub struct HeaderValue(pub http::HeaderValue);
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Version(#[serde(with = "http_serde::version")] pub http::Version);
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct StatusCode(#[serde(with = "http_serde::status_code")] pub http::StatusCode);
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct JsonValue(pub serde_json::Value);
 #[derive(FromPyObject, IntoPyObject)]
 pub struct Extensions(pub Py<PyDict>);
+pub struct EncodablePairs(pub Vec<(String, JsonValue)>);
 
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyAny;
@@ -39,22 +42,19 @@ impl From<reqwest::Method> for Method {
     }
 }
 
-impl<'py> IntoPyObject<'py> for Version {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
-    type Error = PyErr;
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(pythonize(py, &self)?)
-    }
-}
-impl<'py> FromPyObject<'py> for Version {
+impl<'py> FromPyObject<'py> for HeaderName {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
+        let val = ob.extract::<&str>()?;
+        let val = http::HeaderName::from_str(val).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(HeaderName(val))
     }
 }
-impl From<reqwest::Version> for Version {
-    fn from(version: reqwest::Version) -> Self {
-        Version(version)
+
+impl<'py> FromPyObject<'py> for HeaderValue {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        let val = ob.extract::<&str>()?;
+        let val = http::HeaderValue::from_str(val).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(HeaderValue(val))
     }
 }
 
@@ -77,10 +77,8 @@ impl<'py> FromPyObject<'py> for HeaderMap {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let mut headers = http::HeaderMap::new();
         for item in ob.downcast::<PyMapping>()?.items()?.try_iter()? {
-            let tup: (String, String) = item?.extract()?;
-            let name = http::HeaderName::from_str(&tup.0).map_err(|e| PyValueError::new_err(e.to_string()))?;
-            let value = http::HeaderValue::from_str(&tup.1).map_err(|e| PyValueError::new_err(e.to_string()))?;
-            headers.append(name, value);
+            let tup: (HeaderName, HeaderValue) = item?.extract()?;
+            headers.append(tup.0.0, tup.1.0);
         }
         Ok(HeaderMap::from(headers))
     }
@@ -88,6 +86,69 @@ impl<'py> FromPyObject<'py> for HeaderMap {
 impl From<http::HeaderMap> for HeaderMap {
     fn from(header_map: http::HeaderMap) -> Self {
         HeaderMap(header_map)
+    }
+}
+
+impl<'py> FromPyObject<'py> for EncodablePairs {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(EncodablePairs(EncodableParams::extract(ob)?))
+    }
+}
+#[derive(FromPyObject)]
+enum EncodableParams<'py> {
+    List(Bound<'py, PyList>),
+    Tuple(Bound<'py, PyTuple>),
+    DictItems(Bound<'py, PyDictItems>),
+    Mapping(Bound<'py, PyMapping>),
+}
+impl EncodableParams<'_> {
+    fn extract(ob: &Bound<PyAny>) -> PyResult<Vec<(String, JsonValue)>> {
+        match ob.extract::<EncodableParams>()? {
+            EncodableParams::List(v) => Self::extract_sized_iter(v.into_iter()),
+            EncodableParams::Tuple(v) => Self::extract_sized_iter(v.into_iter()),
+            EncodableParams::DictItems(v) => Self::extract_iter(v.len()?, v.try_iter()?),
+            EncodableParams::Mapping(v) => Self::extract_sized_iter(v.items()?.into_iter()),
+        }
+    }
+
+    fn extract_sized_iter<'py, I: ExactSizeIterator<Item = Bound<'py, PyAny>>>(
+        iter: I,
+    ) -> PyResult<Vec<(String, JsonValue)>> {
+        let mut res: Vec<(String, JsonValue)> = Vec::with_capacity(iter.len());
+        for item in iter {
+            res.push(item.extract()?);
+        }
+        Ok(res)
+    }
+
+    fn extract_iter<'py, I: Iterator<Item = PyResult<Bound<'py, PyAny>>>>(
+        len: usize,
+        iter: I,
+    ) -> PyResult<Vec<(String, JsonValue)>> {
+        let mut res: Vec<(String, JsonValue)> = Vec::with_capacity(len);
+        for item in iter {
+            res.push(item?.extract()?);
+        }
+        Ok(res)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for Version {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(pythonize(py, &self)?)
+    }
+}
+impl<'py> FromPyObject<'py> for Version {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(depythonize(ob)?)
+    }
+}
+impl From<reqwest::Version> for Version {
+    fn from(version: reqwest::Version) -> Self {
+        Version(version)
     }
 }
 

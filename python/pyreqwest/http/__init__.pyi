@@ -1,7 +1,7 @@
 from typing import Any
 from typing_extensions import Self
 
-from pyreqwest.http.types import Stream
+from .types import Stream
 
 
 class Body:
@@ -16,7 +16,7 @@ class Body:
 
 
 class Url:
-    def __init__(self, url: str) -> None: ...
+    def __init__(self, url: Self | str) -> None: ...
     @staticmethod
     def parse(url: str) -> 'Url': ...
     @staticmethod
