@@ -9,10 +9,10 @@ use crate::request::stream_request::StreamRequest;
 use crate::response::ConsumeBodyConfig;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3_bytes::PyBytes;
 use std::sync::Arc;
 use std::time::Duration;
-use pyo3::types::PyDict;
 
 #[pyclass]
 pub struct RequestBuilder {

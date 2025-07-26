@@ -2,19 +2,19 @@ use crate::asyncio::EventLoopCell;
 use crate::client::runtime::Runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
-use crate::http::Body;
-use crate::http::{Extensions, HeaderMap, HeaderName, HeaderValue, Method};
+use crate::http::{Body, CIMultiDict};
+use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
 use crate::request::connection_limiter::ConnectionLimiter;
 use crate::response::{ConsumeBodyConfig, Response};
 use futures_util::FutureExt;
-use pyo3::PyResult;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use pyo3::{IntoPyObjectExt, PyResult};
 use std::sync::Arc;
 
 #[pyclass(subclass)]
@@ -23,6 +23,7 @@ pub struct Request {
     client: Option<reqwest::Client>,
     inner: Option<reqwest::Request>,
     body: Option<Body>,
+    py_ci_multi_dict_headers: Option<Py<PyAny>>,
     extensions: Option<Extensions>,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     connection_limiter: Option<ConnectionLimiter>,
@@ -55,6 +56,21 @@ impl Request {
     }
 
     #[getter]
+    pub fn get_headers(&mut self) -> PyResult<&Py<PyAny>> {
+        if self.py_ci_multi_dict_headers.is_none() {
+            let headers = Python::with_gil(|py| CIMultiDict::new(py, self.inner_ref()?.headers())?.into_py_any(py))?;
+            self.py_ci_multi_dict_headers = Some(headers);
+        }
+        Ok(&self.py_ci_multi_dict_headers.as_ref().unwrap())
+    }
+
+    #[setter]
+    pub fn set_headers(&mut self, py: Python, value: HeaderMap) -> PyResult<()> {
+        self.py_ci_multi_dict_headers = Some(value.into_py_any(py)?);
+        Ok(())
+    }
+
+    #[getter]
     pub fn get_extensions(&mut self) -> &Py<PyDict> {
         if self.extensions.is_none() {
             self.extensions = Some(Extensions(Python::with_gil(|py| PyDict::new(py).unbind())));
@@ -66,39 +82,6 @@ impl Request {
     pub fn set_extensions(&mut self, value: Extensions) -> PyResult<()> {
         self.extensions = Some(value);
         Ok(())
-    }
-
-    pub fn copy_headers(&self) -> PyResult<HeaderMap> {
-        Ok(self.inner_ref()?.headers().clone().into())
-    }
-
-    pub fn set_headers(&mut self, value: HeaderMap) -> PyResult<()> {
-        *self.inner_mut()?.headers_mut() = value.0;
-        Ok(())
-    }
-
-    pub fn get_header(&self, name: &str) -> PyResult<Option<String>> {
-        self.inner_ref()?
-            .headers()
-            .get(name)
-            .map(|v| {
-                v.to_str()
-                    .map(ToString::to_string)
-                    .map_err(|e| PyRuntimeError::new_err(format!("Invalid header value: {}", e)))
-            })
-            .transpose()
-    }
-
-    pub fn set_header(&mut self, name: HeaderName, value: HeaderValue) -> PyResult<Option<String>> {
-        self.inner_mut()?
-            .headers_mut()
-            .insert(name.0, value.0)
-            .map(|v| {
-                v.to_str()
-                    .map(ToString::to_string)
-                    .map_err(|e| PyRuntimeError::new_err(format!("Invalid header value: {}", e)))
-            })
-            .transpose()
     }
 
     pub fn copy_body(&self, py: Python) -> PyResult<Option<Body>> {
@@ -138,6 +121,7 @@ impl Request {
             inner: Some(request),
             extensions,
             body,
+            py_ci_multi_dict_headers: None,
             middlewares,
             connection_limiter,
             error_for_status,
@@ -211,7 +195,7 @@ impl Request {
                 .client
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
-            let request = this
+            let mut request = this
                 .inner
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
@@ -219,6 +203,12 @@ impl Request {
             let extensions = this.extensions.take();
             let connection_limiter = this.connection_limiter.take();
             let consume_body = this.consume_body_config;
+
+            if let Some(py_headers) = this.py_ci_multi_dict_headers.take() {
+                let headers: CIMultiDict = py_headers.extract(py)?;
+                *request.headers_mut() = headers.to_http_header_map(py)?;
+            }
+
             Ok::<_, PyErr>((client, request, body, extensions, connection_limiter, consume_body))
         })?;
 
@@ -265,6 +255,7 @@ impl Request {
             client: self.client.clone(),
             inner: Some(new_inner),
             body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
+            py_ci_multi_dict_headers: self.py_ci_multi_dict_headers.as_ref().map(|h| h.clone_ref(py)),
             extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),

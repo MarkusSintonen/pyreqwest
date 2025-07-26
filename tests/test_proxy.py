@@ -84,6 +84,6 @@ async def test_proxy_headers(echo_server: EchoServer):
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
         req = client.get(f"http://unknown.example/").build_consumed()
-        assert req.copy_headers() == {}
+        assert req.headers == {}
         resp = await req.send()
         assert ['x-custom-header', 'CustomValue'] in (await resp.json())['headers']

@@ -1,13 +1,13 @@
+use crate::http::{EncodablePairs, MultiDictProxy};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
+use pyo3::intern;
 use pyo3::prelude::*;
+use pyo3::types::PyTuple;
+use serde::Serialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::IpAddr;
 use std::str::FromStr;
-use pyo3::intern;
-use pyo3::types::PyTuple;
-use serde::Serialize;
-use crate::http::{EncodablePairs, MultiDictProxy};
 
 #[derive(Clone)]
 #[pyclass]
@@ -118,7 +118,10 @@ impl Url {
 
     #[getter]
     fn path_segments<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyTuple>>> {
-        self.0.path_segments().map(|v| PyTuple::new(py, v.collect::<Vec<_>>())).transpose()
+        self.0
+            .path_segments()
+            .map(|v| PyTuple::new(py, v.collect::<Vec<_>>()))
+            .transpose()
     }
 
     #[getter]
@@ -127,8 +130,8 @@ impl Url {
     }
 
     #[getter]
-    fn query(&self) -> MultiDictProxy {
-        MultiDictProxy(self.0.query_pairs().collect())
+    fn query(&self, py: Python) -> PyResult<MultiDictProxy> {
+        MultiDictProxy::new(py, self.0.query_pairs().collect())
     }
 
     #[getter]
@@ -181,7 +184,8 @@ impl Url {
 
     fn with_port(&self, port: Option<u16>) -> PyResult<Self> {
         let mut url = self.0.clone();
-        url.set_port(port).map_err(|_| PyValueError::new_err("cannot be base"))?;
+        url.set_port(port)
+            .map_err(|_| PyValueError::new_err("cannot be base"))?;
         Ok(Url(url))
     }
 
@@ -194,25 +198,29 @@ impl Url {
     fn with_ip_host(&self, addr: &str) -> PyResult<Self> {
         let addr = IpAddr::from_str(addr).map_err(|e| PyValueError::new_err(e.to_string()))?;
         let mut url = self.0.clone();
-        url.set_ip_host(addr).map_err(|_| PyValueError::new_err("cannot be base"))?;
+        url.set_ip_host(addr)
+            .map_err(|_| PyValueError::new_err("cannot be base"))?;
         Ok(Url(url))
     }
 
     fn with_username(&self, username: &str) -> PyResult<Self> {
         let mut url = self.0.clone();
-        url.set_username(username).map_err(|_| PyValueError::new_err("cannot be base"))?;
+        url.set_username(username)
+            .map_err(|_| PyValueError::new_err("cannot be base"))?;
         Ok(Url(url))
     }
 
     fn with_password(&self, password: Option<&str>) -> PyResult<Self> {
         let mut url = self.0.clone();
-        url.set_password(password).map_err(|_| PyValueError::new_err("cannot be base"))?;
+        url.set_password(password)
+            .map_err(|_| PyValueError::new_err("cannot be base"))?;
         Ok(Url(url))
     }
 
     fn with_scheme(&self, scheme: &str) -> PyResult<Self> {
         let mut url = self.0.clone();
-        url.set_scheme(scheme).map_err(|_| PyValueError::new_err("Invalid scheme"))?;
+        url.set_scheme(scheme)
+            .map_err(|_| PyValueError::new_err("Invalid scheme"))?;
         Ok(Url(url))
     }
 
@@ -259,7 +267,9 @@ impl Url {
         if let Some(query) = query.map(|q| q.0) {
             let mut url_query = url.query_pairs_mut();
             let serializer = serde_urlencoded::Serializer::new(&mut url_query);
-            query.serialize(serializer).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            query
+                .serialize(serializer)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
         Ok(())
     }

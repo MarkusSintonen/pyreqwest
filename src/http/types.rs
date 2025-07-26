@@ -1,11 +1,12 @@
-use std::borrow::Cow;
-use pyo3::exceptions::PyValueError;
+use pyo3::call::PyCallArgs;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyDictItems, PyList, PyMapping, PyTuple, PyType};
 use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -23,7 +24,8 @@ pub struct JsonValue(pub serde_json::Value);
 #[derive(FromPyObject, IntoPyObject)]
 pub struct Extensions(pub Py<PyDict>);
 pub struct EncodablePairs(pub Vec<(String, JsonValue)>);
-pub struct MultiDictProxy<'a>(pub Vec<(Cow<'a, str>, Cow<'a, str>)>);
+pub struct MultiDictProxy(Py<PyMapping>);
+pub struct CIMultiDict(Py<PyMapping>);
 
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyAny;
@@ -61,18 +63,11 @@ impl<'py> FromPyObject<'py> for HeaderValue {
 }
 
 impl<'py> IntoPyObject<'py> for HeaderMap {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
+    type Target = PyMapping;
+    type Output = Bound<'py, PyMapping>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let mut kvs: Vec<(String, String)> = Vec::with_capacity(self.0.len());
-        for (key, value) in self.0.iter() {
-            let value = value
-                .to_str()
-                .map_err(|e| PyValueError::new_err(format!("Invalid header value: {}", e)))?;
-            kvs.push((key.to_string(), value.to_string()));
-        }
-        ci_multi_dict(py)?.call1((kvs,))
+        Ok(CIMultiDict::new(py, &self.0)?.0.into_bound(py))
     }
 }
 impl<'py> FromPyObject<'py> for HeaderMap {
@@ -82,7 +77,7 @@ impl<'py> FromPyObject<'py> for HeaderMap {
             let tup: (HeaderName, HeaderValue) = item?.extract()?;
             headers.append(tup.0.0, tup.1.0);
         }
-        Ok(HeaderMap::from(headers))
+        Ok(HeaderMap(headers))
     }
 }
 impl From<http::HeaderMap> for HeaderMap {
@@ -135,13 +130,70 @@ impl EncodableParams<'_> {
     }
 }
 
-impl<'py> IntoPyObject<'py> for MultiDictProxy<'py> {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
+impl<'py> IntoPyObject<'py> for MultiDictProxy {
+    type Target = PyMapping;
+    type Output = Bound<'py, PyMapping>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let dict = multi_dict(py)?.call1((self.0,))?;
-        multi_dict_proxy(py)?.call1((dict,))
+        Ok(self.0.into_bound(py))
+    }
+}
+impl<'py> FromPyObject<'py> for MultiDictProxy {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if ob.is_exact_instance(multi_dict_proxy_type(ob.py())?) {
+            // Safety: We know that `ob` is a `MultiDictProxy` type from the check above
+            let ob = unsafe { ob.downcast_unchecked::<PyMapping>() };
+            Ok(MultiDictProxy(ob.as_unbound().clone_ref(ob.py())))
+        } else if let Ok(map) = ob.downcast::<PyMapping>() {
+            Ok(MultiDictProxy(multi_dict_proxy(ob.py(), (map,))?.unbind()))
+        } else {
+            Err(PyTypeError::new_err("Expected a CIMultiDict or Mapping"))
+        }
+    }
+}
+impl MultiDictProxy {
+    pub fn new(py: Python, items: Vec<(Cow<'_, str>, Cow<'_, str>)>) -> PyResult<Self> {
+        Ok(MultiDictProxy(multi_dict_proxy(py, (items,))?.unbind()))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for CIMultiDict {
+    type Target = PyMapping;
+    type Output = Bound<'py, PyMapping>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.0.into_bound(py))
+    }
+}
+impl<'py> FromPyObject<'py> for CIMultiDict {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if ob.is_exact_instance(ci_multi_dict_type(ob.py())?) {
+            // Safety: We know that `ob` is a `CIMultiDict` type from the check above
+            let ob = unsafe { ob.downcast_unchecked::<PyMapping>() };
+            Ok(CIMultiDict(ob.as_unbound().clone_ref(ob.py())))
+        } else if let Ok(map) = ob.downcast::<PyMapping>() {
+            Ok(CIMultiDict(ci_multi_dict(ob.py(), (map,))?.unbind()))
+        } else {
+            Err(PyTypeError::new_err("Expected a CIMultiDict or Mapping"))
+        }
+    }
+}
+impl CIMultiDict {
+    pub fn new(py: Python, headers: &http::HeaderMap) -> PyResult<Self> {
+        let kv = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
+            .collect::<Vec<_>>();
+        Ok(CIMultiDict(ci_multi_dict(py, (kv,))?.unbind()))
+    }
+
+    pub fn to_http_header_map(&self, py: Python) -> PyResult<http::HeaderMap> {
+        let mut header_map = http::HeaderMap::new();
+        for item in self.0.bind(py).items()? {
+            let (key, value): (HeaderName, HeaderValue) = item.extract()?;
+            header_map.append(key.0, value.0);
+        }
+        Ok(header_map)
     }
 }
 
@@ -208,17 +260,39 @@ impl<'py> FromPyObject<'py> for JsonValue {
     }
 }
 
-fn ci_multi_dict(py: Python) -> PyResult<&Bound<PyType>> {
+fn ci_multi_dict_type(py: Python) -> PyResult<&Bound<PyType>> {
     static MULTIDICT_CELL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
     MULTIDICT_CELL.import(py, "multidict", "CIMultiDict")
 }
 
-fn multi_dict(py: Python) -> PyResult<&Bound<PyType>> {
+fn ci_multi_dict<'py, A: PyCallArgs<'py>>(py: Python<'py>, args: A) -> PyResult<Bound<'py, PyMapping>> {
+    let dict = ci_multi_dict_type(py)?.call1(args)?;
+    // Safety: We know that `ob` is a `CIMultiDict` type from the call to `ci_multi_dict`
+    let dict = unsafe { dict.downcast_into_unchecked::<PyMapping>() };
+    Ok(dict)
+}
+
+fn multi_dict_type(py: Python) -> PyResult<&Bound<PyType>> {
     static MULTIDICT_CELL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
     MULTIDICT_CELL.import(py, "multidict", "MultiDict")
 }
 
-fn multi_dict_proxy(py: Python) -> PyResult<&Bound<PyType>> {
+fn multi_dict<'py, A: PyCallArgs<'py>>(py: Python<'py>, args: A) -> PyResult<Bound<'py, PyMapping>> {
+    let dict = multi_dict_type(py)?.call1(args)?;
+    // Safety: We know that `ob` is a `MultiDict` type from the call to `ci_multi_dict`
+    let dict = unsafe { dict.downcast_into_unchecked::<PyMapping>() };
+    Ok(dict)
+}
+
+fn multi_dict_proxy_type(py: Python) -> PyResult<&Bound<PyType>> {
     static MULTIDICT_CELL: GILOnceCell<Py<PyType>> = GILOnceCell::new();
     MULTIDICT_CELL.import(py, "multidict", "MultiDictProxy")
+}
+
+fn multi_dict_proxy<'py, A: PyCallArgs<'py>>(py: Python<'py>, args: A) -> PyResult<Bound<'py, PyMapping>> {
+    let dict = multi_dict(py, args)?;
+    let dict = multi_dict_proxy_type(py)?.call1((dict,))?;
+    // Safety: We know that `ob` is a `MultiDict` type from the call to `ci_multi_dict`
+    let dict = unsafe { dict.downcast_into_unchecked::<PyMapping>() };
+    Ok(dict)
 }

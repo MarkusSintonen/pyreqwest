@@ -29,6 +29,23 @@ async def test_url(client: Client, echo_server: Server) -> None:
     assert req.url.query == {"test": "value"}
 
 
+async def test_headers(client: Client, echo_server: Server) -> None:
+    req = client.get(echo_server.url).headers({"X-Test1": "Value1", "X-Test2": "Value2"}).build_consumed()
+    assert req.headers["X-Test1"] == "Value1" and req.headers["x-test1"] == "Value1"
+    assert req.headers["X-Test2"] == "Value2" and req.headers["x-test2"] == "Value2"
+
+    req.headers["X-Test3"] = "Value3"
+    assert req.headers["X-Test3"] == "Value3" and req.headers["x-test3"] == "Value3"
+
+    assert req.headers.pop("x-test1")
+    assert "X-Test1" not in req.headers and "x-test1" not in req.headers
+
+    resp = await req.send()
+    assert [(k, v) for k, v in (await resp.json())['headers'] if k.startswith("x-")] == [
+        ('x-test2', 'Value2'), ('x-test3', 'Value3')
+    ]
+
+
 async def test_extensions(client: Client, echo_server: Server) -> None:
     req = client.get(echo_server.url).extensions({"a": "b"}).build_consumed()
     assert req.extensions == {"a": "b"}
