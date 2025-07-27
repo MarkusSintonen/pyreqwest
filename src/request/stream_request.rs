@@ -1,5 +1,5 @@
 use crate::request::Request;
-use crate::response::{ConsumeBodyConfig, Response};
+use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -34,20 +34,20 @@ impl StreamRequest {
 
     #[getter]
     fn get_initial_read_size(slf: PyRef<Self>) -> PyResult<usize> {
-        match slf.as_super().consume_body_config() {
-            ConsumeBodyConfig::Partially(size) => Ok(*size),
-            ConsumeBodyConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+        match slf.as_super().body_consume_config() {
+            BodyConsumeConfig::Partially(size) => Ok(*size),
+            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
         }
     }
 
     #[setter]
     fn set_initial_read_size(mut slf: PyRefMut<Self>, init_size: usize) -> PyResult<()> {
-        match slf.as_super().consume_body_config_mut() {
-            ConsumeBodyConfig::Partially(size) => {
+        match slf.as_super().body_consume_config_mut() {
+            BodyConsumeConfig::Partially(size) => {
                 *size = init_size;
                 Ok(())
             }
-            ConsumeBodyConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
         }
     }
 

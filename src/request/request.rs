@@ -4,7 +4,7 @@ use crate::http::{Body, CIMultiDict};
 use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
-use crate::response::{ConsumeBodyConfig, Response};
+use crate::response::{BodyConsumeConfig, Response};
 use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::asyncio::CancelledError;
@@ -22,7 +22,7 @@ pub struct Request {
     py_ci_multi_dict_headers: Option<Py<PyMapping>>,
     extensions: Option<Extensions>,
     error_for_status: bool,
-    consume_body_config: ConsumeBodyConfig,
+    body_consume_config: BodyConsumeConfig,
 }
 
 #[pymethods]
@@ -113,7 +113,7 @@ impl Request {
         body: Option<Body>,
         extensions: Option<Extensions>,
         error_for_status: bool,
-        consume_body_config: ConsumeBodyConfig,
+        body_consume_config: BodyConsumeConfig,
     ) -> Self {
         Request {
             client,
@@ -123,7 +123,7 @@ impl Request {
             py_body: None,
             py_ci_multi_dict_headers: None,
             error_for_status,
-            consume_body_config,
+            body_consume_config,
         }
     }
 
@@ -157,18 +157,13 @@ impl Request {
         })?;
 
         let fut = async move {
-            let resp = if let Some(middlewares_next) = middlewares_next {
-                let resp = Next::call_handle(middlewares_next, &request.unwrap()).await?;
-                error_for_status
-                    .then(|| Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status()))
-                    .transpose()?;
-                resp
+            if let Some(middlewares_next) = middlewares_next {
+                Next::call_handle(middlewares_next, &request.unwrap(), error_for_status).await
             } else {
                 let resp = Request::execute(&request.unwrap()).await?;
                 error_for_status.then(|| resp.error_for_status()).transpose()?;
-                Python::with_gil(|py| Py::new(py, resp))?
-            };
-            Ok(resp)
+                Python::with_gil(|py| Py::new(py, resp))
+            }
         };
 
         let join_handle = client.unwrap().spawn(fut)?;
@@ -200,13 +195,13 @@ impl Request {
         let mut client = None;
         let mut inner_request = None;
         let mut extensions = None;
-        let mut consume_body_config = ConsumeBodyConfig::Fully;
+        let mut body_consume_config = BodyConsumeConfig::Fully;
 
         Python::with_gil(|py| -> PyResult<_> {
             let mut this = request.try_borrow_mut(py)?;
             client = Some(this.client.clone());
             extensions = this.extensions.take();
-            consume_body_config = this.consume_body_config;
+            body_consume_config = this.body_consume_config;
 
             let mut request = this
                 .inner
@@ -239,7 +234,7 @@ impl Request {
             .map(|ext| Self::move_extensions(ext, resp.extensions_mut()))
             .transpose()?;
 
-        Response::initialize(resp, permit, consume_body_config).await
+        Response::initialize(resp, permit, body_consume_config).await
     }
 
     pub fn try_clone_inner(&mut self, py: Python) -> PyResult<Self> {
@@ -276,7 +271,7 @@ impl Request {
             py_body,
             py_ci_multi_dict_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
-            consume_body_config: self.consume_body_config,
+            body_consume_config: self.body_consume_config,
             error_for_status: self.error_for_status,
         })
     }
@@ -293,11 +288,11 @@ impl Request {
         })
     }
 
-    pub fn consume_body_config(&self) -> &ConsumeBodyConfig {
-        &self.consume_body_config
+    pub fn body_consume_config(&self) -> &BodyConsumeConfig {
+        &self.body_consume_config
     }
 
-    pub fn consume_body_config_mut(&mut self) -> &mut ConsumeBodyConfig {
-        &mut self.consume_body_config
+    pub fn body_consume_config_mut(&mut self) -> &mut BodyConsumeConfig {
+        &mut self.body_consume_config
     }
 }

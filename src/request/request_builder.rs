@@ -5,7 +5,7 @@ use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
-use crate::response::ConsumeBodyConfig;
+use crate::response::BodyConsumeConfig;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -23,12 +23,12 @@ pub struct RequestBuilder {
 #[pymethods]
 impl RequestBuilder {
     fn build_consumed(&mut self) -> PyResult<Py<ConsumedRequest>> {
-        ConsumedRequest::new_py(self.inner_build(ConsumeBodyConfig::Fully)?)
+        ConsumedRequest::new_py(self.inner_build(BodyConsumeConfig::Fully)?)
     }
 
     fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
         let init_read = StreamRequest::default_initial_read_size();
-        StreamRequest::new_py(self.inner_build(ConsumeBodyConfig::Partially(init_read))?)
+        StreamRequest::new_py(self.inner_build(BodyConsumeConfig::Partially(init_read))?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
@@ -104,7 +104,7 @@ impl RequestBuilder {
         }
     }
 
-    fn inner_build(&mut self, consume_body: ConsumeBodyConfig) -> PyResult<Request> {
+    fn inner_build(&mut self, consume_body: BodyConsumeConfig) -> PyResult<Request> {
         let request = self
             .inner
             .take()

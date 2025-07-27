@@ -17,7 +17,7 @@ impl Next {
             let resp = Request::execute(&request).await?;
             Python::with_gil(|py| Py::new(py, resp))
         } else {
-            Next::call_handle(slf, &request).await
+            Next::call_handle(slf, &request, false).await
         }
     }
 }
@@ -26,7 +26,7 @@ impl Next {
         Next { client, current: 0 }
     }
 
-    pub async fn call_handle(slf: Py<Self>, request: &Py<Request>) -> PyResult<Py<Response>> {
+    pub async fn call_handle(slf: Py<Self>, request: &Py<Request>, error_for_status: bool) -> PyResult<Py<Response>> {
         let fut = Python::with_gil(|py| {
             let this = slf.try_borrow(py)?;
             let middleware = this.client.get_middleware(this.current).unwrap();
@@ -44,7 +44,13 @@ impl Next {
 
         let resp = fut.await?;
 
-        Python::with_gil(|py| Ok::<_, PyErr>(resp.into_bound(py).downcast_into_exact::<Response>()?.unbind()))
+        Python::with_gil(|py| {
+            let resp = resp.into_bound(py).downcast_into_exact::<Response>()?;
+            if error_for_status {
+                resp.try_borrow()?.error_for_status()?;
+            }
+            Ok(resp.unbind())
+        })
     }
 
     fn is_last(slf: &Py<Self>) -> PyResult<bool> {

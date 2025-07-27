@@ -135,10 +135,10 @@ impl Response {
     pub async fn initialize(
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
-        consume_body: ConsumeBodyConfig,
+        consume_body: BodyConsumeConfig,
     ) -> PyResult<Response> {
         let (head, init_chunks, body_stream, permit) = match consume_body {
-            ConsumeBodyConfig::Fully => {
+            BodyConsumeConfig::Fully => {
                 let (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
                 assert_eq!(has_more, false, "Should have fully consumed the response");
 
@@ -149,7 +149,7 @@ impl Response {
                 drop(body); // Was already read
                 (head, init_chunks, None, None)
             }
-            ConsumeBodyConfig::Partially(amount) => {
+            BodyConsumeConfig::Partially(amount) => {
                 let (init_chunks, has_more) = Self::read_limit(&mut response, Some(amount)).await?;
 
                 let (head, body) = Self::response_parts(response);
@@ -305,7 +305,7 @@ impl Drop for Response {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ConsumeBodyConfig {
+pub enum BodyConsumeConfig {
     Fully,
     Partially(usize),
 }
