@@ -11,6 +11,10 @@ impl ConsumedRequest {
     pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
         Request::send_inner(slf.as_any(), cancel).await
     }
+
+    fn __copy__(slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {
+        Self::new_py(slf.into_super().try_clone_inner(py)?)
+    }
 }
 impl ConsumedRequest {
     pub fn new_py(inner: Request) -> PyResult<Py<Self>> {

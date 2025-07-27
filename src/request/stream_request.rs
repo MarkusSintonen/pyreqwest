@@ -51,6 +51,10 @@ impl StreamRequest {
         }
     }
 
+    fn __copy__(slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {
+        Self::new_py(slf.into_super().try_clone_inner(py)?)
+    }
+
     #[staticmethod]
     pub fn default_initial_read_size() -> usize {
         DEFAULT_INITIAL_READ_SIZE

@@ -10,8 +10,8 @@ use crate::request::connection_limiter::ConnectionLimiter;
 use crate::response::{ConsumeBodyConfig, Response};
 use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::asyncio::CancelledError;
+use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping};
@@ -105,12 +105,12 @@ impl Request {
         Ok(())
     }
 
-    fn copy(&mut self, py: Python) -> PyResult<Self> {
-        self.try_clone(py)
+    fn copy(slf: Bound<Self>) -> PyResult<Bound<PyAny>> {
+        slf.call_method0("__copy__")
     }
 
-    fn __copy__(&mut self, py: Python) -> PyResult<Self> {
-        self.try_clone(py)
+    fn __copy__(&mut self, _py: Python) -> PyResult<Self> {
+        Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
     }
 }
 impl Request {
@@ -281,7 +281,7 @@ impl Request {
         Response::initialize(resp, permit, params.consume_body_config).await
     }
 
-    pub fn try_clone(&mut self, py: Python) -> PyResult<Self> {
+    pub fn try_clone_inner(&mut self, py: Python) -> PyResult<Self> {
         let inner = self
             .inner
             .take()
@@ -291,26 +291,30 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
         self.inner = Some(inner);
 
+        let py_body = self
+            .py_body
+            .as_ref()
+            .map(|b| Py::new(py, b.try_borrow(py)?.try_clone(py)?))
+            .transpose()?;
+
+        let py_ci_multi_dict_headers = self
+            .py_ci_multi_dict_headers
+            .as_ref()
+            .map(|h| -> PyResult<_> {
+                Ok(h.bind(py)
+                    .call_method0(intern!(py, "__copy__"))?
+                    .downcast_into::<PyMapping>()?
+                    .unbind())
+            })
+            .transpose()?;
+
         Ok(Request {
             runtime: self.runtime.clone(),
             client: self.client.clone(),
             inner: Some(new_inner),
             body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
-            py_body: self
-                .py_body
-                .as_ref()
-                .map(|b| Py::new(py, b.try_borrow(py)?.try_clone(py)?))
-                .transpose()?,
-            py_ci_multi_dict_headers: self
-                .py_ci_multi_dict_headers
-                .as_ref()
-                .map(|h| -> PyResult<_> {
-                    Ok(h.bind(py)
-                        .call_method0(intern!(py, "__copy__"))?
-                        .downcast_into::<PyMapping>()?
-                        .unbind())
-                })
-                .transpose()?,
+            py_body,
+            py_ci_multi_dict_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
             connection_limiter: self.connection_limiter.clone(),
             middlewares: self.middlewares.clone(),

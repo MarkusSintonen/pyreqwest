@@ -1,12 +1,13 @@
+import copy
 from typing import AsyncGenerator
 
 import pytest
 import trustme
 
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.exceptions import RequestError
 from pyreqwest.http import Body
 from pyreqwest.http.types import Stream
+from pyreqwest.request import ConsumedRequest, StreamRequest
 from .servers.server import Server
 
 
@@ -124,3 +125,42 @@ async def test_extensions(client: Client, echo_server: Server) -> None:
     req.extensions = {"foo": "bar", "test": "value"}
     assert req.extensions.pop("test") == "value"
     assert req.extensions == {"foo": "bar"}
+
+
+@pytest.mark.parametrize("call", ["copy", "__copy__"])
+@pytest.mark.parametrize("build", ["consumed", "streamed"])
+async def test_copy(client: Client, echo_server: Server, call: str, build: str) -> None:
+    builder = client.get(echo_server.url).body_text("test1").header("X-Test1", "Val1")
+    if build == "consumed":
+        req1 = builder.build_consumed()
+    else:
+        assert build == "streamed"
+        req1 = builder.build_streamed()
+
+    if call == "copy":
+        req2 = req1.copy()
+    else:
+        assert call == "__copy__"
+        req2 = copy.copy(req1)
+
+    assert req1.method == req2.method =="GET"
+    assert req1.url == req2.url
+    assert req1.headers["x-test1"] == req2.headers["x-test1"] == "Val1"
+    assert req1.body and req2.body and req1.body.copy_bytes() == req2.body.copy_bytes() == b"test1"
+
+    if build == "consumed":
+        resp1 = await req1.send()
+        resp2 = await req2.send()
+        assert (await resp1.json()) == (await resp2.json())
+    else:
+        assert build == "streamed"
+        async with req1 as resp1:
+            async with req2 as resp2:
+                assert (await resp1.json()) == (await resp2.json())
+
+
+async def test_duplicate_send_fails(client: Client, echo_server: Server) -> None:
+    req = client.get(echo_server.url).build_consumed()
+    await req.send()
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        await req.send()
