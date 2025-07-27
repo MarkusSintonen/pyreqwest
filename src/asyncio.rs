@@ -1,4 +1,5 @@
 use futures_util::FutureExt;
+use once_cell::sync::OnceCell;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
@@ -86,17 +87,22 @@ impl TaskCallback {
 }
 
 pub struct EventLoopCell {
-    event_loop: Option<Py<PyAny>>,
+    cell: OnceCell<Py<PyAny>>,
 }
 impl EventLoopCell {
     pub fn new() -> Self {
-        EventLoopCell { event_loop: None }
+        EventLoopCell { cell: OnceCell::new() }
     }
 
-    pub fn get_running_loop(&mut self, py: Python) -> PyResult<&Py<PyAny>> {
-        if self.event_loop.is_none() {
-            self.event_loop = Some(get_running_loop(py)?.unbind());
-        }
-        Ok(self.event_loop.as_ref().unwrap())
+    pub fn get_running_loop(&self, py: Python) -> PyResult<&Py<PyAny>> {
+        self.cell.get_or_try_init(|| Ok(get_running_loop(py)?.unbind()))
+    }
+
+    pub fn clone(&self, py: Python) -> Self {
+        let cell = match self.cell.get() {
+            Some(value) => OnceCell::with_value(value.clone_ref(py)),
+            None => OnceCell::new(),
+        };
+        EventLoopCell { cell }
     }
 }

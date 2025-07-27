@@ -1,35 +1,44 @@
+use crate::asyncio::EventLoopCell;
 use crate::client::runtime::Runtime;
+use crate::exceptions::PoolTimeoutError;
+use crate::exceptions::utils::map_send_error;
 use crate::http::UrlType;
 use crate::http::{HeaderMap, Method};
+use crate::middleware::Next;
 use crate::request::{ConnectionLimiter, RequestBuilder};
 use pyo3::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass]
 pub struct Client {
+    inner: Arc<ClientInner>,
+}
+struct ClientInner {
     client: reqwest::Client,
-    runtime: Arc<Runtime>,
-    middlewares: Option<Arc<Vec<Py<PyAny>>>>,
+    runtime: Runtime,
+    middlewares: Option<Vec<Py<PyAny>>>,
     total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
     default_headers: Option<HeaderMap>,
+    event_loop_cell: EventLoopCell,
 }
 
 #[pymethods]
 impl Client {
     fn request(&self, method: Method, url: UrlType) -> PyResult<RequestBuilder> {
-        let runtime = self.runtime.clone();
-        let middlewares = self.middlewares.clone();
-        let connection_limiter = self.connection_limiter.clone();
+        let client = self.clone();
 
-        let request = self.client.request(method.0, url.0);
-        let mut builder = RequestBuilder::new(runtime, request, middlewares, connection_limiter, self.error_for_status);
-        self.total_timeout
+        let request = client.inner.client.request(method.0, url.0);
+        let mut builder = RequestBuilder::new(client, request, self.inner.error_for_status);
+        self.inner
+            .total_timeout
             .map(|timeout| builder.inner_timeout(timeout))
             .transpose()?;
-        self.default_headers
+        self.inner
+            .default_headers
             .clone()
             .map(|default_headers| builder.inner_headers(default_headers))
             .transpose()?;
@@ -69,7 +78,7 @@ impl Client {
     }
 
     async fn close(&self) {
-        self.runtime.close();
+        self.inner.runtime.close();
     }
 }
 impl Client {
@@ -82,14 +91,68 @@ impl Client {
         error_for_status: bool,
         default_headers: Option<HeaderMap>,
     ) -> Self {
-        Client {
+        let inner = Arc::new(ClientInner {
             client,
-            runtime: Arc::new(runtime),
-            middlewares: middlewares.map(Arc::new),
+            runtime,
+            middlewares,
             total_timeout,
             connection_limiter,
             error_for_status,
             default_headers,
+            event_loop_cell: EventLoopCell::new(),
+        });
+        Client { inner }
+    }
+
+    pub fn spawn<F, T>(&self, future: F) -> PyResult<tokio::task::JoinHandle<T>>
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.inner.runtime.spawn(future)
+    }
+
+    pub async fn execute_reqwest(&self, request: reqwest::Request) -> PyResult<reqwest::Response> {
+        let client = &self.inner.client;
+        client.execute(request).await.map_err(map_send_error)
+    }
+
+    pub async fn limit_connections(&self, request: &mut reqwest::Request) -> PyResult<Option<OwnedSemaphorePermit>> {
+        if let Some(connection_limiter) = self.inner.connection_limiter.clone() {
+            let req_timeout = request.timeout().copied();
+            let (permit, elapsed) = connection_limiter.limit_connections(req_timeout).await?;
+
+            if let Some(req_timeout) = req_timeout {
+                if elapsed >= req_timeout {
+                    return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", Vec::new()));
+                } else {
+                    *request.timeout_mut() = Some(req_timeout - elapsed);
+                }
+            }
+            Ok(Some(permit))
+        } else {
+            Ok(None)
         }
+    }
+
+    pub fn init_middleware_chain(&self) -> Option<Next> {
+        if self.inner.middlewares.is_some() {
+            Some(Next::new(self.clone()))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_middleware(&self, idx: usize) -> Option<&Py<PyAny>> {
+        self.inner.middlewares.as_ref().map(|v| v.get(idx)).flatten()
+    }
+
+    pub fn get_event_loop(&self) -> &EventLoopCell {
+        &self.inner.event_loop_cell
+    }
+
+    pub fn clone(&self) -> Self {
+        let inner = Arc::clone(&self.inner);
+        Client { inner }
     }
 }

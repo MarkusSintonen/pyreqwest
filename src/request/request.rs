@@ -1,12 +1,9 @@
-use crate::asyncio::EventLoopCell;
-use crate::client::runtime::Runtime;
-use crate::exceptions::utils::map_send_error;
-use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
+use crate::client::Client;
+use crate::exceptions::{CloseError, RequestPanicError};
 use crate::http::{Body, CIMultiDict};
 use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
-use crate::request::connection_limiter::ConnectionLimiter;
 use crate::response::{ConsumeBodyConfig, Response};
 use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
@@ -15,19 +12,15 @@ use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping};
-use std::sync::Arc;
 
 #[pyclass(subclass)]
 pub struct Request {
-    runtime: Arc<Runtime>,
-    client: Option<reqwest::Client>,
+    client: Client,
     inner: Option<reqwest::Request>,
     body: Option<Body>,
     py_body: Option<Py<Body>>,
     py_ci_multi_dict_headers: Option<Py<PyMapping>>,
     extensions: Option<Extensions>,
-    middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-    connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
     consume_body_config: ConsumeBodyConfig,
 }
@@ -115,82 +108,70 @@ impl Request {
 }
 impl Request {
     pub fn new(
-        runtime: Arc<Runtime>,
-        client: reqwest::Client,
+        client: Client,
         request: reqwest::Request,
         body: Option<Body>,
         extensions: Option<Extensions>,
-        middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-        connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
         consume_body_config: ConsumeBodyConfig,
     ) -> Self {
         Request {
-            runtime,
-            client: Some(client),
+            client,
             inner: Some(request),
             extensions,
             body,
             py_body: None,
             py_ci_multi_dict_headers: None,
-            middlewares,
-            connection_limiter,
             error_for_status,
             consume_body_config,
         }
     }
 
     pub async fn send_inner(slf: &Py<PyAny>, mut cancel: CancelHandle) -> PyResult<Py<Response>> {
-        struct SendParams {
-            request: Py<Request>,
-            runtime: Arc<Runtime>,
-            middlewares_next: Option<Py<Next>>,
-            error_for_status: bool,
-        }
+        let mut client = None;
+        let mut request = None;
+        let mut middlewares_next = None;
+        let mut error_for_status = false;
 
-        let params = Python::with_gil(|py| {
+        Python::with_gil(|py| -> PyResult<()> {
             let req = slf.clone_ref(py).into_bound(py).downcast_into::<Self>()?;
-            let mut req_borrow = req.try_borrow_mut()?;
-
-            let mut ev_loop = EventLoopCell::new();
-            let middlewares_next = req_borrow
-                .middlewares
-                .as_ref()
-                .map(|middlewares| Next::py_new(py, middlewares.clone(), &mut ev_loop))
+            let mut this = req.try_borrow_mut()?;
+            client = Some(this.client.clone());
+            middlewares_next = this
+                .client
+                .init_middleware_chain()
+                .map(|next| Py::new(py, next))
                 .transpose()?;
-            if let Some(body) = req_borrow.body.as_mut() {
-                body.set_stream_event_loop(py, &mut ev_loop)?;
+            error_for_status = this.error_for_status;
+
+            if let Some(body) = this.body.as_mut() {
+                body.set_stream_event_loop(py, client.as_ref().unwrap())?;
             }
-            if let Some(body) = req_borrow.py_body.as_mut() {
-                body.borrow_mut(py).set_stream_event_loop(py, &mut ev_loop)?;
+            if let Some(body) = this.py_body.as_mut() {
+                body.borrow_mut(py)
+                    .set_stream_event_loop(py, client.as_ref().unwrap())?;
             }
 
-            let params = SendParams {
-                request: req.unbind(),
-                runtime: req_borrow.runtime.clone(),
-                middlewares_next,
-                error_for_status: req_borrow.error_for_status,
-            };
-            Ok::<_, PyErr>(params)
+            request = Some(req.unbind());
+            Ok(())
         })?;
 
         let fut = async move {
-            let resp = if let Some(middlewares_next) = params.middlewares_next {
-                let resp = Next::call_handle(middlewares_next, &params.request).await?;
-                params
-                    .error_for_status
+            let resp = if let Some(middlewares_next) = middlewares_next {
+                let resp = Next::call_handle(middlewares_next, &request.unwrap()).await?;
+                error_for_status
                     .then(|| Python::with_gil(|py| resp.try_borrow_mut(py)?.error_for_status()))
                     .transpose()?;
                 resp
             } else {
-                let resp = Request::execute(&params.request).await?;
-                params.error_for_status.then(|| resp.error_for_status()).transpose()?;
+                let resp = Request::execute(&request.unwrap()).await?;
+                error_for_status.then(|| resp.error_for_status()).transpose()?;
                 Python::with_gil(|py| Py::new(py, resp))?
             };
             Ok(resp)
         };
 
-        let join_handle = params.runtime.spawn(fut)?;
+        let join_handle = client.unwrap().spawn(fut)?;
 
         tokio::select! {
             res = join_handle => res.map_err(|e| {
@@ -216,16 +197,17 @@ impl Request {
     }
 
     pub async fn execute(request: &Py<Request>) -> PyResult<Response> {
-        struct ExecParams {
-            client: reqwest::Client,
-            request: reqwest::Request,
-            extensions: Option<Extensions>,
-            connection_limiter: Option<ConnectionLimiter>,
-            consume_body_config: ConsumeBodyConfig,
-        }
+        let mut client = None;
+        let mut inner_request = None;
+        let mut extensions = None;
+        let mut consume_body_config = ConsumeBodyConfig::Fully;
 
-        let mut params = Python::with_gil(|py| {
+        Python::with_gil(|py| -> PyResult<_> {
             let mut this = request.try_borrow_mut(py)?;
+            client = Some(this.client.clone());
+            extensions = this.extensions.take();
+            consume_body_config = this.consume_body_config;
+
             let mut request = this
                 .inner
                 .take()
@@ -241,44 +223,23 @@ impl Request {
             } else if let Some(body) = this.py_body.take() {
                 *request.body_mut() = Some(body.try_borrow_mut(py)?.to_reqwest()?);
             }
-
-            let params = ExecParams {
-                request,
-                client: this
-                    .client
-                    .take()
-                    .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?,
-                extensions: this.extensions.take(),
-                connection_limiter: this.connection_limiter.take(),
-                consume_body_config: this.consume_body_config,
-            };
-            Ok::<_, PyErr>(params)
+            inner_request = Some(request);
+            Ok(())
         })?;
 
-        let permit = if let Some(connection_limiter) = params.connection_limiter.clone() {
-            let req_timeout = params.request.timeout().copied();
-            let (permit, elapsed) = connection_limiter.limit_connections(req_timeout).await?;
+        let permit = client
+            .as_ref()
+            .unwrap()
+            .limit_connections(inner_request.as_mut().unwrap())
+            .await?;
 
-            if let Some(req_timeout) = req_timeout {
-                if elapsed >= req_timeout {
-                    return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", Vec::new()));
-                } else {
-                    *params.request.timeout_mut() = Some(req_timeout - elapsed);
-                }
-            }
-            Some(permit)
-        } else {
-            None
-        };
+        let mut resp = client.unwrap().execute_reqwest(inner_request.unwrap()).await?;
 
-        let mut resp = params.client.execute(params.request).await.map_err(map_send_error)?;
-
-        params
-            .extensions
+        extensions
             .map(|ext| Self::move_extensions(ext, resp.extensions_mut()))
             .transpose()?;
 
-        Response::initialize(resp, permit, params.consume_body_config).await
+        Response::initialize(resp, permit, consume_body_config).await
     }
 
     pub fn try_clone_inner(&mut self, py: Python) -> PyResult<Self> {
@@ -309,17 +270,14 @@ impl Request {
             .transpose()?;
 
         Ok(Request {
-            runtime: self.runtime.clone(),
             client: self.client.clone(),
             inner: Some(new_inner),
             body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
             py_body,
             py_ci_multi_dict_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
-            connection_limiter: self.connection_limiter.clone(),
-            middlewares: self.middlewares.clone(),
-            error_for_status: self.error_for_status,
             consume_body_config: self.consume_body_config,
+            error_for_status: self.error_for_status,
         })
     }
 

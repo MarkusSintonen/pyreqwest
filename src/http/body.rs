@@ -1,4 +1,5 @@
-use crate::asyncio::{EventLoopCell, PyCoroWaiter, py_coro_waiter};
+use crate::asyncio::{PyCoroWaiter, py_coro_waiter};
+use crate::client::Client;
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
@@ -71,10 +72,10 @@ impl Body {
         Ok(Body { body: Some(body) })
     }
 
-    pub fn set_stream_event_loop(&mut self, py: Python, ev_loop: &mut EventLoopCell) -> PyResult<()> {
+    pub fn set_stream_event_loop(&mut self, py: Python, client: &Client) -> PyResult<()> {
         match self.body.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
-            Some(InnerBody::Stream(stream)) => stream.set_event_loop(ev_loop.get_running_loop(py)?.clone_ref(py)),
+            Some(InnerBody::Stream(stream)) => stream.set_event_loop(py, client),
             None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
@@ -153,11 +154,11 @@ impl BodyStream {
         Ok(reqwest::Body::wrap_stream(self))
     }
 
-    pub fn set_event_loop(&mut self, event_loop: Py<PyAny>) -> PyResult<()> {
+    pub fn set_event_loop(&mut self, py: Python, client: &Client) -> PyResult<()> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
         }
-        self.event_loop = Some(event_loop);
+        self.event_loop = Some(client.get_event_loop().get_running_loop(py)?.clone_ref(py));
         Ok(())
     }
 

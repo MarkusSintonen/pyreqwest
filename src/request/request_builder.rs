@@ -1,9 +1,8 @@
-use crate::client::runtime::Runtime;
+use crate::client::Client;
 use crate::exceptions::BuilderError;
 use crate::http::{Body, EncodablePairs, Extensions, HeaderMap, HeaderName, HeaderValue};
 use crate::multipart::Form;
 use crate::request::Request;
-use crate::request::connection_limiter::ConnectionLimiter;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
 use crate::response::ConsumeBodyConfig;
@@ -11,17 +10,14 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3_bytes::PyBytes;
-use std::sync::Arc;
 use std::time::Duration;
 
 #[pyclass]
 pub struct RequestBuilder {
-    runtime: Arc<Runtime>,
+    client: Client,
     inner: Option<reqwest::RequestBuilder>,
     body: Option<Body>,
     extensions: Option<Extensions>,
-    middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-    connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
 }
 #[pymethods]
@@ -98,44 +94,33 @@ impl RequestBuilder {
     }
 }
 impl RequestBuilder {
-    pub fn new(
-        runtime: Arc<Runtime>,
-        inner: reqwest::RequestBuilder,
-        middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-        connection_limiter: Option<ConnectionLimiter>,
-        error_for_status: bool,
-    ) -> Self {
+    pub fn new(client: Client, inner: reqwest::RequestBuilder, error_for_status: bool) -> Self {
         RequestBuilder {
-            runtime,
+            client,
             inner: Some(inner),
             body: None,
             extensions: None,
-            middlewares,
-            connection_limiter,
             error_for_status,
         }
     }
 
     fn inner_build(&mut self, consume_body: ConsumeBodyConfig) -> PyResult<Request> {
-        let (client, request) = self
+        let request = self
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?
-            .build_split();
-        let request = request.map_err(|e| BuilderError::from_err("Failed to build request", &e))?;
+            .build()
+            .map_err(|e| BuilderError::from_err("Failed to build request", &e))?;
 
         if request.body().is_some() && self.body.is_some() {
             return Err(BuilderError::from_causes("Can not set body when multipart or form is used", Vec::new()));
         }
 
         let request = Request::new(
-            self.runtime.clone(),
-            client,
+            self.client.clone(),
             request,
             self.body.take(),
             self.extensions.take(),
-            self.middlewares.clone(),
-            self.connection_limiter.clone(),
             self.error_for_status,
             consume_body,
         );
