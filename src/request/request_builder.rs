@@ -65,7 +65,7 @@ impl RequestBuilder {
 
     fn body_text(mut slf: PyRefMut<Self>, body: String) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
-        slf.body = Some(Body::from_str(body));
+        slf.body = Some(Body::from_text(body));
         Ok(slf)
     }
 

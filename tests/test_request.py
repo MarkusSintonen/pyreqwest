@@ -4,6 +4,9 @@ import pytest
 import trustme
 
 from pyreqwest.client import Client, ClientBuilder
+from pyreqwest.exceptions import RequestError
+from pyreqwest.http import Body
+from pyreqwest.http.types import Stream
 from .servers.server import Server
 
 
@@ -44,6 +47,75 @@ async def test_headers(client: Client, echo_server: Server) -> None:
     assert [(k, v) for k, v in (await resp.json())['headers'] if k.startswith("x-")] == [
         ('x-test2', 'Value2'), ('x-test3', 'Value3')
     ]
+
+
+@pytest.mark.parametrize("kind", ["bytes", "text"])
+async def test_body__content(client: Client, echo_server: Server, kind: str) -> None:
+    def body() -> Body:
+        if kind == "bytes":
+            return Body.from_bytes(b"test1")
+        else:
+            assert kind == "text"
+            return Body.from_text("test1")
+
+    req = client.post(echo_server.url).build_consumed()
+    assert req.body is None
+    req.body = body()
+    assert req.body is not None and req.body.copy_bytes() == b"test1" and req.body.get_stream() is None
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1"]
+
+    req = client.post(echo_server.url).body_bytes(b"test2").build_consumed()
+    assert req.body is not None and req.body.copy_bytes() == b"test2" and req.body.get_stream() is None
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test2"]
+
+    resp = await client.post(echo_server.url).body_bytes(b"test3").build_consumed().send()
+    assert (await resp.json())["body_parts"] == ["test3"]
+
+
+@pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
+async def test_body__stream(
+    client: Client, echo_server: Server, yield_type: type[bytes] | type[bytearray] | type[memoryview]
+) -> None:
+    async def stream_gen() -> Stream:
+        yield yield_type(b"test1")
+        yield yield_type(b"test2")
+
+
+    stream = stream_gen()
+    req = client.post(echo_server.url).build_consumed()
+    assert req.body is None
+    req.body = Body.from_stream(stream)
+    assert req.body is not None and req.body.get_stream() is stream and req.body.copy_bytes() is None
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1", "test2"]
+
+    stream = stream_gen()
+    req = client.post(echo_server.url).body_stream(stream).build_consumed()
+    assert req.body is not None and req.body.get_stream() is stream and req.body.copy_bytes() is None
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1", "test2"]
+
+    stream = stream_gen()
+    resp = await client.post(echo_server.url).body_stream(stream).build_consumed().send()
+    assert (await resp.json())["body_parts"] == ["test1", "test2"]
+
+
+async def test_body__stream_error_already_used(client: Client, echo_server: Server) -> None:
+    async def stream_gen() -> Stream:
+        yield b"test1"
+
+    body = Body.from_stream(stream_gen())
+    req = client.post(echo_server.url).build_consumed()
+    req.body = body
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1"]
+
+    req = client.post(echo_server.url).build_consumed()
+    req.body = body
+    with pytest.raises(RuntimeError, match="Body already consumed"):
+        await req.send()
 
 
 async def test_extensions(client: Client, echo_server: Server) -> None:

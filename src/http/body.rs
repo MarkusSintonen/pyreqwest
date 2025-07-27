@@ -2,6 +2,7 @@ use crate::asyncio::{EventLoopCell, PyCoroWaiter, py_coro_waiter};
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyEllipsis;
@@ -11,70 +12,78 @@ use std::task::{Context, Poll};
 
 #[pyclass]
 pub struct Body {
-    body: InnerBody,
+    body: Option<InnerBody>,
 }
 #[pymethods]
 impl Body {
     #[staticmethod]
-    pub fn from_str(body: String) -> Self {
+    pub fn from_text(body: String) -> Self {
         Body {
-            body: InnerBody::Bytes(body.into()),
+            body: Some(InnerBody::Bytes(body.into())),
         }
     }
 
     #[staticmethod]
     pub fn from_bytes(body: PyBytes) -> Self {
         Body {
-            body: InnerBody::Bytes(body.into_inner()),
+            body: Some(InnerBody::Bytes(body.into_inner())),
         }
     }
 
     #[staticmethod]
     pub fn from_stream(py: Python, async_gen: Py<PyAny>) -> Self {
         Body {
-            body: InnerBody::Stream(BodyStream::new(py, async_gen)),
+            body: Some(InnerBody::Stream(BodyStream::new(py, async_gen))),
         }
     }
 
-    fn get_bytes(&self) -> Option<PyBytes> {
-        match &self.body {
-            InnerBody::Bytes(bytes) => Some(PyBytes::from(bytes.clone())),
-            InnerBody::Stream(_) => None,
+    fn copy_bytes(&self) -> PyResult<Option<PyBytes>> {
+        match self.body.as_ref() {
+            Some(InnerBody::Bytes(bytes)) => Ok(Some(PyBytes::from(bytes.clone()))),
+            Some(InnerBody::Stream(_)) => Ok(None),
+            None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
 
-    fn get_stream(&self) -> Option<&Py<PyAny>> {
-        match &self.body {
-            InnerBody::Bytes(_) => None,
-            InnerBody::Stream(stream) => Some(&stream.async_gen),
+    fn get_stream(&self) -> PyResult<Option<&Py<PyAny>>> {
+        match self.body.as_ref() {
+            Some(InnerBody::Bytes(_)) => Ok(None),
+            Some(InnerBody::Stream(stream)) => Ok(Some(&stream.async_gen)),
+            None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
+    }
+
+    fn copy(&self, py: Python) -> PyResult<Self> {
+        self.try_clone(py)
+    }
+
+    fn __copy__(&self, py: Python) -> PyResult<Self> {
+        self.try_clone(py)
     }
 }
 impl Body {
     pub fn try_clone(&self, py: Python) -> PyResult<Self> {
         let body = match &self.body {
-            InnerBody::Bytes(bytes) => InnerBody::Bytes(bytes.clone()),
-            InnerBody::Stream(stream) => InnerBody::Stream(stream.try_clone(py)?),
+            Some(InnerBody::Bytes(bytes)) => InnerBody::Bytes(bytes.clone()),
+            Some(InnerBody::Stream(stream)) => InnerBody::Stream(stream.try_clone(py)?),
+            None => return Err(PyRuntimeError::new_err("Body already consumed")),
         };
-        Ok(Body { body })
+        Ok(Body { body: Some(body) })
     }
 
     pub fn set_stream_event_loop(&mut self, py: Python, ev_loop: &mut EventLoopCell) -> PyResult<()> {
-        if let InnerBody::Stream(stream) = &mut self.body {
-            stream.set_event_loop(ev_loop.get_running_loop(py)?.clone_ref(py))?;
+        match self.body.as_mut() {
+            Some(InnerBody::Bytes(_)) => Ok(()),
+            Some(InnerBody::Stream(stream)) => stream.set_event_loop(ev_loop.get_running_loop(py)?.clone_ref(py)),
+            None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
-        Ok(())
     }
 
-    pub fn to_reqwest(self) -> PyResult<reqwest::Body> {
-        match self.body {
-            InnerBody::Bytes(bytes) => Ok(reqwest::Body::from(bytes)),
-            InnerBody::Stream(stream) => {
-                if stream.started {
-                    return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
-                }
-                Ok(reqwest::Body::wrap_stream(stream))
-            }
+    pub fn to_reqwest(&mut self) -> PyResult<reqwest::Body> {
+        match self.body.take() {
+            Some(InnerBody::Bytes(bytes)) => Ok(reqwest::Body::from(bytes)),
+            Some(InnerBody::Stream(stream)) => stream.to_reqwest(),
+            None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
 }
@@ -137,6 +146,13 @@ impl BodyStream {
         }
     }
 
+    pub fn to_reqwest(self) -> PyResult<reqwest::Body> {
+        if self.started {
+            return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
+        }
+        Ok(reqwest::Body::wrap_stream(self))
+    }
+
     pub fn set_event_loop(&mut self, event_loop: Py<PyAny>) -> PyResult<()> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
@@ -165,6 +181,7 @@ impl BodyStream {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot clone a stream that was already consumed"));
         }
-        Ok(BodyStream::new(py, self.async_gen.clone_ref(py)))
+        let clone = self.async_gen.call_method0(py, intern!(py, "__copy__"))?;
+        Ok(BodyStream::new(py, clone))
     }
 }

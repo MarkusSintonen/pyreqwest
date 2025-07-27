@@ -25,7 +25,7 @@ impl ResponseBuilder {
         let body: reqwest::Body = self
             .body
             .take()
-            .map(|b| b.to_reqwest())
+            .map(|mut b| b.to_reqwest())
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(Vec::new()));
         let mut resp = self
