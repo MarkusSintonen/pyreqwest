@@ -1,7 +1,7 @@
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
-use crate::http::JsonValue;
 use crate::http::{Extensions, HeaderMap, Version};
+use crate::http::{JsonValue, StatusCode};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
 use http::header::CONTENT_TYPE;
@@ -19,15 +19,13 @@ use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
 pub struct Response {
-    #[pyo3(get, set)]
-    status: u16,
     py_headers: Option<Py<PyAny>>,
     py_version: Option<Py<PyAny>>,
     py_extensions: Option<Extensions>,
 
     inner_status: http::StatusCode,
     inner_version: http::Version,
-    inner_headers: http::HeaderMap<http::HeaderValue>,
+    inner_headers: http::HeaderMap,
     inner_extensions: Option<http::Extensions>,
 
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
@@ -39,6 +37,17 @@ pub struct Response {
 
 #[pymethods]
 impl Response {
+    #[getter]
+    fn get_status(&self) -> u16 {
+        self.inner_status.as_u16()
+    }
+
+    #[setter]
+    fn set_status(&mut self, status: StatusCode) -> PyResult<()> {
+        self.inner_status = status.0;
+        Ok(())
+    }
+
     #[getter]
     fn get_headers(&mut self) -> PyResult<&Py<PyAny>> {
         if self.py_headers.is_none() {
@@ -166,7 +175,6 @@ impl Response {
         };
 
         let resp = Response {
-            status: head.status.as_u16(),
             py_headers: None,
             py_version: None,
             py_extensions: None,
@@ -280,22 +288,32 @@ impl Response {
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
         let text = self.text().await?;
-        let details = json!({
-            "line": e.line(),
-            "column": e.column(),
-            "pos": Self::json_error_pos(&text, e.line(), e.column()),
-            "doc": text,
-        });
+        let details = json!({"pos": Self::json_error_pos(&text, &e), "doc": text});
         Ok(JSONDecodeError::from_custom(&e.to_string(), details))
     }
 
-    fn json_error_pos(content: &str, line: usize, column: usize) -> usize {
+    fn json_error_pos(content: &str, e: &serde_json::error::Error) -> usize {
+        let (line, column) = (e.line(), e.column());
+        if line == 0 {
+            return 1; // Error at the start of the content
+        }
+        // Use byte position to have error case efficient
         content
-            .lines()
-            .take(line.saturating_sub(1))
-            .map(|l| l.len() + 1)
+            .split('\n')
+            .take(line)
+            .enumerate()
+            .map(|(idx, s)| {
+                if idx == line - 1 {
+                    if column == s.len() {
+                        column // Error at the end of the content
+                    } else {
+                        column.saturating_sub(1)
+                    }
+                } else {
+                    s.len() + 1 // Other lines, +1 for '\n'
+                }
+            })
             .sum::<usize>()
-            + column.saturating_sub(1)
     }
 }
 impl Drop for Response {

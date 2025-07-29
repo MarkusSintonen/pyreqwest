@@ -1,6 +1,7 @@
 import asyncio
 from json import JSONDecodeError
 from typing import Any, Callable, Awaitable
+from urllib.parse import parse_qsl
 
 from orjson import orjson
 
@@ -15,11 +16,18 @@ class EchoBodyPartsServer(Server):
         send: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         assert scope['type'] == 'http'
+        query: dict[str, str] = dict((k.decode(), v.decode()) for k, v in parse_qsl(scope['query_string']))
+
+        resp_headers = []
+        if content_type := query.get('content_type'):
+            resp_headers.append([b'content-type', content_type.encode()])
+        else:
+            resp_headers.append([b'content-type', b'application/json'])
 
         await send({
             'type': 'http.response.start',
             'status': 200,
-            'headers': [[b'content-type', b'application/json']],
+            'headers': resp_headers,
         })
 
         chunks = [chunk async for chunk in receive_all(receive) if chunk]

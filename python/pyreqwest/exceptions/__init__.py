@@ -48,7 +48,4 @@ class JSONDecodeError(HTTPError, JSONDecodeError_):
     def __init__(self, message: str, details: dict[str, Any]) -> None:
         assert isinstance(details, dict)
         assert isinstance(details["doc"], str) and isinstance(details["pos"], int)
-        assert isinstance(details["line"], int) and isinstance(details["column"], int)
         super().__init__(message, details["doc"], details["pos"])
-        self.line = details["line"]
-        self.column = details["column"]

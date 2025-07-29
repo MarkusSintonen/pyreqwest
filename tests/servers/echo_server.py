@@ -16,8 +16,8 @@ class EchoServer(Server):
         send: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         assert scope['type'] == 'http'
-        query = [(k.decode(), v.decode()) for k, v in parse_qsl(scope['query_string'])]
-        query_dict = dict(query)
+        query: list[tuple[str, str]] = [(k.decode(), v.decode()) for k, v in parse_qsl(scope['query_string'])]
+        query_dict: dict[str, str] = dict(query)
 
         if sleep_start := float(query_dict.get('sleep_start', 0)):
             await asyncio.sleep(sleep_start)
@@ -38,6 +38,10 @@ class EchoServer(Server):
         if query_dict.get('compress') == "gzip":
             resp_body = gzip.compress(resp_body)
             resp_headers.extend([[b'content-encoding', b'gzip'], [b'x-content-encoding', b'gzip']])
+
+        for k, v in query:
+            if k.startswith('header_'):
+                resp_headers.append([k.removeprefix('header_').replace('_', '-').encode(), v.encode()])
 
         await send({
             'type': 'http.response.start',

@@ -2,7 +2,7 @@ use pyo3::call::PyCallArgs;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::types::{PyDict, PyDictItems, PyList, PyMapping, PyTuple, PyType};
+use pyo3::types::{PyDict, PyDictItems, PyInt, PyList, PyMapping, PyTuple, PyType};
 use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
@@ -17,8 +17,8 @@ pub struct HeaderName(pub http::HeaderName);
 pub struct HeaderValue(pub http::HeaderValue);
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Version(#[serde(with = "http_serde::version")] pub http::Version);
-#[derive(Serialize, Deserialize, Debug)]
-pub struct StatusCode(#[serde(with = "http_serde::status_code")] pub http::StatusCode);
+#[derive(Debug)]
+pub struct StatusCode(pub http::StatusCode);
 #[derive(Serialize, Deserialize, Default)]
 pub struct JsonValue(pub serde_json::Value);
 #[derive(FromPyObject, IntoPyObject)]
@@ -207,7 +207,7 @@ impl<'py> IntoPyObject<'py> for Version {
 }
 impl<'py> FromPyObject<'py> for Version {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
+        depythonize(ob).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 impl From<reqwest::Version> for Version {
@@ -228,16 +228,18 @@ impl Clone for Extensions {
 }
 
 impl<'py> IntoPyObject<'py> for StatusCode {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
+    type Target = PyInt;
+    type Output = Bound<'py, PyInt>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(pythonize(py, &self)?)
+        Ok(PyInt::new(py, self.0.as_u16()))
     }
 }
 impl<'py> FromPyObject<'py> for StatusCode {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
+        let status = http::StatusCode::from_u16(ob.extract::<u16>()?)
+            .map_err(|_| PyValueError::new_err("invalid status code"))?;
+        Ok(StatusCode(status))
     }
 }
 impl From<http::StatusCode> for StatusCode {

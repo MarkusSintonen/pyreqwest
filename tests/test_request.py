@@ -7,7 +7,6 @@ import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.http import Body
 from pyreqwest.http.types import Stream
-from pyreqwest.request import ConsumedRequest, StreamRequest
 from .servers.server import Server
 
 
@@ -164,3 +163,18 @@ async def test_duplicate_send_fails(client: Client, echo_server: Server) -> None
     await req.send()
     with pytest.raises(RuntimeError, match="Request was already sent"):
         await req.send()
+
+
+async def test_duplicate_context_manager_fails(client: Client, echo_server: Server) -> None:
+    req = client.get(echo_server.url).build_streamed()
+    async with req as _:
+        pass
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        async with req as _:
+            assert False
+
+    req = client.get(echo_server.url).build_streamed()
+    async with req as _:
+        with pytest.raises(RuntimeError, match="Request was already sent"):
+            async with req as _:
+                assert False
