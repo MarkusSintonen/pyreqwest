@@ -1,5 +1,6 @@
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
+use pyo3::intern;
 use pyo3::prelude::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -51,8 +52,9 @@ impl Mime {
         self.0.to_string()
     }
 
-    fn __repr__(&self) -> String {
-        format!("Mime('{}')", self.0)
+    fn __repr__(slf: Bound<Self>) -> PyResult<String> {
+        let mime_repr = slf.call_method0(intern!(slf.py(), "__str__"))?.repr()?;
+        Ok(format!("Mime({})", mime_repr.to_str()?))
     }
 
     fn __hash__(&self) -> u64 {
