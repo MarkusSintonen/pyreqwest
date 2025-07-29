@@ -171,7 +171,8 @@ async def test_text(
 
     content_type = f"text/plain; charset={charset}" if charset else "text/plain"
     resp = await client.post(echo_body_parts_server.url).body_stream(resp_body()).query({"content_type": content_type}).build_consumed().send()
-    assert resp.content_type_charset() == charset
+    mime = resp.content_type_mime()
+    assert mime and mime.get_param("charset") == charset
     assert await resp.text() == expect
 
 

@@ -1,12 +1,10 @@
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
-use crate::http::{Extensions, HeaderMap, Version};
+use crate::http::{Extensions, HeaderMap, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
-use http::header::CONTENT_TYPE;
 use http_body_util::BodyExt;
-use mime::Mime;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -115,16 +113,28 @@ impl Response {
 
     async fn text(&mut self) -> PyResult<String> {
         let bytes = self.bytes_inner().await?;
-        let charset = self.content_type_charset()?.unwrap_or_else(|| "utf-8".to_string());
-        let (text, _, _) = Encoding::for_label(charset.as_bytes()).unwrap_or(UTF_8).decode(&bytes);
+        let encoding = self
+            .content_type_mime()?
+            .map(|mime| mime.get_param("charset").map(String::from))
+            .flatten()
+            .map(|charset| Encoding::for_label(charset.as_bytes()))
+            .flatten()
+            .unwrap_or(UTF_8);
+        let (text, _, _) = encoding.decode(&bytes);
         Ok(text.into_owned())
     }
 
-    fn content_type_charset(&self) -> PyResult<Option<String>> {
-        let charset = self
-            .content_type_mime()?
-            .and_then(|mime| mime.get_param("charset").map(|charset| charset.to_string()));
-        Ok(charset)
+    fn content_type_mime(&self) -> PyResult<Option<Mime>> {
+        let Some(content_type) = self.inner_headers.get(http::header::CONTENT_TYPE) else {
+            return Ok(None);
+        };
+        let content_type = content_type
+            .to_str()
+            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header", &e))?;
+        let mime = content_type
+            .parse::<mime::Mime>()
+            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
+        Ok(Some(Mime::new(mime)))
     }
 
     pub fn error_for_status(&self) -> PyResult<()> {
@@ -266,19 +276,6 @@ impl Response {
             }
         }
         Ok((init_chunks, has_more))
-    }
-
-    fn content_type_mime(&self) -> PyResult<Option<Mime>> {
-        let Some(content_type) = self.inner_headers.get(CONTENT_TYPE) else {
-            return Ok(None);
-        };
-        let content_type = content_type
-            .to_str()
-            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header", &e))?;
-        let mime = content_type
-            .parse::<Mime>()
-            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
-        Ok(Some(mime))
     }
 
     pub fn inner_close(&mut self) {
