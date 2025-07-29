@@ -176,6 +176,31 @@ async def test_text(
     assert await resp.text() == expect
 
 
+async def test_get_header(client: Client, echo_server: Server) -> None:
+    resp = await client.get(echo_server.url).query({"header_x_test": "value1"}).build_consumed().send()
+    assert resp.get_header("X-Test") == "value1"
+
+
+async def test_mime(client: Client, echo_body_parts_server: Server) -> None:
+    async def resp_body() -> AsyncGenerator[bytes]:
+        yield b'test'
+
+    resp = await client.post(echo_body_parts_server.url).body_stream(resp_body()).query(
+        {"content_type": "text/plain;charset=ascii"}
+    ).build_consumed().send()
+
+    mime = resp.content_type_mime()
+    assert mime and mime.type_ == "text" and mime.subtype == "plain" and mime.get_param("charset") == "ascii"
+    assert str(mime) == "text/plain;charset=ascii" and repr(mime) == "Mime('text/plain;charset=ascii')"
+
+    resp.headers["content-type"] = "application/json;charset=utf8"
+    mime = resp.content_type_mime()
+    assert mime and mime.type_ == "application" and mime.subtype == "json" and mime.get_param("charset") == "utf8"
+
+    assert resp.headers.pop("content-type") == "application/json;charset=utf8"
+    assert resp.content_type_mime() is None
+
+
 async def test_error_for_status(echo_server: Server) -> None:
     async with ClientBuilder().build() as client:
         resp = await client.get(echo_server.url).query([("status", 201)]).build_consumed().send()

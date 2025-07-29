@@ -5,10 +5,9 @@ use crate::http::{JsonValue, StatusCode};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
 use http_body_util::BodyExt;
-use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyMapping, PyString};
 use pyo3_bytes::PyBytes;
 use pythonize::pythonize;
 use serde_json::json;
@@ -17,13 +16,13 @@ use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
 pub struct Response {
-    py_headers: Option<Py<PyAny>>,
-    py_version: Option<Py<PyAny>>,
+    py_headers: Option<Py<PyMapping>>,
+    py_version: Option<Py<PyString>>,
     py_extensions: Option<Extensions>,
 
     inner_status: http::StatusCode,
     inner_version: http::Version,
-    inner_headers: http::HeaderMap,
+    inner_headers: Option<http::HeaderMap>,
     inner_extensions: Option<http::Extensions>,
 
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
@@ -47,32 +46,34 @@ impl Response {
     }
 
     #[getter]
-    fn get_headers(&mut self) -> PyResult<&Py<PyAny>> {
+    fn get_headers(&mut self) -> PyResult<&Py<PyMapping>> {
         if self.py_headers.is_none() {
-            let headers = HeaderMap(self.inner_headers.to_owned());
-            self.py_headers = Some(Python::with_gil(|py| headers.into_py_any(py))?);
+            let headers = HeaderMap(self.inner_headers.take().unwrap());
+            self.py_headers = Some(Python::with_gil(|py| Ok::<_, PyErr>(headers.into_pyobject(py)?.unbind()))?);
         };
         Ok(self.py_headers.as_ref().unwrap())
     }
 
     #[setter]
     fn set_headers(&mut self, py: Python, headers: HeaderMap) -> PyResult<()> {
-        self.py_headers = Some(headers.into_py_any(py)?);
+        self.py_headers = Some(headers.into_pyobject(py)?.unbind());
         Ok(())
     }
 
     #[getter]
-    fn get_version(&mut self) -> PyResult<&Py<PyAny>> {
+    fn get_version(&mut self) -> PyResult<&Py<PyString>> {
         if self.py_version.is_none() {
             let version = Version(self.inner_version);
-            self.py_version = Some(Python::with_gil(|py| Ok::<_, PyErr>(pythonize(py, &version)?.unbind()))?);
+            self.py_version = Some(Python::with_gil(|py| {
+                Ok::<_, PyErr>(pythonize(py, &version)?.downcast_into_exact::<PyString>()?.unbind())
+            })?);
         };
         Ok(self.py_version.as_ref().unwrap())
     }
 
     #[setter]
     fn set_version(&mut self, py: Python, version: Version) -> PyResult<()> {
-        self.py_version = Some(pythonize(py, &version)?.unbind());
+        self.py_version = Some(pythonize(py, &version)?.downcast_into_exact::<PyString>()?.unbind());
         Ok(())
     }
 
@@ -124,13 +125,33 @@ impl Response {
         Ok(text.into_owned())
     }
 
+    fn get_header(&self, name: &str) -> PyResult<Option<String>> {
+        match (self.inner_headers.as_ref(), self.py_headers.as_ref()) {
+            (Some(headers), None) => {
+                let val = headers
+                    .get(name)
+                    .map(|v| v.to_str())
+                    .transpose()
+                    .map_err(|e| RequestError::from_err("Failed to parse header value", &e))?
+                    .map(String::from);
+                Ok(val)
+            },
+            (None, Some(py_headers)) => Python::with_gil(|py| {
+                let py_headers = py_headers.bind(py);
+                if py_headers.contains(name)? {
+                    Ok(Some(py_headers.get_item(name)?.extract::<String>()?))
+                } else {
+                    Ok(None)
+                }
+            }),
+            _ => Err(PyRuntimeError::new_err("Headers incorrectly initialized")),
+        }
+    }
+
     fn content_type_mime(&self) -> PyResult<Option<Mime>> {
-        let Some(content_type) = self.inner_headers.get(http::header::CONTENT_TYPE) else {
+        let Some(content_type) = self.get_header("content-type")? else {
             return Ok(None);
         };
-        let content_type = content_type
-            .to_str()
-            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header", &e))?;
         let mime = content_type
             .parse::<mime::Mime>()
             .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
@@ -190,7 +211,7 @@ impl Response {
             py_extensions: None,
             inner_status: head.status,
             inner_version: head.version,
-            inner_headers: head.headers,
+            inner_headers: Some(head.headers),
             inner_extensions: Some(head.extensions),
             body_stream,
             request_semaphore_permit: permit,
