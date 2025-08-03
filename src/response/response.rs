@@ -1,13 +1,13 @@
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
-use crate::http::{Extensions, HeaderMap, Mime, Version};
+use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
 use http_body_util::BodyExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyMapping, PyString};
+use pyo3::types::{PyDict, PyString};
 use pyo3_bytes::PyBytes;
 use pythonize::pythonize;
 use serde_json::json;
@@ -16,13 +16,13 @@ use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
 pub struct Response {
-    py_headers: Option<Py<PyMapping>>,
+    py_headers: Option<Py<HeaderMap>>,
     py_version: Option<Py<PyString>>,
     py_extensions: Option<Extensions>,
 
     inner_status: http::StatusCode,
     inner_version: http::Version,
-    inner_headers: Option<http::HeaderMap>,
+    inner_headers: Option<HeaderMap>,
     inner_extensions: Option<http::Extensions>,
 
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
@@ -46,17 +46,17 @@ impl Response {
     }
 
     #[getter]
-    fn get_headers(&mut self) -> PyResult<&Py<PyMapping>> {
+    fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
         if self.py_headers.is_none() {
-            let headers = HeaderMap(self.inner_headers.take().unwrap());
-            self.py_headers = Some(Python::with_gil(|py| Ok::<_, PyErr>(headers.into_pyobject(py)?.unbind()))?);
+            let headers = self.inner_headers.take().unwrap();
+            self.py_headers = Some(Py::new(py, headers)?);
         };
         Ok(self.py_headers.as_ref().unwrap())
     }
 
     #[setter]
-    fn set_headers(&mut self, py: Python, headers: HeaderMap) -> PyResult<()> {
-        self.py_headers = Some(headers.into_pyobject(py)?.unbind());
+    fn set_headers(&mut self, headers: Py<HeaderMap>) -> PyResult<()> {
+        self.py_headers = Some(headers);
         Ok(())
     }
 
@@ -125,34 +125,24 @@ impl Response {
         Ok(text.into_owned())
     }
 
-    fn get_header(&self, name: &str) -> PyResult<Option<String>> {
-        match (self.inner_headers.as_ref(), self.py_headers.as_ref()) {
-            (Some(headers), None) => {
-                let val = headers
-                    .get(name)
-                    .map(|v| v.to_str())
-                    .transpose()
-                    .map_err(|e| RequestError::from_err("Failed to parse header value", &e))?
-                    .map(String::from);
-                Ok(val)
-            },
-            (None, Some(py_headers)) => Python::with_gil(|py| {
-                let py_headers = py_headers.bind(py);
-                if py_headers.contains(name)? {
-                    Ok(Some(py_headers.get_item(name)?.extract::<String>()?))
-                } else {
-                    Ok(None)
-                }
-            }),
-            _ => Err(PyRuntimeError::new_err("Headers incorrectly initialized")),
+    fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
+        if let Some(py_headers) = self.py_headers.as_ref() {
+            py_headers.try_borrow(py)?.get_one(name)
+        } else if let Some(inner_headers) = self.inner_headers.as_ref() {
+            inner_headers.get_one(name)
+        } else {
+            Err(PyRuntimeError::new_err("Headers incorrectly initialized"))
         }
     }
 
     fn content_type_mime(&self) -> PyResult<Option<Mime>> {
-        let Some(content_type) = self.get_header("content-type")? else {
+        let Some(content_type) = Python::with_gil(|py| self.get_header(py, "content-type"))? else {
             return Ok(None);
         };
         let mime = content_type
+            .0
+            .to_str()
+            .map_err(|e| RequestError::from_err("Failed to convert Content-Type header to string", &e))?
             .parse::<mime::Mime>()
             .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
         Ok(Some(Mime::new(mime)))
@@ -211,7 +201,7 @@ impl Response {
             py_extensions: None,
             inner_status: head.status,
             inner_version: head.version,
-            inner_headers: Some(head.headers),
+            inner_headers: Some(HeaderMap::from(head.headers)),
             inner_extensions: Some(head.extensions),
             body_stream,
             request_semaphore_permit: permit,

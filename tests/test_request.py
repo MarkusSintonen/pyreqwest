@@ -29,7 +29,7 @@ async def test_url(client: Client, echo_server: Server) -> None:
     req = client.get(echo_server.url).query({"a": "b"}).build_consumed()
     assert req.url == echo_server.url.with_query({"a": "b"})
     req.url = req.url.with_query({"test": "value"})
-    assert req.url.query == {"test": "value"}
+    assert req.url.query_pairs == [("test", "value")]
 
 
 async def test_headers(client: Client, echo_server: Server) -> None:
@@ -44,7 +44,7 @@ async def test_headers(client: Client, echo_server: Server) -> None:
     assert "X-Test1" not in req.headers and "x-test1" not in req.headers
 
     resp = await req.send()
-    assert [(k, v) for k, v in (await resp.json())['headers'] if k.startswith("x-")] == [
+    assert sorted([(k, v) for k, v in (await resp.json())['headers'] if k.startswith("x-")]) == [
         ('x-test2', 'Value2'), ('x-test3', 'Value3')
     ]
 

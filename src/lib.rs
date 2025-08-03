@@ -84,7 +84,7 @@ mod pyreqwest {
     mod http {
         use super::*;
         #[pymodule_export]
-        use crate::http::{Body, Url};
+        use crate::http::{Body, HeaderMap, Url};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_hack(module, "http")

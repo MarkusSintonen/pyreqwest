@@ -39,7 +39,7 @@ impl Client {
             .transpose()?;
         self.inner
             .default_headers
-            .clone()
+            .as_ref()
             .map(|default_headers| builder.inner_headers(default_headers))
             .transpose()?;
         Ok(builder)

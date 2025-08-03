@@ -3,11 +3,10 @@ from typing import AsyncGenerator, Mapping, Sequence, Any
 
 import pytest
 import trustme
-from multidict import CIMultiDict
 
 from pyreqwest.client import ClientBuilder, Client
 from pyreqwest.exceptions import StatusError, BuilderError, ConnectTimeoutError
-from pyreqwest.http import Url
+from pyreqwest.http import HeaderMap
 from pyreqwest.multipart import Form
 from pyreqwest.request import StreamRequest
 from .servers.server import Server
@@ -63,16 +62,15 @@ async def test_headers(client: Client, echo_server: Server):
     assert ["x-test-1", "Val1"] in (await resp.json())["headers"]
     assert ["x-test-2", "Val2"] in (await resp.json())["headers"]
 
-    headers = CIMultiDict([("X-Test", "foo"), ("X-Test", "bar")])
+    headers = HeaderMap([("X-Test", "foo"), ("X-Test", "bar")])
     resp = await client.get(echo_server.url).headers(headers).build_consumed().send()
     assert ["x-test", "foo"] in (await resp.json())["headers"]
     assert ["x-test", "bar"] in (await resp.json())["headers"]
 
-    for dict_type in [dict, CIMultiDict]:
-        with pytest.raises(ValueError, match="invalid HTTP header name"):
-            client.get(echo_server.url).headers(dict_type({"X-Test\n": "Val\n"}))
-        with pytest.raises(ValueError, match="failed to parse header value"):
-            client.get(echo_server.url).headers(dict_type({"X-Test": "Val\n"}))
+    with pytest.raises(ValueError, match="invalid HTTP header name"):
+        client.get(echo_server.url).headers({"X-Test\n": "Val\n"})
+    with pytest.raises(ValueError, match="failed to parse header value"):
+        client.get(echo_server.url).headers({"X-Test": "Val\n"})
 
 
 @pytest.mark.parametrize("password", ["test_pass", None])
@@ -152,14 +150,14 @@ async def test_query(client: Client, echo_server: Server):
         resp = await client.get(echo_server.url).query(arg).build_consumed().send()
         return (await resp.json())["query"]
 
-    for arg_type in [list, tuple, dict, CIMultiDict, lambda v: dict(v).items()]:
+    for arg_type in [list, tuple, dict, lambda v: dict(v).items()]:
         assert (await send(arg_type([]))) == []
         assert (await send(arg_type([("foo", "bar")]))) == [["foo", "bar"]]
         assert (await send(arg_type([("foo", "bar"), ("test", "testing")]))) == [["foo", "bar"], ["test", "testing"]]
         assert (await send(arg_type([("foo", 1)]))) == [["foo", "1"]]
         assert (await send(arg_type([("foo", True)]))) == [["foo", "true"]]
 
-    for arg_type in [list, CIMultiDict]:
+    for arg_type in [list, tuple]:
         val = arg_type([("foo", "bar"), ("foo", "baz")])
         resp = await client.get(echo_server.url).query(val).build_consumed().send()
         assert (await resp.json())["query"] == [["foo", "bar"], ["foo", "baz"]]
@@ -177,14 +175,14 @@ async def test_form(client: Client, echo_server):
         resp = await client.get(echo_server.url).form(arg).build_consumed().send()
         return "".join((await resp.json())["body_parts"])
 
-    for arg_type in [list, tuple, dict, CIMultiDict, lambda v: dict(v).items()]:
+    for arg_type in [list, tuple, dict, lambda v: dict(v).items()]:
         assert (await send(arg_type([]))) == ""
         assert (await send(arg_type([("foo", "bar")]))) == "foo=bar"
         assert (await send(arg_type([("foo", "bar"), ("test", "testing")]))) == "foo=bar&test=testing"
         assert (await send(arg_type([("foo", 1)]))) == "foo=1"
         assert (await send(arg_type([("foo", True)]))) == "foo=true"
 
-    for arg_type in [list, CIMultiDict]:
+    for arg_type in [list, tuple]:
         val = arg_type([("foo", "bar"), ("foo", "baz")])
         resp = await client.get(echo_server.url).form(val).build_consumed().send()
         assert "".join((await resp.json())["body_parts"]) == "foo=bar&foo=baz"
@@ -232,4 +230,4 @@ async def test_extensions(client: Client, echo_server: Server):
     with pytest.raises(TypeError, match="object cannot be converted to 'PyDict'"):
         client.get(echo_server.url).extensions([])
     with pytest.raises(TypeError, match="object cannot be converted to 'PyDict'"):
-        client.get(echo_server.url).extensions(CIMultiDict({}))
+        client.get(echo_server.url).extensions(HeaderMap({}))

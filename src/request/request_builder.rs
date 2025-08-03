@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::exceptions::BuilderError;
-use crate::http::{Body, EncodablePairs, Extensions, HeaderMap, HeaderName, HeaderValue};
+use crate::http::{Body, EncodablePairs, Extensions, HeaderArg, HeaderMap, HeaderName, HeaderValue};
 use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
@@ -41,8 +41,8 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    fn headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.headers(headers.0)))
+    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderArg) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.headers(headers.0.try_take_inner()?)))
     }
 
     fn basic_auth(slf: PyRefMut<Self>, username: String, password: Option<String>) -> PyResult<PyRefMut<Self>> {
@@ -75,19 +75,19 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.timeout(timeout)))
     }
 
-    fn multipart<'py>(slf: PyRefMut<'py, Self>, multipart: Bound<'py, Form>) -> PyResult<PyRefMut<'py, Self>> {
+    fn multipart<'py>(slf: PyRefMut<'py, Self>, multipart: Bound<'_, Form>) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |builder| Ok(builder.multipart(multipart.try_borrow_mut()?.build()?)))
     }
 
-    fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+    fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |builder| Ok(builder.query(&query.extract::<EncodablePairs>()?.0)))
     }
 
-    fn form<'py>(slf: PyRefMut<'py, Self>, form: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+    fn form<'py>(slf: PyRefMut<'py, Self>, form: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |builder| Ok(builder.form(&form.extract::<EncodablePairs>()?.0)))
     }
 
-    fn extensions<'py>(mut slf: PyRefMut<'py, Self>, extensions: Bound<'py, PyDict>) -> PyResult<PyRefMut<'py, Self>> {
+    fn extensions<'py>(mut slf: PyRefMut<'py, Self>, extensions: Bound<'_, PyDict>) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
         slf.extensions = Some(Extensions(extensions.unbind()));
         Ok(slf)
@@ -131,8 +131,8 @@ impl RequestBuilder {
         self.apply_inner(|b| Ok(b.timeout(timeout)))
     }
 
-    pub fn inner_headers(&mut self, headers: HeaderMap) -> PyResult<&mut RequestBuilder> {
-        self.apply_inner(|b| Ok(b.headers(headers.0)))
+    pub fn inner_headers(&mut self, headers: &HeaderMap) -> PyResult<&mut RequestBuilder> {
+        self.apply_inner(|b| Ok(b.headers(headers.try_clone_inner()?)))
     }
 
     fn check_inner(&self) -> PyResult<()> {

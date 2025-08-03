@@ -1,17 +1,16 @@
 import asyncio
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import Mapping
 
 import pytest
 import trustme
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
-from multidict import CIMultiDict
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.exceptions import StatusError, PoolTimeoutError, ConnectTimeoutError, ReadTimeoutError, CloseError, \
     BuilderError, ConnectError
-from pyreqwest.http import Url
+from pyreqwest.http import Url, HeaderMap
 from .servers.server import find_free_port
 from .servers.echo_server import EchoServer
 
@@ -83,7 +82,7 @@ async def test_user_agent(echo_server: EchoServer):
 
 @pytest.mark.parametrize(
     "value",
-    [CIMultiDict({"X-Test": "foobar"}), {"X-Test": "foobar"}, CIMultiDict([("X-Test", "foo"), ("X-Test", "bar")])],
+    [HeaderMap({"X-Test": "foobar"}), {"X-Test": "foobar"}, HeaderMap([("X-Test", "foo"), ("X-Test", "bar")])],
 )
 async def test_default_headers__good(echo_server: EchoServer, value: Mapping[str, str]):
     async with ClientBuilder().default_headers(value).error_for_status(True).build() as client:
@@ -93,11 +92,11 @@ async def test_default_headers__good(echo_server: EchoServer, value: Mapping[str
 
 
 async def test_default_headers__bad(echo_server: EchoServer):
-    with pytest.raises(TypeError, match="argument 'headers': 'list' object cannot be converted to 'Mapping'"):
-        ClientBuilder().default_headers([("X-Test", "foo"), ("X-Test", "bar")])
+    with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'PyTuple'"):
+        ClientBuilder().default_headers(["foo"])
     with pytest.raises(TypeError, match="argument 'headers': 'int' object cannot be converted to 'PyString'"):
         ClientBuilder().default_headers({"X-Test": 123})
-    with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'Mapping'"):
+    with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'PyTuple'"):
         ClientBuilder().default_headers("bad")
     with pytest.raises(ValueError, match="invalid HTTP header name"):
         ClientBuilder().default_headers({"X-Test\n": "foo"})

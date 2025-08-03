@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::client::runtime::Runtime;
-use crate::http::HeaderMap;
+use crate::http::{HeaderArg, HeaderMap};
 use crate::proxy::Proxy;
 use crate::request::ConnectionLimiter;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -83,9 +83,9 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.user_agent(value)))
     }
 
-    fn default_headers(mut slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
+    fn default_headers<'py>(mut slf: PyRefMut<'py, Self>, mut headers: HeaderArg) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
-        slf.default_headers = Some(headers);
+        slf.default_headers = Some(HeaderMap::from(headers.0.try_take_inner()?));
         Ok(slf)
     }
 
@@ -117,7 +117,7 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.referer(enable)))
     }
 
-    fn proxy<'py>(slf: PyRefMut<'py, Self>, proxy: Bound<'py, Proxy>) -> PyResult<PyRefMut<'py, Self>> {
+    fn proxy<'py>(slf: PyRefMut<'py, Self>, proxy: Bound<'_, Proxy>) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |builder| Ok(builder.proxy(proxy.borrow_mut().build()?)))
     }
 

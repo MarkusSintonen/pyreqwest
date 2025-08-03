@@ -1,5 +1,5 @@
-use crate::http::{Body, HeaderName, HeaderValue};
-use crate::http::{Extensions, HeaderMap, StatusCode, Version};
+use crate::http::{Body, HeaderArg, HeaderName, HeaderValue};
+use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -51,12 +51,12 @@ impl ResponseBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    pub fn headers(slf: PyRefMut<Self>, headers: HeaderMap) -> PyResult<PyRefMut<Self>> {
+    pub fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderArg) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |mut builder| {
             let headers_mut = builder
                 .headers_mut()
                 .ok_or_else(|| PyRuntimeError::new_err("ResponseBuilder has an error"))?;
-            *headers_mut = headers.0;
+            *headers_mut = headers.0.try_take_inner()?;
             Ok(builder)
         })
     }

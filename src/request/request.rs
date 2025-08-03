@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::exceptions::{CloseError, RequestPanicError};
-use crate::http::{Body, CIMultiDict};
+use crate::http::Body;
 use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
@@ -9,9 +9,8 @@ use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
-use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyMapping};
+use pyo3::types::PyDict;
 
 #[pyclass(subclass)]
 pub struct Request {
@@ -19,7 +18,7 @@ pub struct Request {
     inner: Option<reqwest::Request>,
     body: Option<Body>,
     py_body: Option<Py<Body>>,
-    py_ci_multi_dict_headers: Option<Py<PyMapping>>,
+    py_headers: Option<Py<HeaderMap>>,
     extensions: Option<Extensions>,
     error_for_status: bool,
     body_consume_config: BodyConsumeConfig,
@@ -50,21 +49,17 @@ impl Request {
     }
 
     #[getter]
-    pub fn get_headers(&mut self) -> PyResult<&Py<PyMapping>> {
-        if self.py_ci_multi_dict_headers.is_none() {
-            let headers = Python::with_gil(|py| -> PyResult<_> {
-                Ok(CIMultiDict::new(py, self.inner_ref()?.headers())?
-                    .into_pyobject(py)?
-                    .unbind())
-            })?;
-            self.py_ci_multi_dict_headers = Some(headers);
+    pub fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
+        if self.py_headers.is_none() {
+            let headers = HeaderMap::from(self.inner_ref()?.headers().clone());
+            self.py_headers = Some(Py::new(py, headers)?);
         }
-        Ok(&self.py_ci_multi_dict_headers.as_ref().unwrap())
+        Ok(&self.py_headers.as_ref().unwrap())
     }
 
     #[setter]
-    pub fn set_headers(&mut self, py: Python, value: HeaderMap) -> PyResult<()> {
-        self.py_ci_multi_dict_headers = Some(value.into_pyobject(py)?.unbind());
+    pub fn set_headers(&mut self, value: Py<HeaderMap>) -> PyResult<()> {
+        self.py_headers = Some(value);
         Ok(())
     }
 
@@ -121,7 +116,7 @@ impl Request {
             extensions,
             body,
             py_body: None,
-            py_ci_multi_dict_headers: None,
+            py_headers: None,
             error_for_status,
             body_consume_config,
         }
@@ -208,9 +203,8 @@ impl Request {
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
 
-            if let Some(py_headers) = this.py_ci_multi_dict_headers.take() {
-                let headers: CIMultiDict = py_headers.extract(py)?;
-                *request.headers_mut() = headers.to_http_header_map(py)?;
+            if let Some(py_headers) = this.py_headers.as_ref() {
+                *request.headers_mut() = py_headers.try_borrow_mut(py)?.try_clone_inner()?;
             }
 
             if let Some(mut body) = this.body.take() {
@@ -253,15 +247,10 @@ impl Request {
             .map(|b| Py::new(py, b.try_borrow(py)?.try_clone(py)?))
             .transpose()?;
 
-        let py_ci_multi_dict_headers = self
-            .py_ci_multi_dict_headers
+        let py_headers = self
+            .py_headers
             .as_ref()
-            .map(|h| -> PyResult<_> {
-                Ok(h.bind(py)
-                    .call_method0(intern!(py, "__copy__"))?
-                    .downcast_into::<PyMapping>()?
-                    .unbind())
-            })
+            .map(|h| Py::new(py, h.try_borrow(py)?.try_clone()?))
             .transpose()?;
 
         Ok(Request {
@@ -269,7 +258,7 @@ impl Request {
             inner: Some(new_inner),
             body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
             py_body,
-            py_ci_multi_dict_headers,
+            py_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
             body_consume_config: self.body_consume_config,
             error_for_status: self.error_for_status,

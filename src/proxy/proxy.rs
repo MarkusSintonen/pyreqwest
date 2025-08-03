@@ -1,4 +1,4 @@
-use crate::http::{HeaderMap, HeaderValue};
+use crate::http::{HeaderArg, HeaderValue};
 use crate::http::{Url, UrlType};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -49,8 +49,8 @@ impl Proxy {
         Self::apply(slf, |builder| Ok(builder.custom_http_auth(header_value.0)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.headers(headers.0)))
+    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderArg) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.headers(headers.0.try_take_inner()?)))
     }
 
     fn no_proxy<'py>(slf: PyRefMut<'py, Self>, no_proxy_list: Option<&str>) -> PyResult<PyRefMut<'py, Self>> {
@@ -68,7 +68,7 @@ impl Proxy {
     fn handle_custom_proxy(fun: &Py<PyAny>, url: &reqwest::Url) -> PyResult<Option<reqwest::Url>> {
         Python::with_gil(|py| {
             Ok(fun
-                .call1(py, (Url(url.clone()),))?
+                .call1(py, (Url::from(url.clone()),))?
                 .extract::<Option<UrlType>>(py)?
                 .map(|v| v.0))
         })

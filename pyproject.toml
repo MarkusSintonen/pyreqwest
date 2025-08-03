@@ -6,10 +6,7 @@ authors = [
 ]
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
-dependencies = [
-    "multidict>=6.6.3",
-    "orjson==3.10.18",
-]
+dependencies = [] # Pure Rust project, no Python dependencies
 
 [dependency-groups]
 dev = [
@@ -19,6 +16,7 @@ dev = [
     "granian==2.4.1",
     "asgi-types==0.1.0",
     "trustme==1.2.1",
+    "orjson==3.10.18",
 ]
 
 [tool.maturin]
