@@ -1,4 +1,5 @@
 import json
+from collections.abc import MutableMapping
 from typing import AsyncGenerator
 
 import pytest
@@ -7,6 +8,7 @@ import trustme
 import pyreqwest.exceptions
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import StatusError
+from pyreqwest.http import HeaderMap
 from .servers.server import Server
 
 
@@ -38,6 +40,9 @@ async def test_headers(client: Client, echo_server: Server) -> None:
         [("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")]
     ).build_consumed()
     resp = await req.send()
+
+    assert type(resp.headers) == HeaderMap and isinstance(resp.headers, MutableMapping)
+
     assert resp.headers.get_all("X-Test1") == ['Value1', 'Value2'] and resp.headers["x-test1"] == "Value1"
     assert resp.headers.get_all("X-Test2") == ["Value3"] and resp.headers["x-test2"] == "Value3"
 
@@ -174,11 +179,6 @@ async def test_text(
     mime = resp.content_type_mime()
     assert mime and mime.get_param("charset") == charset
     assert await resp.text() == expect
-
-
-async def test_get_header(client: Client, echo_server: Server) -> None:
-    resp = await client.get(echo_server.url).query({"header_x_test": "value1"}).build_consumed().send()
-    assert resp.get_header("X-Test") == "value1"
 
 
 async def test_mime(client: Client, echo_body_parts_server: Server) -> None:

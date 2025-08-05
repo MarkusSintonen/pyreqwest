@@ -1,205 +1,175 @@
-use crate::http::HeaderValue;
 use crate::http::header_map::header_map::HeaderMap;
 use crate::http::header_map::iters::{HeaderMapItemsIter, HeaderMapKeysIter, HeaderMapValuesIter};
+use crate::http::{HeaderName, HeaderValue};
 use pyo3::basic::CompareOp;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyIterator, PyList, PySet};
+use pyo3::types::{PyIterator, PyList, PySet, PyString};
 
 #[pyclass]
-pub struct HeaderMapItemsView {
-    map: HeaderMap,
-}
+pub struct HeaderMapItemsView(HeaderMap);
 #[pymethods]
 impl HeaderMapItemsView {
     fn __iter__(&self) -> PyResult<HeaderMapItemsIter> {
-        HeaderMapItemsIter::new(self.map.clone_arc())
+        HeaderMapItemsIter::new(self.0.clone_arc())
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.map.total_len()
+        self.0.total_len()
     }
 
     fn __contains__(&self, kv: (String, String)) -> PyResult<bool> {
         let (key, val) = kv;
-        self.map.ref_map(|map| match map.get(key) {
-            Some(header_value) => HeaderValue::str_res(header_value).map(|v| v == val),
-            None => Ok(false),
+        self.0.ref_map(|map| {
+            for v in map.get_all(key) {
+                if HeaderValue::str_res(v)? == val {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
         })
     }
 
     fn __reversed__(&self, py: Python) -> PyResult<Py<PyIterator>> {
-        let mut items = self.to_vec()?;
-        items.reverse();
-        Ok(PyList::new(py, items)?.into_any().try_iter()?.unbind())
+        vec_rev_iter(py, self.to_vec()?)
     }
 
     fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        let v1 = self.to_vec()?;
-        let v2 = other.to_vec()?;
-        let res = match op {
-            CompareOp::Lt => v1 < v2,
-            CompareOp::Le => v1 <= v2,
-            CompareOp::Eq => v1 == v2,
-            CompareOp::Ne => v1 != v2,
-            CompareOp::Gt => v1 > v2,
-            CompareOp::Ge => v1 >= v2,
-        };
-        Ok(res)
+        Ok(richcmp(self.to_vec()?, other.to_vec()?, op))
     }
 
     // ItemsView AbstractSet methods
 
     fn __and__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__and__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__and__"), other)
     }
 
     fn __rand__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__rand__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__rand__"), other)
     }
 
     fn __or__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__or__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__or__"), other)
     }
 
     fn __ror__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__ror__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__ror__"), other)
     }
 
     fn __sub__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__sub__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__sub__"), other)
     }
 
     fn __rsub__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__rsub__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__rsub__"), other)
     }
 
     fn __xor__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__xor__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__xor__"), other)
     }
 
     fn __rxor__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__rxor__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__rxor__"), other)
     }
 }
 impl HeaderMapItemsView {
-    pub fn new(map: HeaderMap) -> PyResult<Self> {
-        Ok(HeaderMapItemsView { map })
+    pub fn new(map: HeaderMap) -> Self {
+        HeaderMapItemsView(map)
     }
 
-    fn to_vec(&self) -> PyResult<Vec<(String, String)>> {
-        self.map.ref_map(|map| {
-            map.iter()
-                .map(|(k, v)| Ok((k.as_str().to_string(), HeaderValue::str_res(v)?.to_string())))
-                .collect::<Result<Vec<_>, _>>()
+    fn to_vec(&self) -> PyResult<Vec<(HeaderName, HeaderValue)>> {
+        self.0.ref_map(|map| {
+            Ok(map
+                .iter()
+                .map(|(k, v)| (HeaderName(k.clone()), HeaderValue(v.clone())))
+                .collect::<Vec<_>>())
         })
-    }
-
-    fn py_set<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PySet>> {
-        PySet::new(py, self.to_vec()?)
     }
 }
 
 #[pyclass]
-pub struct HeaderMapKeysView(HeaderMapItemsView);
+pub struct HeaderMapKeysView(HeaderMap);
 #[pymethods]
 impl HeaderMapKeysView {
     fn __iter__(&self) -> PyResult<HeaderMapKeysIter> {
-        HeaderMapKeysIter::new(self.0.map.clone_arc())
+        HeaderMapKeysIter::new(&self.0)
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.map.total_len()
+        self.0.total_len()
     }
 
     fn __contains__(&self, key: &str) -> PyResult<bool> {
-        self.0.map.__contains__(key)
+        self.0.__contains__(key)
     }
 
     fn __reversed__(&self, py: Python) -> PyResult<Py<PyIterator>> {
-        let mut items = self.to_vec()?;
-        items.reverse();
-        Ok(PyList::new(py, items)?.into_any().try_iter()?.unbind())
+        vec_rev_iter(py, self.to_vec()?)
     }
 
     fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        let v1 = self.to_vec()?;
-        let v2 = other.to_vec()?;
-        let res = match op {
-            CompareOp::Lt => v1 < v2,
-            CompareOp::Le => v1 <= v2,
-            CompareOp::Eq => v1 == v2,
-            CompareOp::Ne => v1 != v2,
-            CompareOp::Gt => v1 > v2,
-            CompareOp::Ge => v1 >= v2,
-        };
-        Ok(res)
+        Ok(richcmp(self.to_vec()?, other.to_vec()?, op))
     }
 
     // KeysView AbstractSet methods
 
     fn __and__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__and__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__and__"), other)
     }
 
     fn __rand__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__rand__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__rand__"), other)
     }
 
     fn __or__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__or__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__or__"), other)
     }
 
     fn __ror__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__ror__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__ror__"), other)
     }
 
     fn __sub__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__sub__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__sub__"), other)
     }
 
     fn __rsub__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__rsub__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__rsub__"), other)
     }
 
     fn __xor__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__xor__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__xor__"), other)
     }
 
     fn __rxor__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.py_set(py)?.call_method1(intern!(py, "__rxor__"), (other,))
+        set_op(self.to_vec()?, intern!(py, "__rxor__"), other)
     }
 }
 impl HeaderMapKeysView {
-    pub fn new(map: HeaderMap) -> PyResult<Self> {
-        Ok(HeaderMapKeysView(HeaderMapItemsView::new(map)?))
+    pub fn new(map: HeaderMap) -> Self {
+        HeaderMapKeysView(map)
     }
 
-    fn to_vec(&self) -> PyResult<Vec<String>> {
+    fn to_vec(&self) -> PyResult<Vec<HeaderName>> {
         self.0
-            .map
-            .ref_map(|map| Ok(map.keys().map(|k| k.as_str().to_string()).collect::<Vec<_>>()))
-    }
-
-    fn py_set<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PySet>> {
-        PySet::new(py, self.to_vec()?)
+            .ref_map(|map| Ok(map.keys().map(|k| HeaderName(k.clone())).collect::<Vec<_>>()))
     }
 }
 
 #[pyclass]
-pub struct HeaderMapValuesView(HeaderMapItemsView);
+pub struct HeaderMapValuesView(HeaderMap);
 #[pymethods]
 impl HeaderMapValuesView {
     fn __iter__(&self) -> PyResult<HeaderMapValuesIter> {
-        HeaderMapValuesIter::new(self.0.map.clone_arc())
+        HeaderMapValuesIter::new(self.0.clone_arc())
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.map.total_len()
+        self.0.total_len()
     }
 
     fn __contains__(&self, val: &str) -> PyResult<bool> {
-        self.0.map.ref_map(|map| {
+        self.0.ref_map(|map| {
             for v in map.values() {
                 if HeaderValue::str_res(v)? == val {
                     return Ok(true);
@@ -210,19 +180,42 @@ impl HeaderMapValuesView {
     }
 
     fn __reversed__(&self, py: Python) -> PyResult<Py<PyIterator>> {
-        let mut items = self.to_vec()?;
-        items.reverse();
-        Ok(PyList::new(py, items)?.into_any().try_iter()?.unbind())
+        vec_rev_iter(py, self.to_vec()?)
     }
 }
 impl HeaderMapValuesView {
-    pub fn new(map: HeaderMap) -> PyResult<Self> {
-        Ok(HeaderMapValuesView(HeaderMapItemsView::new(map)?))
+    pub fn new(map: HeaderMap) -> Self {
+        HeaderMapValuesView(map)
     }
 
-    fn to_vec(&self) -> PyResult<Vec<String>> {
+    fn to_vec(&self) -> PyResult<Vec<HeaderValue>> {
         self.0
-            .map
-            .ref_map(|map| Ok(map.keys().map(|k| k.as_str().to_string()).collect::<Vec<_>>()))
+            .ref_map(|map| Ok(map.values().map(|v| HeaderValue(v.clone())).collect::<Vec<_>>()))
     }
+}
+
+fn vec_rev_iter<'py, T: IntoPyObject<'py>>(py: Python<'py>, mut v: Vec<T>) -> PyResult<Py<PyIterator>> {
+    v.reverse();
+    Ok(PyList::new(py, v)?.into_any().try_iter()?.unbind())
+}
+
+fn richcmp<'py, T: IntoPyObject<'py> + Ord>(mut v1: Vec<T>, mut v2: Vec<T>, op: CompareOp) -> bool {
+    v1.sort(); // HeaderMap is not guaranteed to be sorted by any criteria, so we sort it for comparison
+    v2.sort();
+    match op {
+        CompareOp::Lt => v1 < v2,
+        CompareOp::Le => v1 <= v2,
+        CompareOp::Eq => v1 == v2,
+        CompareOp::Ne => v1 != v2,
+        CompareOp::Gt => v1 > v2,
+        CompareOp::Ge => v1 >= v2,
+    }
+}
+
+fn set_op<'py, T: IntoPyObject<'py>>(
+    v: Vec<T>,
+    op: &Bound<'py, PyString>,
+    other: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    PySet::new(other.py(), v)?.call_method1(op, (other,))
 }

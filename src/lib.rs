@@ -9,6 +9,8 @@ mod request;
 mod response;
 
 use pyo3::prelude::*;
+use pyo3::types::PyType;
+use pyo3::{PyTypeInfo, intern};
 
 #[pymodule(name = "_pyreqwest")]
 mod pyreqwest {
@@ -21,7 +23,7 @@ mod pyreqwest {
         use crate::client::{Client, ClientBuilder};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "client")
+            register_module_hack(module, "client")
         }
     }
 
@@ -32,7 +34,7 @@ mod pyreqwest {
         use crate::request::{ConsumedRequest, Request, RequestBuilder, StreamRequest};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "request")
+            register_module_hack(module, "request")
         }
     }
 
@@ -43,7 +45,7 @@ mod pyreqwest {
         use crate::response::{Response, ResponseBuilder};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "response")
+            register_module_hack(module, "response")
         }
     }
 
@@ -54,7 +56,7 @@ mod pyreqwest {
         use crate::middleware::Next;
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "middleware")
+            register_module_hack(module, "middleware")
         }
     }
 
@@ -65,7 +67,7 @@ mod pyreqwest {
         use crate::proxy::Proxy;
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "proxy")
+            register_module_hack(module, "proxy")
         }
     }
 
@@ -76,7 +78,7 @@ mod pyreqwest {
         use crate::multipart::Form;
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "multipart")
+            register_module_hack(module, "multipart")
         }
     }
 
@@ -84,20 +86,31 @@ mod pyreqwest {
     mod http {
         use super::*;
         #[pymodule_export]
-        use crate::http::{Body, HeaderMap, Url};
+        use crate::http::{Body, HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView, Url};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_hack(module, "http")
+            register_collections_abc::<HeaderMap>(module.py(), "MutableMapping")?;
+            register_collections_abc::<HeaderMapItemsView>(module.py(), "ItemsView")?;
+            register_collections_abc::<HeaderMapKeysView>(module.py(), "KeysView")?;
+            register_collections_abc::<HeaderMapValuesView>(module.py(), "ValuesView")?;
+            register_module_hack(module, "http")
         }
     }
 }
 
+fn register_collections_abc<T: PyTypeInfo>(py: Python, base: &str) -> PyResult<()> {
+    py.import("collections")?
+        .getattr("abc")?
+        .getattr(base)?
+        .call_method1(intern!(py, "register"), (PyType::new::<T>(py),))
+        .map(|_| ())
+}
+
 // https://github.com/PyO3/pyo3/issues/759
-fn register_hack(module: &Bound<'_, PyModule>, name: &str) -> PyResult<()> {
-    let mod_name = format!("pyreqwest._pyreqwest.{}", name);
+fn register_module_hack(module: &Bound<'_, PyModule>, name: &str) -> PyResult<()> {
     module
         .py()
         .import("sys")?
         .getattr("modules")?
-        .set_item(mod_name, module)
+        .set_item(format!("pyreqwest._pyreqwest.{}", name), module)
 }

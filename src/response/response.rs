@@ -1,6 +1,6 @@
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
-use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
+use crate::http::{Extensions, HeaderArg, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
@@ -55,8 +55,8 @@ impl Response {
     }
 
     #[setter]
-    fn set_headers(&mut self, headers: Py<HeaderMap>) -> PyResult<()> {
-        self.py_headers = Some(headers);
+    fn set_headers(&mut self, py: Python, value: HeaderArg) -> PyResult<()> {
+        self.py_headers = Some(value.0.into_pyobject(py)?.unbind());
         Ok(())
     }
 
@@ -123,16 +123,6 @@ impl Response {
             .unwrap_or(UTF_8);
         let (text, _, _) = encoding.decode(&bytes);
         Ok(text.into_owned())
-    }
-
-    fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
-        if let Some(py_headers) = self.py_headers.as_ref() {
-            py_headers.try_borrow(py)?.get_one(name)
-        } else if let Some(inner_headers) = self.inner_headers.as_ref() {
-            inner_headers.get_one(name)
-        } else {
-            Err(PyRuntimeError::new_err("Headers incorrectly initialized"))
-        }
     }
 
     fn content_type_mime(&self) -> PyResult<Option<Mime>> {
@@ -210,6 +200,16 @@ impl Response {
             read_body: None,
         };
         Ok(resp)
+    }
+
+    fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
+        if let Some(inner_headers) = self.inner_headers.as_ref() {
+            inner_headers.get_one(name)
+        } else if let Some(py_headers) = self.py_headers.as_ref() {
+            py_headers.try_borrow(py)?.get_one(name)
+        } else {
+            Err(PyRuntimeError::new_err("Headers incorrectly initialized"))
+        }
     }
 
     async fn next_chunk_inner(&mut self) -> PyResult<Option<Bytes>> {

@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::exceptions::{CloseError, RequestPanicError};
-use crate::http::Body;
+use crate::http::{Body, HeaderArg};
 use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
@@ -27,29 +27,29 @@ pub struct Request {
 #[pymethods]
 impl Request {
     #[getter]
-    pub fn get_method(&self) -> PyResult<Method> {
+    fn get_method(&self) -> PyResult<Method> {
         Ok(self.inner_ref()?.method().clone().into())
     }
 
     #[setter]
-    pub fn set_method(&mut self, value: Method) -> PyResult<()> {
+    fn set_method(&mut self, value: Method) -> PyResult<()> {
         *self.inner_mut()?.method_mut() = value.0;
         Ok(())
     }
 
     #[getter]
-    pub fn get_url(&self) -> PyResult<Url> {
+    fn get_url(&self) -> PyResult<Url> {
         Ok(self.inner_ref()?.url().clone().into())
     }
 
     #[setter]
-    pub fn set_url(&mut self, value: UrlType) -> PyResult<()> {
+    fn set_url(&mut self, value: UrlType) -> PyResult<()> {
         *self.inner_mut()?.url_mut() = value.0;
         Ok(())
     }
 
     #[getter]
-    pub fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
+    fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
         if self.py_headers.is_none() {
             let headers = HeaderMap::from(self.inner_ref()?.headers().clone());
             self.py_headers = Some(Py::new(py, headers)?);
@@ -58,13 +58,13 @@ impl Request {
     }
 
     #[setter]
-    pub fn set_headers(&mut self, value: Py<HeaderMap>) -> PyResult<()> {
-        self.py_headers = Some(value);
+    fn set_headers(&mut self, py: Python, value: HeaderArg) -> PyResult<()> {
+        self.py_headers = Some(value.0.into_pyobject(py)?.unbind());
         Ok(())
     }
 
     #[getter]
-    pub fn get_body(&mut self) -> PyResult<Option<&Py<Body>>> {
+    fn get_body(&mut self) -> PyResult<Option<&Py<Body>>> {
         if let Some(body) = self.body.take() {
             self.py_body = Some(Python::with_gil(|py| Py::new(py, body))?);
         };
@@ -72,7 +72,7 @@ impl Request {
     }
 
     #[setter]
-    pub fn set_body(&mut self, value: Option<Bound<Body>>) -> PyResult<()> {
+    fn set_body(&mut self, value: Option<Bound<Body>>) -> PyResult<()> {
         self.body.take().map(drop);
         self.py_body.take().map(drop);
         self.py_body = value.map(|value| value.unbind());
@@ -80,7 +80,7 @@ impl Request {
     }
 
     #[getter]
-    pub fn get_extensions(&mut self) -> &Py<PyDict> {
+    fn get_extensions(&mut self) -> &Py<PyDict> {
         if self.extensions.is_none() {
             self.extensions = Some(Extensions(Python::with_gil(|py| PyDict::new(py).unbind())));
         }
@@ -88,7 +88,7 @@ impl Request {
     }
 
     #[setter]
-    pub fn set_extensions(&mut self, value: Extensions) -> PyResult<()> {
+    fn set_extensions(&mut self, value: Extensions) -> PyResult<()> {
         self.extensions = Some(value);
         Ok(())
     }

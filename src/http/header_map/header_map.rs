@@ -1,31 +1,29 @@
 use crate::http::header_map::iters::HeaderMapKeysIter;
 use crate::http::header_map::views::{HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView};
 use crate::http::{HeaderName, HeaderValue};
-use http::header::{Entry, ToStrError};
+use http::header::Entry;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyEllipsis, PyList, PyMapping, PySequence, PyString};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 #[pyclass]
-pub struct HeaderMap {
-    pub inner: Arc<Mutex<Inner>>,
-}
+pub struct HeaderMap(Arc<Mutex<Inner>>);
 pub struct Inner {
-    pub map: Option<http::HeaderMap>,
-    pub invalidator: usize,
+    map: Option<http::HeaderMap>,
 }
 #[pymethods]
 impl HeaderMap {
     #[new]
     #[pyo3(signature = (other=None))]
     fn py_new(other: Option<UpdateArg>) -> PyResult<Self> {
-        let mut map = HeaderMap::new();
+        let mut inner = http::HeaderMap::new();
         if let Some(other) = other {
-            map.extend(other)?;
+            HeaderMap::extend_inner(&mut inner, other)?;
         }
-        Ok(map)
+        Ok(HeaderMap::from(inner))
     }
 
     // MutableMapping methods
@@ -57,7 +55,7 @@ impl HeaderMap {
     }
 
     fn __iter__(&self) -> PyResult<HeaderMapKeysIter> {
-        HeaderMapKeysIter::new(self.clone_arc())
+        HeaderMapKeysIter::new(&self)
     }
 
     fn __bool__(&self) -> PyResult<bool> {
@@ -72,15 +70,15 @@ impl HeaderMap {
         self.ref_map(|map| Ok(map.contains_key(key)))
     }
 
-    fn items(&self) -> PyResult<HeaderMapItemsView> {
+    fn items(&self) -> HeaderMapItemsView {
         HeaderMapItemsView::new(self.clone_arc())
     }
 
-    fn keys(&self) -> PyResult<HeaderMapKeysView> {
+    fn keys(&self) -> HeaderMapKeysView {
         HeaderMapKeysView::new(self.clone_arc())
     }
 
-    fn values(&self) -> PyResult<HeaderMapValuesView> {
+    fn values(&self) -> HeaderMapValuesView {
         HeaderMapValuesView::new(self.clone_arc())
     }
 
@@ -96,23 +94,15 @@ impl HeaderMap {
         self.ref_map(|map| {
             if let Ok(other_map) = other.downcast_exact::<HeaderMap>() {
                 return other_map.try_borrow()?.ref_map(|other| Ok(map == other));
-            } else if let Ok(other_dict) = other.downcast::<PyMapping>() {
+            } else if let Ok(other_dict) = other.downcast_into::<PyMapping>() {
                 if other_dict.len()? != map.len() {
                     return Ok(false);
                 }
-                let other_items = other_dict
-                    .items()?
-                    .iter()
-                    .map(|tup| tup.extract::<(String, String)>())
-                    .collect::<PyResult<Vec<_>>>();
-                if let Ok(other_items) = other_items {
-                    let items = map
-                        .iter()
-                        .map(|(k, v)| Ok((k.as_str().to_string(), v.to_str()?.to_string())))
-                        .collect::<Result<Vec<_>, ToStrError>>()
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                    return Ok(items == other_items);
-                }
+                let mut other_map = http::HeaderMap::new();
+                return match HeaderMap::extend_inner(&mut other_map, UpdateArg::Mapping(other_dict)) {
+                    Ok(()) => Ok(map == &other_map),
+                    Err(_) => Ok(false),
+                };
             }
             Ok(false)
         })
@@ -152,8 +142,8 @@ impl HeaderMap {
 
     fn update(&mut self, other: UpdateArg) -> PyResult<()> {
         fn insert(map: &mut http::HeaderMap, tup: Bound<PyAny>) -> PyResult<()> {
-            let kv: (HeaderName, HeaderValue) = tup.extract()?;
-            map.try_insert(kv.0.0, kv.1.0)
+            let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
+            map.try_insert(k.0, v.0)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
                 .map(|_| ())
         }
@@ -192,14 +182,7 @@ impl HeaderMap {
     }
 
     fn get_all<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyList>> {
-        self.ref_map(|map| {
-            let all = map
-                .get_all(key)
-                .into_iter()
-                .map(|v| HeaderValue(v.clone()))
-                .collect::<Vec<_>>();
-            PyList::new(py, all)
-        })
+        PyList::new(py, self.get_all_vec(key)?)
     }
 
     fn insert(&mut self, key: HeaderName, value: HeaderValue) -> PyResult<Option<HeaderValue>> {
@@ -242,17 +225,7 @@ impl HeaderMap {
     // Additional methods
 
     fn extend(&mut self, other: UpdateArg) -> PyResult<()> {
-        fn append(map: &mut http::HeaderMap, tup: Bound<PyAny>) -> PyResult<()> {
-            let kv: (HeaderName, HeaderValue) = tup.extract()?;
-            map.try_append(kv.0.0, kv.1.0)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
-                .map(|_| ())
-        }
-
-        self.mut_map(|map| match other {
-            UpdateArg::Mapping(mapping) => mapping.items()?.iter().try_for_each(|tup| append(map, tup)),
-            UpdateArg::Sequence(seq) => seq.try_iter()?.try_for_each(|tup| append(map, tup?)),
-        })
+        self.mut_map(|map| HeaderMap::extend_inner(map, other))
     }
 
     fn dict_multi_value<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
@@ -291,11 +264,8 @@ impl HeaderMap {
     pub fn new() -> Self {
         let inner = Inner {
             map: Some(http::HeaderMap::new()),
-            invalidator: 0,
         };
-        HeaderMap {
-            inner: Arc::new(Mutex::new(inner)),
-        }
+        HeaderMap(Arc::new(Mutex::new(inner)))
     }
 
     pub fn try_clone(&self) -> PyResult<Self> {
@@ -307,8 +277,7 @@ impl HeaderMap {
     }
 
     pub fn try_take_inner(&mut self) -> PyResult<http::HeaderMap> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.invalidator += 1;
+        let mut inner = self.0.lock().unwrap();
         inner
             .map
             .take()
@@ -316,36 +285,79 @@ impl HeaderMap {
     }
 
     pub fn clone_arc(&self) -> Self {
-        HeaderMap {
-            inner: Arc::clone(&self.inner),
-        }
+        HeaderMap(Arc::clone(&self.0))
     }
 
     pub fn ref_map<U, F: FnOnce(&http::HeaderMap) -> PyResult<U>>(&self, f: F) -> PyResult<U> {
-        match self.inner.lock().unwrap().map.as_ref() {
+        match self.0.lock().unwrap().map.as_ref() {
             Some(map) => f(map),
             None => Err(PyRuntimeError::new_err("HeaderMap was already consumed")),
         }
     }
 
     pub fn mut_map<U, F: FnOnce(&mut http::HeaderMap) -> PyResult<U>>(&self, f: F) -> PyResult<U> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.invalidator += 1;
+        let mut inner = self.0.lock().unwrap();
         match inner.map.as_mut() {
             Some(map) => f(map),
             None => Err(PyRuntimeError::new_err("HeaderMap was already consumed")),
         }
     }
+
+    pub fn keys_once_deque(&self) -> PyResult<VecDeque<HeaderName>> {
+        self.ref_map(|map| {
+            Ok(map
+                .keys()
+                .into_iter()
+                .map(|k| HeaderName(k.clone()))
+                .collect::<VecDeque<_>>())
+        })
+    }
+
+    pub fn keys_mult_deque(&self) -> PyResult<VecDeque<HeaderName>> {
+        self.ref_map(|map| {
+            Ok(map
+                .iter()
+                .into_iter()
+                .map(|(k, _)| HeaderName(k.clone()))
+                .collect::<VecDeque<_>>())
+        })
+    }
+
+    pub fn get_all_vec(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
+        self.ref_map(|map| {
+            Ok(map
+                .get_all(key)
+                .into_iter()
+                .map(|v| HeaderValue(v.clone()))
+                .collect::<Vec<_>>())
+        })
+    }
+
+    pub fn get_all_extend_to_deque(&self, key: &str, deque: &mut VecDeque<HeaderValue>) -> PyResult<()> {
+        self.ref_map(|map| {
+            deque.extend(map.get_all(key).into_iter().map(|v| HeaderValue(v.clone())));
+            Ok(())
+        })
+    }
+
+    fn extend_inner(map: &mut http::HeaderMap, other: UpdateArg) -> PyResult<()> {
+        fn append(map: &mut http::HeaderMap, tup: Bound<PyAny>) -> PyResult<()> {
+            let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
+            map.try_append(k.0, v.0)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                .map(|_| ())
+        }
+
+        match other {
+            UpdateArg::Mapping(mapping) => mapping.items()?.iter().try_for_each(|tup| append(map, tup)),
+            UpdateArg::Sequence(seq) => seq.try_iter()?.try_for_each(|tup| append(map, tup?)),
+        }
+    }
 }
 impl From<http::HeaderMap> for HeaderMap {
     fn from(value: http::HeaderMap) -> Self {
-        let inner = Inner {
-            map: Some(value),
-            invalidator: 0,
-        };
-        HeaderMap {
-            inner: Arc::new(Mutex::new(inner)),
-        }
+        let inner = Inner { map: Some(value) };
+        HeaderMap(Arc::new(Mutex::new(inner)))
     }
 }
 
@@ -369,8 +381,9 @@ pub struct HeaderArg(pub HeaderMap);
 impl<'py> FromPyObject<'py> for HeaderArg {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if let Ok(map) = ob.downcast_exact::<HeaderMap>() {
-            return Ok(HeaderArg(map.try_borrow()?.try_clone()?));
+            Ok(HeaderArg(map.try_borrow()?.try_clone()?))
+        } else {
+            Ok(HeaderArg(HeaderMap::py_new(Some(ob.extract::<UpdateArg>()?))?))
         }
-        Ok(HeaderArg(HeaderMap::py_new(Some(ob.extract::<UpdateArg>()?))?))
     }
 }

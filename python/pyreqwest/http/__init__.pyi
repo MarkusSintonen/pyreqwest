@@ -1,6 +1,6 @@
-from collections.abc import MutableMapping, ItemsView, KeysView
+from collections.abc import MutableMapping, ItemsView, KeysView, ValuesView
 from types import MappingProxyType
-from typing import Sequence, Mapping, Iterable, Iterator, overload, ValuesView, TypeVar
+from typing import Sequence, Mapping, Iterable, Iterator, overload, TypeVar
 from typing_extensions import Self
 
 from ..bytes import Bytes

@@ -2,9 +2,7 @@ from datetime import timedelta
 from typing import Mapping, Any
 from typing_extensions import Self
 
-from multidict import CIMultiDict
-
-from pyreqwest.http import Url, Body
+from pyreqwest.http import Url, Body, HeaderMap
 from pyreqwest.http.types import Stream, UrlType, Params
 from pyreqwest.multipart import Form
 from pyreqwest.response import Response
@@ -22,9 +20,9 @@ class Request:
     def url(self, value: UrlType) -> None: ...
 
     @property
-    def headers(self) -> CIMultiDict[str]: ...
+    def headers(self) -> HeaderMap: ...
     @headers.setter
-    def headers(self, value: CIMultiDict[str]) -> None: ...
+    def headers(self, headers: Mapping[str, str]) -> None: ...
 
     @property
     def body(self) -> Body | None: ...

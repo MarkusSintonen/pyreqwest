@@ -1,12 +1,14 @@
 use crate::http::header_map::header_map::HeaderMap;
-use pyo3::exceptions::{PyRuntimeError, PyStopIteration, PyValueError};
-use pyo3::{PyRef, PyResult, pyclass, pymethods};
+use crate::http::{HeaderName, HeaderValue};
+use pyo3::exceptions::PyStopIteration;
+use pyo3::prelude::*;
+use std::collections::VecDeque;
 
 #[pyclass]
 pub struct HeaderMapItemsIter {
+    keys: VecDeque<HeaderName>,
+    cur_values: VecDeque<HeaderValue>,
     map: HeaderMap,
-    iter: http::header::Iter<'static, http::HeaderValue>,
-    expected_invalidator: usize,
 }
 #[pymethods]
 impl HeaderMapItemsIter {
@@ -14,55 +16,52 @@ impl HeaderMapItemsIter {
         slf
     }
 
-    fn __next__(&mut self) -> PyResult<(&str, &str)> {
-        let inner = self.map.inner.lock().unwrap();
-        if inner.invalidator != self.expected_invalidator || inner.map.is_none() {
-            return Err(PyRuntimeError::new_err("HeaderMap modified during iteration"));
-        }
-        match self.iter.next() {
-            Some((name, value)) => {
-                let value_str = value.to_str().map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok((name.as_str(), value_str))
+    fn __next__<'py>(&mut self) -> PyResult<(HeaderName, HeaderValue)> {
+        if self.cur_values.is_empty() {
+            if let Some(key) = self.keys.front() {
+                self.map.get_all_extend_to_deque(key.0.as_str(), &mut self.cur_values)?;
+                assert!(self.cur_values.len() >= 1, "Should have at least one value for a header key");
+            } else {
+                return Err(PyStopIteration::new_err("No more items"));
             }
-            None => Err(PyStopIteration::new_err("No more items")),
         }
+
+        let value = self.cur_values.pop_front().unwrap();
+        let key = if self.cur_values.is_empty() {
+            self.keys.pop_front().unwrap() // Go to next key
+        } else {
+            self.keys.front().unwrap().clone()
+        };
+        Ok((key, value))
     }
 }
 impl HeaderMapItemsIter {
     pub fn new(map: HeaderMap) -> PyResult<Self> {
-        let (iter, expected_invalidator) = {
-            let inner_guard = map.inner.lock().unwrap();
-            let Some(map) = inner_guard.map.as_ref() else {
-                return Err(PyRuntimeError::new_err("HeaderMapItemsIter was already consumed"));
-            };
-            let iter: http::header::Iter<'_, http::HeaderValue> = map.iter();
-            // Safety: HeaderMap backing the iter is not dropped while the struct is alive as we hold the Arc-Mutex.
-            // Also, the iterator is stopped when the HeaderMap is modified, which is checked in __next__.
-            let iter: http::header::Iter<'static, http::HeaderValue> = unsafe { std::mem::transmute(iter) };
-            (iter, inner_guard.invalidator)
-        };
         Ok(HeaderMapItemsIter {
+            keys: map.keys_once_deque()?,
+            cur_values: VecDeque::new(),
             map,
-            iter,
-            expected_invalidator,
         })
     }
 }
 
 #[pyclass]
-pub struct HeaderMapKeysIter(HeaderMapItemsIter);
+pub struct HeaderMapKeysIter(VecDeque<HeaderName>);
 #[pymethods]
 impl HeaderMapKeysIter {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
-    fn __next__(&mut self) -> PyResult<&str> {
-        self.0.__next__().map(|(key, _)| key)
+    fn __next__(&mut self) -> PyResult<HeaderName> {
+        match self.0.pop_front() {
+            Some(key) => Ok(key),
+            None => Err(PyStopIteration::new_err("No more keys")),
+        }
     }
 }
 impl HeaderMapKeysIter {
-    pub fn new(map: HeaderMap) -> PyResult<Self> {
-        Ok(HeaderMapKeysIter(HeaderMapItemsIter::new(map)?))
+    pub fn new(map: &HeaderMap) -> PyResult<Self> {
+        Ok(HeaderMapKeysIter(map.keys_mult_deque()?))
     }
 }
 
@@ -73,7 +72,7 @@ impl HeaderMapValuesIter {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
-    fn __next__(&mut self) -> PyResult<&str> {
+    fn __next__(&mut self) -> PyResult<HeaderValue> {
         self.0.__next__().map(|(_, val)| val)
     }
 }

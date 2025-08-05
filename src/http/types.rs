@@ -8,7 +8,9 @@ use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Method(#[serde(with = "http_serde::method")] pub http::Method);
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct HeaderName(pub http::HeaderName);
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct HeaderValue(pub http::HeaderValue);
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Version(#[serde(with = "http_serde::version")] pub http::Version);
@@ -54,6 +56,16 @@ impl<'py> FromPyObject<'py> for HeaderName {
         Ok(HeaderName(val))
     }
 }
+impl Ord for HeaderName {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_str().cmp(other.0.as_str())
+    }
+}
+impl PartialOrd for HeaderName {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl<'py> IntoPyObject<'py> for HeaderValue {
     type Target = PyString;
@@ -73,6 +85,16 @@ impl<'py> FromPyObject<'py> for HeaderValue {
 impl HeaderValue {
     pub fn str_res(v: &http::HeaderValue) -> PyResult<&str> {
         v.to_str().map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+}
+impl Ord for HeaderValue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_bytes().cmp(other.0.as_bytes())
+    }
+}
+impl PartialOrd for HeaderValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
