@@ -15,7 +15,7 @@ impl HeaderMapItemsView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.total_len()
+        self.0.len()
     }
 
     fn __contains__(&self, kv: (String, String)) -> PyResult<bool> {
@@ -34,8 +34,20 @@ impl HeaderMapItemsView {
         vec_rev_iter(py, self.to_vec()?)
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        Ok(richcmp(self.to_vec()?, other.to_vec()?, op))
+    fn __richcmp__(&self, other: Bound<PyAny>, op: CompareOp) -> PyResult<bool> {
+        match convert_vec(other) {
+            Ok(other) => Ok(richcmp(self.to_vec()?, other, op)),
+            Err(_) => Ok(false),
+        }
+    }
+
+    fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
+        PyList::new(py, self.to_vec_sensitive()?)?.str()
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        let repr = PyList::new(py, self.to_vec_sensitive()?)?.repr()?;
+        Ok(format!("HeaderMapItemsView({})", repr.to_str()?))
     }
 
     // ItemsView AbstractSet methods
@@ -82,7 +94,21 @@ impl HeaderMapItemsView {
             Ok(map
                 .iter()
                 .map(|(k, v)| (HeaderName(k.clone()), HeaderValue(v.clone())))
-                .collect::<Vec<_>>())
+                .collect())
+        })
+    }
+
+    fn to_vec_sensitive(&self) -> PyResult<Vec<(HeaderName, HeaderValue)>> {
+        self.0.ref_map(|map| {
+            let iter = map.iter().map(|(k, v)| {
+                let v = if v.is_sensitive() {
+                    HeaderValue::try_from("Sensitive").unwrap()
+                } else {
+                    HeaderValue(v.clone())
+                };
+                (HeaderName(k.clone()), v)
+            });
+            Ok(iter.collect())
         })
     }
 }
@@ -96,7 +122,7 @@ impl HeaderMapKeysView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.total_len()
+        self.0.len()
     }
 
     fn __contains__(&self, key: &str) -> PyResult<bool> {
@@ -107,8 +133,20 @@ impl HeaderMapKeysView {
         vec_rev_iter(py, self.to_vec()?)
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        Ok(richcmp(self.to_vec()?, other.to_vec()?, op))
+    fn __richcmp__(&self, other: Bound<PyAny>, op: CompareOp) -> PyResult<bool> {
+        match convert_vec(other) {
+            Ok(other) => Ok(richcmp(self.to_vec()?, other, op)),
+            Err(_) => Ok(false),
+        }
+    }
+
+    fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
+        PyList::new(py, self.to_vec()?)?.str()
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        let repr = PyList::new(py, self.to_vec()?)?.repr()?;
+        Ok(format!("HeaderMapKeysView({})", repr.to_str()?))
     }
 
     // KeysView AbstractSet methods
@@ -152,7 +190,7 @@ impl HeaderMapKeysView {
 
     fn to_vec(&self) -> PyResult<Vec<HeaderName>> {
         self.0
-            .ref_map(|map| Ok(map.keys().map(|k| HeaderName(k.clone())).collect::<Vec<_>>()))
+            .ref_map(|map| Ok(map.iter().map(|(k, _)| HeaderName(k.clone())).collect()))
     }
 }
 
@@ -165,7 +203,7 @@ impl HeaderMapValuesView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.total_len()
+        self.0.len()
     }
 
     fn __contains__(&self, val: &str) -> PyResult<bool> {
@@ -182,6 +220,15 @@ impl HeaderMapValuesView {
     fn __reversed__(&self, py: Python) -> PyResult<Py<PyIterator>> {
         vec_rev_iter(py, self.to_vec()?)
     }
+
+    fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
+        PyList::new(py, self.to_vec_sensitive()?)?.str()
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        let repr = PyList::new(py, self.to_vec_sensitive()?)?.repr()?;
+        Ok(format!("HeaderMapValuesView({})", repr.to_str()?))
+    }
 }
 impl HeaderMapValuesView {
     pub fn new(map: HeaderMap) -> Self {
@@ -190,7 +237,20 @@ impl HeaderMapValuesView {
 
     fn to_vec(&self) -> PyResult<Vec<HeaderValue>> {
         self.0
-            .ref_map(|map| Ok(map.values().map(|v| HeaderValue(v.clone())).collect::<Vec<_>>()))
+            .ref_map(|map| Ok(map.values().map(|v| HeaderValue(v.clone())).collect()))
+    }
+
+    fn to_vec_sensitive(&self) -> PyResult<Vec<HeaderValue>> {
+        self.0.ref_map(|map| {
+            let iter = map.iter().map(|(_, v)| {
+                if v.is_sensitive() {
+                    HeaderValue::try_from("Sensitive").unwrap()
+                } else {
+                    HeaderValue(v.clone())
+                }
+            });
+            Ok(iter.collect())
+        })
     }
 }
 
@@ -218,4 +278,8 @@ fn set_op<'py, T: IntoPyObject<'py>>(
     other: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
     PySet::new(other.py(), v)?.call_method1(op, (other,))
+}
+
+fn convert_vec<'py, T: FromPyObject<'py>>(ob: Bound<'py, PyAny>) -> PyResult<Vec<T>> {
+    ob.try_iter()?.map(|v| v?.extract::<T>()).collect()
 }

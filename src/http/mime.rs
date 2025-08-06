@@ -63,7 +63,7 @@ impl Mime {
         hasher.finish()
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+    fn __richcmp__(&self, other: MimeType, op: CompareOp) -> bool {
         match op {
             CompareOp::Lt => self.0 < other.0,
             CompareOp::Le => self.0 <= other.0,
@@ -77,5 +77,16 @@ impl Mime {
 impl Mime {
     pub fn new(inner: mime::Mime) -> Self {
         Mime(inner)
+    }
+}
+
+pub struct MimeType(pub mime::Mime);
+impl<'py> FromPyObject<'py> for MimeType {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(mime) = ob.downcast_exact::<Mime>() {
+            Ok(MimeType(mime.try_borrow()?.0.clone()))
+        } else {
+            Ok(MimeType(Mime::parse(ob.str()?.extract::<String>()?)?.0))
+        }
     }
 }

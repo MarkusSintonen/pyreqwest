@@ -265,14 +265,14 @@ impl Url {
         hasher.finish()
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+    fn __richcmp__(&self, other: UrlType, op: CompareOp) -> bool {
         match op {
-            CompareOp::Lt => self.url < other.url,
-            CompareOp::Le => self.url <= other.url,
-            CompareOp::Eq => self.url == other.url,
-            CompareOp::Ne => self.url != other.url,
-            CompareOp::Gt => self.url > other.url,
-            CompareOp::Ge => self.url >= other.url,
+            CompareOp::Lt => self.url < other.0,
+            CompareOp::Le => self.url <= other.0,
+            CompareOp::Eq => self.url == other.0,
+            CompareOp::Ne => self.url != other.0,
+            CompareOp::Gt => self.url > other.0,
+            CompareOp::Ge => self.url >= other.0,
         }
     }
 }
@@ -319,7 +319,6 @@ impl From<UrlType> for Url {
     }
 }
 
-#[derive(Clone)]
 pub struct UrlType(pub url::Url);
 impl<'py> FromPyObject<'py> for UrlType {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

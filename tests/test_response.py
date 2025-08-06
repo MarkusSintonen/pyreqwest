@@ -43,13 +43,13 @@ async def test_headers(client: Client, echo_server: Server) -> None:
 
     assert type(resp.headers) == HeaderMap and isinstance(resp.headers, MutableMapping)
 
-    assert resp.headers.get_all("X-Test1") == ['Value1', 'Value2'] and resp.headers["x-test1"] == "Value1"
-    assert resp.headers.get_all("X-Test2") == ["Value3"] and resp.headers["x-test2"] == "Value3"
+    assert resp.headers.getall("X-Test1") == ['Value1', 'Value2'] and resp.headers["x-test1"] == "Value1"
+    assert resp.headers.getall("X-Test2") == ["Value3"] and resp.headers["x-test2"] == "Value3"
 
     resp.headers["X-Test2"] = "Value4"
     assert resp.headers["X-Test2"] == "Value4" and resp.headers["x-test2"] == "Value4"
 
-    assert resp.headers.pop_all("x-test1") == ['Value1', 'Value2']
+    assert resp.headers.popall("x-test1") == ['Value1', 'Value2']
     assert "X-Test1" not in resp.headers and "x-test1" not in resp.headers
 
 

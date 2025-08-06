@@ -2,10 +2,10 @@ use crate::http::header_map::iters::HeaderMapKeysIter;
 use crate::http::header_map::views::{HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView};
 use crate::http::{HeaderName, HeaderValue};
 use http::header::Entry;
-use pyo3::IntoPyObjectExt;
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyEllipsis, PyList, PyMapping, PySequence, PyString};
+use pyo3::types::{PyDict, PyEllipsis, PyIterator, PyList, PyMapping, PySequence, PyString};
+use pyo3::{IntoPyObjectExt, intern};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -44,12 +44,17 @@ impl HeaderMap {
     }
 
     fn __delitem__(&mut self, key: &str) -> PyResult<()> {
+        let key = match http::HeaderName::try_from(key) {
+            Ok(name) => name,
+            Err(_) => return Err(PyKeyError::new_err(key.to_string())), // Invalid key, can not be present in map
+        };
+
         self.mut_map(|map| match map.try_entry(key) {
             Ok(Entry::Occupied(entry)) => {
                 entry.remove_entry_mult();
                 Ok(())
             }
-            Ok(Entry::Vacant(_)) => Err(PyKeyError::new_err(key.to_string())),
+            Ok(Entry::Vacant(entry)) => Err(PyKeyError::new_err(entry.into_key().to_string())),
             Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
         })
     }
@@ -63,7 +68,7 @@ impl HeaderMap {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.total_len()
+        self.len()
     }
 
     pub fn __contains__(&self, key: &str) -> PyResult<bool> {
@@ -83,7 +88,7 @@ impl HeaderMap {
     }
 
     #[pyo3(signature = (key, default=None))]
-    fn get<'py>(&self, py: Python<'py>, key: &str, default: Option<&str>) -> PyResult<Bound<'py, PyAny>> {
+    fn get<'py>(&self, py: Python<'py>, key: &str, default: Option<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyAny>> {
         self.ref_map(|map| match map.get(key) {
             Some(v) => HeaderValue(v.clone()).into_bound_py_any(py),
             None => default.into_bound_py_any(py),
@@ -114,25 +119,21 @@ impl HeaderMap {
 
     #[pyo3(signature = (key, default=PopArg::NotPresent(ellipsis())))]
     fn pop<'py>(&mut self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.mut_map(|map| match map.remove(key) {
-            Some(v) => HeaderValue(v).into_bound_py_any(py),
-            None => match default {
-                PopArg::Value(v) => Ok(v),
-                PopArg::NotPresent(_) => Err(PyKeyError::new_err(key.to_string())),
-            },
-        })
+        let key = match http::HeaderName::try_from(key) {
+            Ok(name) => name,
+            Err(_) => return default.res(key.to_string()), // Invalid key, can not be present in map
+        };
+        self.mut_map(|map| Self::pop_inner(map, py, &key, default))
     }
 
-    fn popitem(&mut self) -> PyResult<(HeaderName, HeaderValue)> {
+    fn popitem<'py>(&mut self, py: Python<'py>) -> PyResult<(HeaderName, Bound<'py, PyAny>)> {
         self.mut_map(|map| {
-            let k = match map.iter().next() {
-                Some((k, _)) => k.clone(),
-                None => return Err(PyKeyError::new_err("popitem(): HeaderMap is empty")),
-            };
-            match map.remove(&k) {
-                Some(v) => Ok((HeaderName(k), HeaderValue(v))),
-                None => Err(PyKeyError::new_err(k.to_string())),
-            }
+            let key = match map.iter().next() {
+                Some((key, _)) => Ok(key.clone()),
+                None => Err(PyKeyError::new_err("popitem(): HeaderMap is empty")),
+            }?;
+            let val = Self::pop_inner(map, py, &key, PopArg::NotPresent(ellipsis()))?;
+            Ok((HeaderName(key), val))
         })
     }
 
@@ -140,7 +141,8 @@ impl HeaderMap {
         self.mut_map(|map| Ok(map.clear()))
     }
 
-    fn update(&mut self, other: UpdateArg) -> PyResult<()> {
+    #[pyo3(signature = (other=None, **py_kwargs))]
+    fn update(&mut self, other: Option<UpdateArg>, py_kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
         fn insert(map: &mut http::HeaderMap, tup: Bound<PyAny>) -> PyResult<()> {
             let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
             map.try_insert(k.0, v.0)
@@ -148,9 +150,14 @@ impl HeaderMap {
                 .map(|_| ())
         }
 
-        self.mut_map(|map| match other {
-            UpdateArg::Mapping(mapping) => mapping.items()?.iter().try_for_each(|tup| insert(map, tup)),
-            UpdateArg::Sequence(seq) => seq.try_iter()?.try_for_each(|tup| insert(map, tup?)),
+        self.mut_map(|map| {
+            if let Some(other) = other {
+                other.apply(|tup| insert(map, tup))?;
+            }
+            if let Some(kwargs) = py_kwargs {
+                kwargs.items().iter().try_for_each(|tup| insert(map, tup))?;
+            }
+            Ok(())
         })
     }
 
@@ -167,9 +174,9 @@ impl HeaderMap {
         })
     }
 
-    // Inner HeaderMap methods
+    // Additional methods
 
-    pub fn total_len(&self) -> PyResult<usize> {
+    pub fn len(&self) -> PyResult<usize> {
         self.ref_map(|map| Ok(map.len()))
     }
 
@@ -177,71 +184,61 @@ impl HeaderMap {
         self.ref_map(|map| Ok(map.keys_len()))
     }
 
-    pub fn get_one<'py>(&self, key: &str) -> PyResult<Option<HeaderValue>> {
-        self.ref_map(|map| Ok(map.get(key).map(|v| HeaderValue(v.clone()))))
+    fn getall<'py>(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
+        self.ref_map(|map| Ok(map.get_all(key).into_iter().map(|v| HeaderValue(v.clone())).collect()))
     }
 
-    fn get_all<'py>(&self, py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyList>> {
-        PyList::new(py, self.get_all_vec(key)?)
-    }
+    #[pyo3(signature = (key, value, is_sensitive=false))]
+    fn insert(&mut self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<Vec<HeaderValue>> {
+        let mut value = value.0;
+        value.set_sensitive(is_sensitive);
 
-    fn insert(&mut self, key: HeaderName, value: HeaderValue) -> PyResult<Option<HeaderValue>> {
-        self.mut_map(|map| match map.try_insert(key.0, value.0) {
-            Ok(Some(v)) => Ok(Some(HeaderValue(v))),
-            Ok(None) => Ok(None),
+        self.mut_map(|map| match map.try_entry(key.0) {
+            Ok(Entry::Occupied(mut entry)) => Ok(entry.insert_mult(value).map(HeaderValue).collect()),
+            Ok(Entry::Vacant(entry)) => entry
+                .try_insert_entry(value)
+                .map(|_| vec![])
+                .map_err(|e| PyRuntimeError::new_err(e.to_string())),
             Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
         })
     }
 
-    fn append(&mut self, key: HeaderName, value: HeaderValue) -> PyResult<bool> {
+    #[pyo3(signature = (key, value, is_sensitive=false))]
+    fn append(&mut self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<bool> {
+        let mut value = value.0;
+        value.set_sensitive(is_sensitive);
+
         self.mut_map(|map| {
-            map.try_append(key.0, value.0)
+            map.try_append(key.0, value)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
         })
     }
-
-    fn remove(&mut self, key: &str) -> PyResult<Option<HeaderValue>> {
-        self.mut_map(|map| match map.remove(key) {
-            Some(v) => Ok(Some(HeaderValue(v))),
-            None => Ok(None),
-        })
-    }
-
-    #[pyo3(signature = (key, default=PopArg::NotPresent(ellipsis())))]
-    fn pop_all<'py>(&mut self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.mut_map(|map| match map.try_entry(key) {
-            Ok(Entry::Occupied(entry)) => {
-                let vals = entry.remove_entry_mult().1.map(|v| HeaderValue(v)).collect::<Vec<_>>();
-                Ok(PyList::new(py, vals)?.into_any())
-            }
-            Ok(Entry::Vacant(_)) => match default {
-                PopArg::Value(v) => Ok(v),
-                PopArg::NotPresent(_) => Err(PyKeyError::new_err(key.to_string())),
-            },
-            Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
-        })
-    }
-
-    // Additional methods
 
     fn extend(&mut self, other: UpdateArg) -> PyResult<()> {
         self.mut_map(|map| HeaderMap::extend_inner(map, other))
     }
 
+    #[pyo3(signature = (key, default=PopArg::NotPresent(ellipsis())))]
+    fn popall<'py>(&mut self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let key = match http::HeaderName::try_from(key) {
+            Ok(name) => name,
+            Err(_) => return default.res(key.to_string()), // Invalid key, can not be present in map
+        };
+
+        self.mut_map(|map| match map.try_entry(key) {
+            Ok(Entry::Occupied(entry)) => entry
+                .remove_entry_mult()
+                .1
+                .map(HeaderValue)
+                .collect::<Vec<_>>()
+                .into_bound_py_any(py),
+            Ok(Entry::Vacant(entry)) => default.res(entry.into_key().to_string()),
+            Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
+        })
+    }
+
     fn dict_multi_value<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        fn convert<'py>(py: Python<'py>, map: &http::HeaderMap) -> PyResult<Bound<'py, PyDict>> {
-            let dict = PyDict::new(py);
-            for (key, value) in map.iter() {
-                let key = key.as_str();
-                let value = value.to_str().map_err(|e| PyValueError::new_err(e.to_string()))?;
-                match dict.get_item(key)? {
-                    None => dict.set_item(key, PyList::new(py, vec![value])?)?,
-                    Some(existing) => existing.downcast_exact::<PyList>()?.append(value)?,
-                }
-            }
-            Ok(dict)
-        }
-        self.ref_map(|map| convert(py, map))
+        self.dict_multi_value_inner(py, false)
     }
 
     fn copy(&self) -> PyResult<Self> {
@@ -253,11 +250,12 @@ impl HeaderMap {
     }
 
     fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
-        self.dict_multi_value(py)?.str()
+        self.dict_multi_value_inner(py, true)?.str()
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {
-        Ok(format!("HeaderMap({})", self.__str__(py)?.repr()?.to_str()?))
+        let repr = self.dict_multi_value_inner(py, true)?.repr()?;
+        Ok(format!("HeaderMap({})", repr.to_str()?))
     }
 }
 impl HeaderMap {
@@ -266,6 +264,10 @@ impl HeaderMap {
             map: Some(http::HeaderMap::new()),
         };
         HeaderMap(Arc::new(Mutex::new(inner)))
+    }
+
+    pub fn get_one<'py>(&self, key: &str) -> PyResult<Option<HeaderValue>> {
+        self.ref_map(|map| Ok(map.get(key).map(|v| HeaderValue(v.clone()))))
     }
 
     pub fn try_clone(&self) -> PyResult<Self> {
@@ -304,33 +306,11 @@ impl HeaderMap {
     }
 
     pub fn keys_once_deque(&self) -> PyResult<VecDeque<HeaderName>> {
-        self.ref_map(|map| {
-            Ok(map
-                .keys()
-                .into_iter()
-                .map(|k| HeaderName(k.clone()))
-                .collect::<VecDeque<_>>())
-        })
+        self.ref_map(|map| Ok(map.keys().into_iter().map(|k| HeaderName(k.clone())).collect()))
     }
 
     pub fn keys_mult_deque(&self) -> PyResult<VecDeque<HeaderName>> {
-        self.ref_map(|map| {
-            Ok(map
-                .iter()
-                .into_iter()
-                .map(|(k, _)| HeaderName(k.clone()))
-                .collect::<VecDeque<_>>())
-        })
-    }
-
-    pub fn get_all_vec(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
-        self.ref_map(|map| {
-            Ok(map
-                .get_all(key)
-                .into_iter()
-                .map(|v| HeaderValue(v.clone()))
-                .collect::<Vec<_>>())
-        })
+        self.ref_map(|map| Ok(map.iter().into_iter().map(|(k, _)| HeaderName(k.clone())).collect()))
     }
 
     pub fn get_all_extend_to_deque(&self, key: &str, deque: &mut VecDeque<HeaderValue>) -> PyResult<()> {
@@ -340,18 +320,60 @@ impl HeaderMap {
         })
     }
 
+    fn pop_inner<'py>(
+        map: &mut http::HeaderMap,
+        py: Python<'py>,
+        key: &http::HeaderName,
+        default: PopArg<'py>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let (res, new_vals) = match map.try_entry(key) {
+            Ok(Entry::Occupied(entry)) => {
+                let mut vals = entry.remove_entry_mult().1;
+                // Remove the first value, add back the rest (pop first)
+                (HeaderValue(vals.next().unwrap()), vals.collect::<Vec<_>>())
+            }
+            Ok(Entry::Vacant(entry)) => return default.res(entry.into_key().to_string()),
+            Err(e) => return Err(PyRuntimeError::new_err(e.to_string())),
+        };
+
+        for val in new_vals {
+            map.try_append(key.clone(), val)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        }
+
+        res.into_bound_py_any(py)
+    }
+
     fn extend_inner(map: &mut http::HeaderMap, other: UpdateArg) -> PyResult<()> {
-        fn append(map: &mut http::HeaderMap, tup: Bound<PyAny>) -> PyResult<()> {
+        other.apply(|tup| {
             let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
             map.try_append(k.0, v.0)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
                 .map(|_| ())
-        }
+        })
+    }
 
-        match other {
-            UpdateArg::Mapping(mapping) => mapping.items()?.iter().try_for_each(|tup| append(map, tup)),
-            UpdateArg::Sequence(seq) => seq.try_iter()?.try_for_each(|tup| append(map, tup?)),
-        }
+    fn dict_multi_value_inner<'py>(&self, py: Python<'py>, hide_sensitive: bool) -> PyResult<Bound<'py, PyDict>> {
+        self.ref_map(|map| {
+            let dict = PyDict::new(py);
+            for (key, value) in map.iter() {
+                let key = key.as_str();
+                let value = if hide_sensitive && value.is_sensitive() {
+                    intern!(py, "Sensitive").to_owned()
+                } else {
+                    PyString::new(py, HeaderValue::str_res(value)?)
+                };
+
+                match dict.get_item(key)? {
+                    None => dict.set_item(key, value)?,
+                    Some(existing) => match existing.downcast_into_exact::<PyString>() {
+                        Ok(existing) => dict.set_item(key, PyList::new(py, vec![existing, value])?)?,
+                        Err(e) => e.into_inner().downcast_into_exact::<PyList>()?.append(value)?,
+                    },
+                }
+            }
+            Ok(dict)
+        })
     }
 }
 impl From<http::HeaderMap> for HeaderMap {
@@ -367,6 +389,14 @@ enum PopArg<'py> {
     NotPresent(Py<PyEllipsis>),
     Value(Bound<'py, PyAny>),
 }
+impl<'py> PopArg<'py> {
+    fn res(self, key: String) -> PyResult<Bound<'py, PyAny>> {
+        match self {
+            PopArg::Value(v) => Ok(v),
+            PopArg::NotPresent(_) => Err(PyKeyError::new_err(key)),
+        }
+    }
+}
 fn ellipsis() -> Py<PyEllipsis> {
     Python::with_gil(|py| PyEllipsis::get(py).to_owned().unbind())
 }
@@ -375,6 +405,16 @@ fn ellipsis() -> Py<PyEllipsis> {
 enum UpdateArg<'py> {
     Mapping(Bound<'py, PyMapping>),
     Sequence(Bound<'py, PySequence>),
+    Iterator(Bound<'py, PyIterator>),
+}
+impl<'py> UpdateArg<'py> {
+    fn apply<F: FnMut(Bound<'py, PyAny>) -> PyResult<()>>(self, mut f: F) -> PyResult<()> {
+        match self {
+            UpdateArg::Mapping(mapping) => mapping.items()?.iter().try_for_each(f),
+            UpdateArg::Sequence(seq) => seq.try_iter()?.try_for_each(|v| f(v?)),
+            UpdateArg::Iterator(mut iter) => iter.try_for_each(|v| f(v?)),
+        }
+    }
 }
 
 pub struct HeaderArg(pub HeaderMap);

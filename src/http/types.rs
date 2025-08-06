@@ -87,6 +87,13 @@ impl HeaderValue {
         v.to_str().map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
+impl TryFrom<&str> for HeaderValue {
+    type Error = PyErr;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let val = http::HeaderValue::from_str(value).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(HeaderValue(val))
+    }
+}
 impl Ord for HeaderValue {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.as_bytes().cmp(other.0.as_bytes())

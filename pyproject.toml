@@ -17,6 +17,7 @@ dev = [
     "asgi-types==0.1.0",
     "trustme==1.2.1",
     "orjson==3.10.18",
+    "multidict==6.6.3",
 ]
 
 [tool.maturin]
