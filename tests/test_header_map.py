@@ -1,11 +1,12 @@
 import re
+from collections.abc import MutableMapping, Mapping, ItemsView, KeysView, ValuesView
 from copy import copy
 from typing import Callable, Any
 
 import pytest
 from multidict import CIMultiDict
 
-from pyreqwest.http import HeaderMap
+from pyreqwest.http import HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView
 
 
 def test_init__empty():
@@ -525,3 +526,33 @@ def test_repr():
     assert repr(HeaderMap([("a", "v1")])) == "HeaderMap({'a': 'v1'})"
     assert repr(HeaderMap([("a", "v1"), ("b", "v2")])) == "HeaderMap({'a': 'v1', 'b': 'v2'})"
     assert repr(HeaderMap([("a", "v1"), ("b", "v2"), ("a", "v3")])) == "HeaderMap({'a': ['v1', 'v3'], 'b': 'v2'})"
+
+
+def test_abc():
+    headers = HeaderMap()
+    items = headers.items()
+    keys = headers.keys()
+    values = headers.values()
+    assert type(headers) == HeaderMap
+    assert isinstance(headers, MutableMapping) and isinstance(headers, Mapping)
+    assert not isinstance(headers, dict)
+
+    assert issubclass(HeaderMap, MutableMapping) and issubclass(HeaderMap, Mapping)
+    assert not issubclass(HeaderMap, dict)
+
+    assert type(items) == HeaderMapItemsView
+    assert isinstance(items, ItemsView)
+    assert not isinstance(items, type(dict().items()))
+    assert type(keys) == HeaderMapKeysView
+    assert isinstance(keys, KeysView)
+    assert not isinstance(keys, type(dict().keys()))
+    assert type(values) == HeaderMapValuesView
+    assert isinstance(values, ValuesView)
+    assert not isinstance(values, type(dict().values()))
+
+    assert issubclass(HeaderMapItemsView, ItemsView)
+    assert not issubclass(HeaderMapItemsView, type(dict().items()))
+    assert issubclass(HeaderMapKeysView, KeysView)
+    assert not issubclass(HeaderMapKeysView, type(dict().keys()))
+    assert issubclass(HeaderMapValuesView, ValuesView)
+    assert not issubclass(HeaderMapValuesView, type(dict().values()))

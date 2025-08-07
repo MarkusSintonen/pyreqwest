@@ -3,16 +3,18 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyMappingProxy, PyString};
+use pyo3::sync::OnceLockExt;
+use pyo3::types::{PyDict, PyList, PyString};
 use serde::Serialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::OnceLock;
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct Url {
     url: url::Url,
-    query: Option<Vec<(Py<PyString>, Py<PyString>)>>,
+    query: OnceLock<Vec<(Py<PyString>, Py<PyString>)>>,
 }
 
 #[pymethods]
@@ -119,11 +121,8 @@ impl Url {
     }
 
     #[getter]
-    fn path_segments<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyList>>> {
-        self.url
-            .path_segments()
-            .map(|v| PyList::new(py, v.collect::<Vec<_>>()))
-            .transpose()
+    fn path_segments(&self) -> Option<Vec<&str>> {
+        self.url.path_segments().map(|v| v.collect::<Vec<_>>())
     }
 
     #[getter]
@@ -132,20 +131,26 @@ impl Url {
     }
 
     #[getter]
-    fn query_pairs<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+    fn query_pairs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
         PyList::new(py, self.query_pairs_vec(py))
     }
 
     #[getter]
-    fn query_dict_multi_value<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyMappingProxy>> {
+    fn query_dict_multi_value<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         for (k, v) in self.query_pairs_vec(py) {
             match dict.get_item(k)? {
-                None => dict.set_item(k, PyList::new(py, [v])?)?,
-                Some(existing) => existing.downcast_exact::<PyList>()?.append(v)?,
+                None => dict.set_item(k, v)?,
+                Some(existing) => {
+                    if let Ok(existing) = existing.downcast_exact::<PyList>() {
+                        existing.append(v)?;
+                    }
+                    let existing = existing.downcast_exact::<PyString>()?;
+                    dict.set_item(k, PyList::new(py, vec![existing, v.bind(py)])?)?;
+                }
             }
         }
-        Ok(PyMappingProxy::new(py, dict.as_mapping()))
+        Ok(dict)
     }
 
     #[getter]
@@ -238,10 +243,6 @@ impl Url {
         Ok(Url::new(url))
     }
 
-    fn copy(&self) -> Self {
-        Url::new(self.url.clone())
-    }
-
     fn __copy__(&self) -> Self {
         Url::new(self.url.clone())
     }
@@ -278,31 +279,41 @@ impl Url {
 }
 impl Url {
     fn new(url: url::Url) -> Self {
-        Url { url, query: None }
+        Url {
+            url,
+            query: OnceLock::new(),
+        }
     }
 
-    fn query_pairs_vec(&mut self, py: Python) -> &Vec<(Py<PyString>, Py<PyString>)> {
-        if self.query.is_none() {
-            self.query = Some(
-                self.url
-                    .query_pairs()
-                    .map(|(k, v)| {
-                        let k = PyString::new(py, &k);
-                        let v = PyString::new(py, &v);
-                        (k.unbind(), v.unbind())
-                    })
-                    .collect(),
-            );
-        }
-        self.query.as_ref().unwrap()
+    fn query_pairs_vec(&self, py: Python) -> &Vec<(Py<PyString>, Py<PyString>)> {
+        self.query.get_or_init_py_attached(py, || {
+            self.url
+                .query_pairs()
+                .map(|(k, v)| {
+                    let k = PyString::new(py, &k);
+                    let v = PyString::new(py, &v);
+                    (k.unbind(), v.unbind())
+                })
+                .collect()
+        })
     }
 
     fn extend_query_inner(url: &mut url::Url, query: Option<EncodablePairs>) -> PyResult<()> {
         if let Some(query) = query.map(|q| q.0) {
-            let mut url_query = url.query_pairs_mut();
-            let serializer = serde_urlencoded::Serializer::new(&mut url_query);
-            query
-                .serialize(serializer)
+            let mut pairs = Vec::with_capacity(query.len());
+            for (key, val) in query.iter() {
+                match val.0.as_array() {
+                    Some(v) => {
+                        for vv in v {
+                            pairs.push((key, vv));
+                        }
+                    }
+                    None => pairs.push((key, &val.0)),
+                }
+            }
+
+            pairs
+                .serialize(serde_urlencoded::Serializer::new(&mut url.query_pairs_mut()))
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
         Ok(())

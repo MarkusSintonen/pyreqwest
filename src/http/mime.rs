@@ -3,8 +3,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::str::FromStr;
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct Mime(mime::Mime);
 #[pymethods]
 impl Mime {
@@ -32,16 +33,17 @@ impl Mime {
     }
 
     #[getter]
+    fn parameters(&self) -> Vec<(String, String)> {
+        self.0.params().map(|(n, v)| (n.to_string(), v.to_string())).collect()
+    }
+
+    #[getter]
     fn essence_str(&self) -> &str {
         self.0.essence_str()
     }
 
     pub fn get_param(&self, name: &str) -> Option<&str> {
         self.0.get_param(name).map(|v| v.as_str())
-    }
-
-    fn params(&self) -> Vec<(String, String)> {
-        self.0.params().map(|(n, v)| (n.to_string(), v.to_string())).collect()
     }
 
     fn __copy__(&self) -> Self {
@@ -63,30 +65,29 @@ impl Mime {
         hasher.finish()
     }
 
-    fn __richcmp__(&self, other: MimeType, op: CompareOp) -> bool {
-        match op {
-            CompareOp::Lt => self.0 < other.0,
-            CompareOp::Le => self.0 <= other.0,
-            CompareOp::Eq => self.0 == other.0,
-            CompareOp::Ne => self.0 != other.0,
-            CompareOp::Gt => self.0 > other.0,
-            CompareOp::Ge => self.0 >= other.0,
+    fn __richcmp__(&self, other: Bound<PyAny>, op: CompareOp) -> bool {
+        fn cmp(this: &mime::Mime, other: &mime::Mime, op: CompareOp) -> bool {
+            match op {
+                CompareOp::Lt => this < other,
+                CompareOp::Le => this <= other,
+                CompareOp::Eq => this == other,
+                CompareOp::Ne => this != other,
+                CompareOp::Gt => this > other,
+                CompareOp::Ge => this >= other,
+            }
+        }
+
+        if let Ok(other) = other.downcast_exact::<Mime>() {
+            cmp(&self.0, &other.get().0, op)
+        } else if let Ok(other) = other.extract::<&str>() {
+            mime::Mime::from_str(other).map_or(false, |m| cmp(&self.0, &m, op))
+        } else {
+            false
         }
     }
 }
 impl Mime {
     pub fn new(inner: mime::Mime) -> Self {
         Mime(inner)
-    }
-}
-
-pub struct MimeType(pub mime::Mime);
-impl<'py> FromPyObject<'py> for MimeType {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(mime) = ob.downcast_exact::<Mime>() {
-            Ok(MimeType(mime.try_borrow()?.0.clone()))
-        } else {
-            Ok(MimeType(Mime::parse(ob.str()?.extract::<String>()?)?.0))
-        }
     }
 }

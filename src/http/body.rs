@@ -54,10 +54,6 @@ impl Body {
         }
     }
 
-    fn copy(&self, py: Python) -> PyResult<Self> {
-        self.try_clone(py)
-    }
-
     fn __copy__(&self, py: Python) -> PyResult<Self> {
         self.try_clone(py)
     }

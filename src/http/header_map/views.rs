@@ -22,7 +22,7 @@ impl HeaderMapItemsView {
         let (key, val) = kv;
         self.0.ref_map(|map| {
             for v in map.get_all(key) {
-                if HeaderValue::str_res(v)? == val {
+                if v.as_bytes() == val.as_bytes() {
                     return Ok(true);
                 }
             }
@@ -209,7 +209,7 @@ impl HeaderMapValuesView {
     fn __contains__(&self, val: &str) -> PyResult<bool> {
         self.0.ref_map(|map| {
             for v in map.values() {
-                if HeaderValue::str_res(v)? == val {
+                if v.as_bytes() == val.as_bytes() {
                     return Ok(true);
                 }
             }

@@ -132,7 +132,7 @@ impl Response {
         let mime = content_type
             .0
             .to_str()
-            .map_err(|e| RequestError::from_err("Failed to convert Content-Type header to string", &e))?
+            .map_err(|e| RequestError::from_err("Invalid Content-Type header", &e))?
             .parse::<mime::Mime>()
             .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
         Ok(Some(Mime::new(mime)))

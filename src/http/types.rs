@@ -4,6 +4,7 @@ use pyo3::types::{PyDict, PyDictItems, PyInt, PyList, PyMapping, PyString, PyTup
 use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -72,7 +73,7 @@ impl<'py> IntoPyObject<'py> for HeaderValue {
     type Output = Bound<'py, PyString>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(PyString::new(py, HeaderValue::str_res(&self.0)?))
+        Ok(PyString::new(py, &HeaderValue::inner_str(&self.0)))
     }
 }
 impl<'py> FromPyObject<'py> for HeaderValue {
@@ -83,8 +84,11 @@ impl<'py> FromPyObject<'py> for HeaderValue {
     }
 }
 impl HeaderValue {
-    pub fn str_res(v: &http::HeaderValue) -> PyResult<&str> {
-        v.to_str().map_err(|e| PyValueError::new_err(e.to_string()))
+    pub fn inner_str(v: &http::HeaderValue) -> Cow<'_, str> {
+        match v.to_str() {
+            Ok(s) => Cow::Borrowed(s),
+            Err(_) => String::from_utf8_lossy(v.as_bytes()),
+        }
     }
 }
 impl TryFrom<&str> for HeaderValue {
