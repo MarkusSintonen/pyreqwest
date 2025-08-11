@@ -1,6 +1,6 @@
 import asyncio
 import gzip
-from typing import Any, Callable, Awaitable, AsyncIterable
+from typing import Any, Callable, Awaitable
 from urllib.parse import parse_qsl
 
 from orjson import orjson
@@ -9,6 +9,8 @@ from .server import Server, receive_all
 
 
 class EchoServer(Server):
+    calls: int = 0
+
     async def app(
         self,
         scope: dict[str, Any],
@@ -16,6 +18,8 @@ class EchoServer(Server):
         send: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         assert scope['type'] == 'http'
+        self.calls += 1
+
         query: list[tuple[str, str]] = [(k.decode(), v.decode()) for k, v in parse_qsl(scope['query_string'])]
         query_dict: dict[str, str] = dict(query)
 

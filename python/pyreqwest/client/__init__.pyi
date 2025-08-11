@@ -4,10 +4,10 @@ from types import TracebackType
 from typing import Mapping
 from typing_extensions import Self
 
-from pyreqwest.http import UrlType
-from pyreqwest.middleware import Middleware
 from pyreqwest.proxy import Proxy
 from pyreqwest.request import RequestBuilder
+from pyreqwest.response import ResponseBuilder
+from pyreqwest.types import UrlType, Middleware
 
 
 class Client:
@@ -26,6 +26,7 @@ class Client:
         exc_tb: TracebackType | None,
     ) -> None: ...
     async def close(self) -> None: ...
+    def response_builder(self) -> ResponseBuilder: ...
 
 
 class ClientBuilder:

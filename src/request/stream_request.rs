@@ -14,7 +14,10 @@ pub struct StreamRequest {
 #[pymethods]
 impl StreamRequest {
     async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let resp = Request::send_inner(slf.as_any(), cancel).await?;
+        let req = Python::with_gil(|py| slf.clone_ref(py));
+
+        let resp = Request::send_inner(req.into_any(), true, cancel).await?;
+
         Python::with_gil(|py| {
             slf.try_borrow_mut(py)?.ctx_response = Some(resp.clone_ref(py));
             Ok(resp)

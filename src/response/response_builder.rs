@@ -1,3 +1,4 @@
+use crate::client::Client;
 use crate::http::{Body, HeaderArg, HeaderName, HeaderValue};
 use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
@@ -5,27 +6,22 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 #[pyclass]
-#[derive(Default)]
 pub struct ResponseBuilder {
+    client: Client,
     inner: Option<http::response::Builder>,
     body: Option<Body>,
     extensions: Option<Extensions>,
 }
 #[pymethods]
 impl ResponseBuilder {
-    #[new]
-    pub fn new() -> Self {
-        Self {
-            inner: Some(http::response::Builder::new()),
-            ..Default::default()
-        }
-    }
-
     pub async fn build(&mut self) -> PyResult<Response> {
         let body: reqwest::Body = self
             .body
             .take()
-            .map(|mut b| b.to_reqwest())
+            .map(|mut b| {
+                Python::with_gil(|py| b.set_task_local(py, &self.client))?;
+                b.to_reqwest()
+            })
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(Vec::new()));
         let mut resp = self
@@ -61,13 +57,13 @@ impl ResponseBuilder {
         })
     }
 
-    pub fn body(&mut self, value: Bound<PyAny>) -> PyResult<()> {
+    pub fn body<'py>(mut slf: PyRefMut<'py, Self>, value: Bound<PyAny>) -> PyResult<PyRefMut<'py, Self>> {
         if value.is_none() {
-            self.body = None;
+            slf.body = None;
         } else {
-            self.body = Some(value.downcast::<Body>()?.try_borrow()?.try_clone(value.py())?);
+            slf.body = Some(value.downcast::<Body>()?.try_borrow_mut()?.take_inner()?);
         }
-        Ok(())
+        Ok(slf)
     }
 
     pub fn extensions(mut slf: PyRefMut<Self>, value: Option<Extensions>) -> PyRefMut<Self> {
@@ -76,6 +72,15 @@ impl ResponseBuilder {
     }
 }
 impl ResponseBuilder {
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            inner: Some(http::response::Builder::new()),
+            body: None,
+            extensions: None,
+        }
+    }
+
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(http::response::Builder) -> PyResult<http::response::Builder>,

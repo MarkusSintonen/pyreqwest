@@ -300,14 +300,10 @@ impl Url {
 
     fn extend_query_inner(url: &mut url::Url, query: Option<EncodablePairs>) -> PyResult<()> {
         if let Some(query) = query.map(|q| q.0) {
-            let mut pairs = Vec::with_capacity(query.len());
+            let mut pairs = Vec::new();
             for (key, val) in query.iter() {
                 match val.0.as_array() {
-                    Some(v) => {
-                        for vv in v {
-                            pairs.push((key, vv));
-                        }
-                    }
+                    Some(arr) => pairs.extend(arr.iter().map(|v| (key, v))),
                     None => pairs.push((key, &val.0)),
                 }
             }

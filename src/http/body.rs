@@ -1,5 +1,6 @@
 use crate::asyncio::{PyCoroWaiter, py_coro_waiter};
 use crate::client::Client;
+use crate::client::client::TaskLocal;
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
@@ -68,10 +69,17 @@ impl Body {
         Ok(Body { body: Some(body) })
     }
 
-    pub fn set_stream_event_loop(&mut self, py: Python, client: &Client) -> PyResult<()> {
+    pub fn take_inner(&mut self) -> PyResult<Body> {
+        match self.body.take() {
+            Some(inner) => Ok(Body { body: Some(inner) }),
+            None => Err(PyRuntimeError::new_err("Body already consumed")),
+        }
+    }
+
+    pub fn set_task_local(&mut self, py: Python, client: &Client) -> PyResult<()> {
         match self.body.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
-            Some(InnerBody::Stream(stream)) => stream.set_event_loop(py, client),
+            Some(InnerBody::Stream(stream)) => stream.set_task_local(py, client),
             None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
@@ -92,7 +100,7 @@ enum InnerBody {
 
 pub struct BodyStream {
     async_gen: Py<PyAny>,
-    event_loop: Option<Py<PyAny>>,
+    task_local: Option<TaskLocal>,
     cur_waiter: Option<PyCoroWaiter>,
     started: bool,
     ellipsis: Py<PyEllipsis>,
@@ -136,7 +144,7 @@ impl BodyStream {
 
         BodyStream {
             async_gen,
-            event_loop: None,
+            task_local: None,
             cur_waiter: None,
             started: false,
             ellipsis: ellipsis.clone_ref(py),
@@ -150,11 +158,11 @@ impl BodyStream {
         Ok(reqwest::Body::wrap_stream(self))
     }
 
-    pub fn set_event_loop(&mut self, py: Python, client: &Client) -> PyResult<()> {
+    fn set_task_local(&mut self, py: Python, client: &Client) -> PyResult<()> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
         }
-        self.event_loop = Some(client.get_event_loop().get_running_loop(py)?.clone_ref(py));
+        self.task_local = Some(client.get_task_local_state(py)?);
         Ok(())
     }
 
@@ -164,13 +172,13 @@ impl BodyStream {
         self.started = true;
 
         Python::with_gil(|py| {
-            let event_loop = self
-                .event_loop
+            let task_local = self
+                .task_local
                 .as_ref()
-                .ok_or_else(|| PyRuntimeError::new_err("Event loop not set for BodyStream"))?;
+                .ok_or_else(|| PyRuntimeError::new_err("TaskLocal not set for BodyStream"))?;
             let anext = ONCE_ANEXT.import(py, "builtins", "anext")?;
             let coro = anext.call1((self.async_gen.bind(py), &self.ellipsis))?;
-            py_coro_waiter(coro, event_loop.bind(py))
+            py_coro_waiter(coro, task_local)
         })
     }
 

@@ -1,10 +1,9 @@
 from collections.abc import MutableMapping, ItemsView, KeysView, ValuesView
-from types import MappingProxyType
-from typing import Sequence, Mapping, Iterable, Iterator, overload, TypeVar, Any
+from typing import Mapping, Iterable, Iterator, overload, TypeVar, Any
 from typing_extensions import Self
 
 from ..bytes import Bytes
-from .types import Stream, Params
+from ..types import Stream, Params
 
 T = TypeVar("T")
 

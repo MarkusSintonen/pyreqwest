@@ -1,25 +1,33 @@
+use crate::client::client::TaskLocal;
 use futures_util::FutureExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
-use pyo3::{Bound, Py, PyAny, PyResult, Python, pyclass, pymethods};
+use pyo3::types::PyDict;
+use pyo3::{Bound, Py, PyAny, PyResult, Python, intern, pyclass, pymethods};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
+pub fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
     static GET_EV_LOOP: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
     GET_EV_LOOP.import(py, "asyncio", "get_running_loop")?.call0()
 }
 
-pub fn py_coro_waiter<'py>(py_coro: Bound<'py, PyAny>, event_loop: &Bound<'py, PyAny>) -> PyResult<PyCoroWaiter> {
+pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult<PyCoroWaiter> {
     let (tx, rx) = tokio::sync::oneshot::channel();
+    let py = py_coro.py();
 
     let task_creator = TaskCreator {
-        event_loop: event_loop.as_unbound().clone_ref(py_coro.py()),
-        callback: Py::new(py_coro.py(), TaskCallback { tx: Some(tx) })?,
+        event_loop: task_local.event_loop.clone_ref(py),
+        callback: Py::new(py, TaskCallback { tx: Some(tx) })?,
         coro: py_coro.unbind(),
     };
-    event_loop.call_method1("call_soon_threadsafe", (task_creator,))?;
+
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("context", &task_local.context)?;
+    task_local
+        .event_loop
+        .call_method(py, intern!(py, "call_soon_threadsafe"), (task_creator,), Some(&kwargs))?;
 
     Ok(PyCoroWaiter { rx })
 }
@@ -33,8 +41,19 @@ struct TaskCreator {
 #[pymethods]
 impl TaskCreator {
     fn __call__(&self, py: Python) -> PyResult<()> {
-        let py_task = self.event_loop.bind(py).call_method1("create_task", (&self.coro,))?;
-        py_task.call_method1("add_done_callback", (&self.callback,))?;
+        match self.create_task(py) {
+            Ok(_) => Ok(()),
+            Err(e) => self.callback.try_borrow_mut(py)?.tx_send(Err(e)),
+        }
+    }
+}
+impl TaskCreator {
+    fn create_task(&self, py: Python) -> PyResult<()> {
+        let py_task = self
+            .event_loop
+            .bind(py)
+            .call_method1(intern!(py, "create_task"), (&self.coro,))?;
+        py_task.call_method1(intern!(py, "add_done_callback"), (&self.callback,))?;
         Ok(())
     }
 }
@@ -63,19 +82,15 @@ struct TaskCallback {
 #[pymethods]
 impl TaskCallback {
     fn __call__(&mut self, task: Bound<PyAny>) -> PyResult<()> {
-        self.tx
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("tx already consumed"))?
-            .send(self.task_result(task).map(|res| res.unbind()))
-            .map_err(|_| PyRuntimeError::new_err("Failed to send task result"))
+        self.tx_send(self.get_task_result(task).map(|res| res.unbind()))
     }
 }
 impl TaskCallback {
-    fn task_result<'py>(&self, task: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        match task.call_method0("exception") {
+    fn get_task_result<'py>(&self, task: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        match task.call_method0(intern!(task.py(), "exception")) {
             Ok(task_exc) => {
                 if task_exc.is_none() {
-                    task.call_method0("result")
+                    task.call_method0(intern!(task.py(), "result"))
                 } else {
                     Err(PyErr::from_value(task_exc))
                 }
@@ -83,24 +98,12 @@ impl TaskCallback {
             Err(err) => Err(err),
         }
     }
-}
 
-pub struct EventLoopCell {
-    cell: GILOnceCell<Py<PyAny>>,
-}
-impl EventLoopCell {
-    pub fn new() -> Self {
-        EventLoopCell {
-            cell: GILOnceCell::new(),
-        }
-    }
-
-    pub fn get_running_loop(&self, py: Python) -> PyResult<&Py<PyAny>> {
-        self.cell.get_or_try_init(py, || Ok(get_running_loop(py)?.unbind()))
-    }
-
-    pub fn clone(&self, py: Python) -> Self {
-        let cell = self.cell.clone_ref(py);
-        EventLoopCell { cell }
+    pub fn tx_send(&mut self, res: PyResult<Py<PyAny>>) -> PyResult<()> {
+        self.tx
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("tx already consumed"))?
+            .send(res)
+            .map_err(|_| PyRuntimeError::new_err("Failed to send task result"))
     }
 }

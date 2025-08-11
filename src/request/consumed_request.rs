@@ -9,7 +9,7 @@ pub struct ConsumedRequest;
 #[pymethods]
 impl ConsumedRequest {
     pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        Request::send_inner(slf.as_any(), cancel).await
+        Request::send_inner(slf.into_any(), true, cancel).await
     }
 
     fn __copy__(slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {

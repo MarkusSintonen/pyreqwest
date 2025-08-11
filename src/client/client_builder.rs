@@ -4,7 +4,6 @@ use crate::http::{HeaderArg, HeaderMap};
 use crate::proxy::Proxy;
 use crate::request::ConnectionLimiter;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
-use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use reqwest::redirect;
@@ -57,9 +56,6 @@ impl ClientBuilder {
 
     fn with_middleware(mut slf: PyRefMut<Self>, middleware: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
-        if !Python::with_gil(|py| middleware.bind(py).hasattr(intern!(py, "handle")))? {
-            return Err(PyValueError::new_err("Middleware must have a 'handle' method"));
-        }
         match slf.middlewares.as_mut() {
             Some(middlewares) => middlewares.push(middleware),
             None => slf.middlewares = Some(vec![middleware]),

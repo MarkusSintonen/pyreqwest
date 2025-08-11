@@ -1,4 +1,6 @@
+import asyncio
 import copy
+import time
 from typing import AsyncGenerator
 
 import pytest
@@ -6,7 +8,7 @@ import trustme
 
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.http import Body
-from pyreqwest.http.types import Stream
+from pyreqwest.types import Stream
 from .servers.server import Server
 
 
@@ -178,3 +180,42 @@ async def test_duplicate_context_manager_fails(client: Client, echo_server: Serv
         with pytest.raises(RuntimeError, match="Request was already sent"):
             async with req as _:
                 assert False
+
+
+async def test_cancel(client: Client, echo_server: Server) -> None:
+    request = client.get(echo_server.url.with_query({"sleep_start": 5})).build_consumed()
+
+    task = asyncio.create_task(request.send())
+    start = time.time()
+    await asyncio.sleep(0.5)  # Allow the request to start processing
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.time() - start < 1
+
+
+@pytest.mark.parametrize("sleep_in", ["stream_gen", "server"])
+async def test_cancel_stream_request(client: Client, echo_body_parts_server: Server, sleep_in: str) -> None:
+    async def stream_gen() -> AsyncGenerator[bytes]:
+        if sleep_in == "stream_gen":
+            yield b"test1"
+            await asyncio.sleep(5)
+        else:
+            assert sleep_in == "server"
+            yield b"test1"
+            yield b'{"sleep": 5}'
+        yield b"test2"
+
+    request = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
+
+    async def run_request(req) -> None:
+        async with req as _:
+            assert False
+
+    task = asyncio.create_task(run_request(request))
+    start = time.time()
+    await asyncio.sleep(0.5)  # Allow the request to start processing
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.time() - start < 1

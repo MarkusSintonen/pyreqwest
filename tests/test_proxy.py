@@ -6,7 +6,7 @@ import trustme
 from pyreqwest.client import ClientBuilder
 from pyreqwest.exceptions import ConnectError, RequestPanicError
 from pyreqwest.http import Url
-from pyreqwest.http.types import UrlType
+from pyreqwest.types import UrlType
 from pyreqwest.proxy import Proxy
 from .servers.echo_server import EchoServer
 
@@ -26,13 +26,13 @@ async def test_proxy_simple(
 
     cert_pem = cert_authority.cert_pem.bytes()
     async with ClientBuilder().proxy(proxy).add_root_certificate_pem(cert_pem).error_for_status(True).build() as client:
-        resp = await client.get(f"http://unknown.example/test").build_consumed().send()
+        resp = await client.get(f"http://foo.invalid/test").build_consumed().send()
         assert (await resp.json())['scheme'] == "https"
-        assert ['host', 'unknown.example'] in (await resp.json())['headers']
+        assert ['host', 'foo.invalid'] in (await resp.json())['headers']
 
     # no proxy fails
     async with ClientBuilder().add_root_certificate_pem(cert_pem).error_for_status(True).build() as client:
-        req = client.get("http://unknown.example/test").build_consumed()
+        req = client.get("http://foo.invalid/test").build_consumed()
         with pytest.raises(ConnectError) as e:
             await req.send()
         assert {'message': 'dns error'} in e.value.details["causes"]
@@ -40,17 +40,17 @@ async def test_proxy_simple(
 
 async def test_proxy_custom(echo_server: EchoServer):
     def proxy_func(url: Url) -> UrlType | None:
-        return echo_server.url if "unknown.example" in str(url) else None
+        return echo_server.url if "foo.invalid" in str(url) else None
 
     proxy = Proxy.custom(proxy_func)
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
-        resp = await client.get(f"http://unknown.example/").build_consumed().send()
+        resp = await client.get(f"http://foo.invalid/").build_consumed().send()
         assert (await resp.json())['scheme'] == "http"
-        assert ['host', 'unknown.example'] in (await resp.json())['headers']
+        assert ['host', 'foo.invalid'] in (await resp.json())['headers']
 
         with pytest.raises(ConnectError):
-            await client.get(f"http://unknown2.example/").build_consumed().send()  # not captured
+            await client.get(f"http://foo2.invalid/").build_consumed().send()  # not captured
 
 
 @pytest.mark.parametrize("case", ["raises", "bad_return"])
@@ -73,7 +73,7 @@ async def test_proxy_custom__fail(echo_server: EchoServer, case: str):
     proxy = Proxy.custom(bad_fn)
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
-        req = client.get(f"http://unknown.example/").build_consumed()
+        req = client.get(f"http://foo.invalid/").build_consumed()
         with pytest.raises(RequestPanicError) as e:
             await req.send()
         assert expect_cause in e.value.details["causes"]
@@ -83,7 +83,7 @@ async def test_proxy_headers(echo_server: EchoServer):
     proxy = Proxy.custom(lambda _: echo_server.url).headers({"X-Custom-Header": "CustomValue"})
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
-        req = client.get(f"http://unknown.example/").build_consumed()
+        req = client.get(f"http://foo.invalid/").build_consumed()
         assert req.headers == {}
         resp = await req.send()
         assert ['x-custom-header', 'CustomValue'] in (await resp.json())['headers']
