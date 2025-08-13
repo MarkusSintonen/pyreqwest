@@ -121,39 +121,35 @@ impl Request {
     }
 
     pub async fn send_inner(slf: Py<PyAny>, with_middlewares: bool, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let mut client = None;
         let mut error_for_status = false;
         let mut middlewares_next = None;
 
         Python::with_gil(|py| -> PyResult<()> {
             let req = slf.bind(py).downcast::<Self>()?;
             let mut this = req.try_borrow_mut()?;
-            client = Some(this.client.clone());
+            let client = this.client.clone();
+
             error_for_status = this.error_for_status;
             if with_middlewares {
                 middlewares_next = this.client.init_middleware_next(py)?;
             }
 
             if let Some(body) = this.body.as_mut() {
-                body.set_task_local(py, client.as_ref().unwrap())?;
+                body.set_task_local(py, &client)?;
             }
             if let Some(body) = this.py_body.as_mut() {
-                body.borrow_mut(py).set_task_local(py, client.as_ref().unwrap())?;
+                body.borrow_mut(py).set_task_local(py, &client)?;
             }
             Ok(())
         })?;
 
-        let fut = async move {
-            if let Some(middlewares_next) = middlewares_next {
-                Next::call_first(middlewares_next, slf, error_for_status).await
-            } else {
-                let resp = Request::execute(slf).await?;
-                error_for_status.then(|| resp.error_for_status()).transpose()?;
-                Python::with_gil(|py| Py::new(py, resp))
-            }
-        };
-
-        client.unwrap().spawn(fut, cancel).await
+        if let Some(middlewares_next) = middlewares_next {
+            Next::call_first(middlewares_next, slf, error_for_status).await
+        } else {
+            let resp = Request::spawn_request(slf, cancel).await?;
+            error_for_status.then(|| resp.error_for_status()).transpose()?;
+            Python::with_gil(|py| Py::new(py, resp))
+        }
     }
 
     fn inner_ref(&self) -> PyResult<&reqwest::Request> {
@@ -168,7 +164,7 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
 
-    async fn execute(request: Py<PyAny>) -> PyResult<Response> {
+    async fn spawn_request(request: Py<PyAny>, cancel: CancelHandle) -> PyResult<Response> {
         let mut client = None;
         let mut inner_request = None;
         let mut extensions = None;
@@ -198,19 +194,10 @@ impl Request {
             Ok(())
         })?;
 
-        let permit = client
-            .as_ref()
+        client
             .unwrap()
-            .limit_connections(inner_request.as_mut().unwrap())
-            .await?;
-
-        let mut resp = client.unwrap().execute_reqwest(inner_request.unwrap()).await?;
-
-        extensions
-            .map(|ext| Self::move_extensions(ext, resp.extensions_mut()))
-            .transpose()?;
-
-        Response::initialize(resp, permit, body_consume_config).await
+            .spawn_reqwest(inner_request.unwrap(), body_consume_config, extensions, cancel)
+            .await
     }
 
     pub fn try_clone_inner(&mut self, py: Python) -> PyResult<Self> {
@@ -244,18 +231,6 @@ impl Request {
             extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
             body_consume_config: self.body_consume_config,
             error_for_status: self.error_for_status,
-        })
-    }
-
-    fn move_extensions(request_extensions: Extensions, response_extensions: &mut http::Extensions) -> PyResult<()> {
-        Python::with_gil(|py| {
-            let result_ext = request_extensions.0.into_bound(py);
-            if let Some(resp_ext) = response_extensions.remove::<Extensions>() {
-                let resp_ext = resp_ext.0.into_bound(py);
-                result_ext.update(resp_ext.as_mapping())?;
-            }
-            response_extensions.insert(Extensions(result_ext.unbind()));
-            Ok(())
         })
     }
 

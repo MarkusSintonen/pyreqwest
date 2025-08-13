@@ -19,10 +19,7 @@ impl ConnectionLimiter {
         }
     }
 
-    pub async fn limit_connections(
-        &self,
-        request_timeout: Option<Duration>,
-    ) -> PyResult<(OwnedSemaphorePermit, Duration)> {
+    pub async fn limit_connections(&self, request_timeout: Option<Duration>) -> PyResult<OwnedSemaphorePermit> {
         let timeout = match (self.timeout, request_timeout) {
             (Some(t1), Some(t2)) => Some(t1.min(t2)),
             (Some(t1), None) => Some(t1),
@@ -30,15 +27,12 @@ impl ConnectionLimiter {
             (None, None) => None,
         };
 
-        let now = std::time::Instant::now();
-        let permit = if let Some(timeout) = timeout {
-            tokio::time::timeout(timeout, self.semaphore.clone().acquire_owned())
+        match timeout {
+            Some(timeout) => tokio::time::timeout(timeout, self.semaphore.clone().acquire_owned())
                 .await
-                .map_err(|e| PoolTimeoutError::from_err("Timeout acquiring semaphore", &e))?
-        } else {
-            self.semaphore.clone().acquire_owned().await
-        };
-        let permit = permit.map_err(|e| PyRuntimeError::new_err(format!("Failed to acquire semaphore: {}", e)))?;
-        Ok((permit, now.elapsed()))
+                .map_err(|e| PoolTimeoutError::from_err("Timeout acquiring semaphore", &e))?,
+            None => self.semaphore.clone().acquire_owned().await,
+        }
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to acquire semaphore: {}", e)))
     }
 }

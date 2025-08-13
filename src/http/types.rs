@@ -1,21 +1,21 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictItems, PyInt, PyList, PyMapping, PyString, PyTuple};
-use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python};
+use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python, intern};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Method(#[serde(with = "http_serde::method")] pub http::Method);
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct Method(pub http::Method);
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct HeaderName(pub http::HeaderName);
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct HeaderValue(pub http::HeaderValue);
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Version(#[serde(with = "http_serde::version")] pub http::Version);
-#[derive(Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct Version(pub http::Version);
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct StatusCode(pub http::StatusCode);
 #[derive(Serialize, Deserialize, Default)]
 pub struct JsonValue(pub serde_json::Value);
@@ -24,16 +24,20 @@ pub struct Extensions(pub Py<PyDict>);
 pub struct EncodablePairs(pub Vec<(String, JsonValue)>);
 
 impl<'py> IntoPyObject<'py> for Method {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(pythonize(py, &self)?)
+        Ok(PyString::new(py, self.0.as_str()))
     }
 }
 impl<'py> FromPyObject<'py> for Method {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(depythonize(ob)?)
+        let method = ob
+            .extract::<&str>()?
+            .parse::<http::Method>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Method(method))
     }
 }
 impl From<reqwest::Method> for Method {
@@ -154,16 +158,35 @@ impl EncodableParams<'_> {
 }
 
 impl<'py> IntoPyObject<'py> for Version {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(pythonize(py, &self)?)
+        if self.0 == http::Version::HTTP_10 {
+            Ok(intern!(py, "HTTP/1.0").clone())
+        } else if self.0 == http::Version::HTTP_11 {
+            Ok(intern!(py, "HTTP/1.1").clone())
+        } else if self.0 == http::Version::HTTP_2 {
+            Ok(intern!(py, "HTTP/2.0").clone())
+        } else if self.0 == http::Version::HTTP_3 {
+            Ok(intern!(py, "HTTP/3.0").clone())
+        } else if self.0 == http::Version::HTTP_09 {
+            Ok(intern!(py, "HTTP/0.9").clone())
+        } else {
+            Err(PyValueError::new_err("invalid http version"))
+        }
     }
 }
 impl<'py> FromPyObject<'py> for Version {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        depythonize(ob).map_err(|e| PyValueError::new_err(e.to_string()))
+        Ok(match ob.extract::<&str>()? {
+            "HTTP/1.0" => Version(http::Version::HTTP_10),
+            "HTTP/1.1" => Version(http::Version::HTTP_11),
+            "HTTP/2.0" => Version(http::Version::HTTP_2),
+            "HTTP/3.0" => Version(http::Version::HTTP_3),
+            "HTTP/0.9" => Version(http::Version::HTTP_09),
+            _ => Err(PyValueError::new_err("invalid http version"))?,
+        })
     }
 }
 impl From<reqwest::Version> for Version {
@@ -175,6 +198,18 @@ impl From<reqwest::Version> for Version {
 impl Extensions {
     pub fn copy_dict(&self, py: Python) -> PyResult<Extensions> {
         Ok(Extensions(self.0.bind(py).copy()?.unbind()))
+    }
+
+    pub fn into_response(self, response_extensions: &mut http::Extensions) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let result_ext = self.0.into_bound(py);
+            if let Some(resp_ext) = response_extensions.remove::<Extensions>() {
+                let resp_ext = resp_ext.0.into_bound(py);
+                result_ext.update(resp_ext.as_mapping())?;
+            }
+            response_extensions.insert(Extensions(result_ext.unbind()));
+            Ok(())
+        })
     }
 }
 impl Clone for Extensions {

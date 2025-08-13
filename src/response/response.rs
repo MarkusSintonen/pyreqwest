@@ -7,21 +7,21 @@ use encoding_rs::{Encoding, UTF_8};
 use http_body_util::BodyExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::PyDict;
 use pyo3_bytes::PyBytes;
-use pythonize::pythonize;
 use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
 pub struct Response {
+    #[pyo3(get, set)]
+    status: StatusCode,
+    #[pyo3(get, set)]
+    version: Version,
     py_headers: Option<Py<HeaderMap>>,
-    py_version: Option<Py<PyString>>,
     py_extensions: Option<Extensions>,
 
-    inner_status: http::StatusCode,
-    inner_version: http::Version,
     inner_headers: Option<HeaderMap>,
     inner_extensions: Option<http::Extensions>,
 
@@ -35,17 +35,6 @@ pub struct Response {
 #[pymethods]
 impl Response {
     #[getter]
-    fn get_status(&self) -> u16 {
-        self.inner_status.as_u16()
-    }
-
-    #[setter]
-    fn set_status(&mut self, status: StatusCode) -> PyResult<()> {
-        self.inner_status = status.0;
-        Ok(())
-    }
-
-    #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
         if self.py_headers.is_none() {
             let headers = self.inner_headers.take().unwrap();
@@ -57,23 +46,6 @@ impl Response {
     #[setter]
     fn set_headers(&mut self, py: Python, value: HeaderArg) -> PyResult<()> {
         self.py_headers = Some(value.0.into_pyobject(py)?.unbind());
-        Ok(())
-    }
-
-    #[getter]
-    fn get_version(&mut self) -> PyResult<&Py<PyString>> {
-        if self.py_version.is_none() {
-            let version = Version(self.inner_version);
-            self.py_version = Some(Python::with_gil(|py| {
-                Ok::<_, PyErr>(pythonize(py, &version)?.downcast_into_exact::<PyString>()?.unbind())
-            })?);
-        };
-        Ok(self.py_version.as_ref().unwrap())
-    }
-
-    #[setter]
-    fn set_version(&mut self, py: Python, version: Version) -> PyResult<()> {
-        self.py_version = Some(pythonize(py, &version)?.downcast_into_exact::<PyString>()?.unbind());
         Ok(())
     }
 
@@ -91,9 +63,8 @@ impl Response {
     }
 
     #[setter]
-    fn set_extensions(&mut self, extensions: Extensions) -> PyResult<()> {
+    fn set_extensions(&mut self, extensions: Extensions) {
         self.py_extensions = Some(extensions);
-        Ok(())
     }
 
     async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
@@ -139,16 +110,16 @@ impl Response {
     }
 
     pub fn error_for_status(&self) -> PyResult<()> {
-        if self.inner_status.is_success() {
+        if self.status.0.is_success() {
             return Ok(());
         }
-        let msg = if self.inner_status.is_client_error() {
+        let msg = if self.status.0.is_client_error() {
             "HTTP status client error"
         } else {
-            debug_assert!(self.inner_status.is_server_error());
+            debug_assert!(self.status.0.is_server_error());
             "HTTP status server error"
         };
-        Err(StatusError::from_custom(msg, json!({"status": self.inner_status.as_u16()})))
+        Err(StatusError::from_custom(msg, json!({"status": self.status.0.as_u16()})))
     }
 }
 impl Response {
@@ -186,11 +157,10 @@ impl Response {
         };
 
         let resp = Response {
+            status: StatusCode(head.status),
+            version: Version(head.version),
             py_headers: None,
-            py_version: None,
             py_extensions: None,
-            inner_status: head.status,
-            inner_version: head.version,
             inner_headers: Some(HeaderMap::from(head.headers)),
             inner_extensions: Some(head.extensions),
             body_stream,

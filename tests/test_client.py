@@ -7,7 +7,7 @@ import trustme
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
-from pyreqwest.client import ClientBuilder
+from pyreqwest.client import ClientBuilder, Runtime
 from pyreqwest.exceptions import StatusError, PoolTimeoutError, ConnectTimeoutError, ReadTimeoutError, CloseError, \
     BuilderError, ConnectError
 from pyreqwest.http import Url, HeaderMap
@@ -207,3 +207,24 @@ async def test_https__accept_invalid_certs(https_echo_server: EchoServer, cert_a
     async with builder.build() as client:
         resp = await client.get(https_echo_server.url).build_consumed().send()
         assert (await resp.json())['scheme'] == 'https'
+
+
+async def test_different_runtimes(echo_server: EchoServer):
+    rt1 = Runtime()
+    rt2 = Runtime()
+
+    client1 = ClientBuilder().runtime(rt1).error_for_status(True).build()
+    client2 = ClientBuilder().runtime(rt2).error_for_status(True).build()
+
+    await client1.get(echo_server.url).build_consumed().send()
+    await client2.get(echo_server.url).build_consumed().send()
+
+    await rt1.close()
+
+    with pytest.raises(CloseError, match="Runtime was closed"):
+        await client1.get(echo_server.url).build_consumed().send()
+    await client2.get(echo_server.url).build_consumed().send()
+
+    del rt2
+    with pytest.raises(CloseError, match="Runtime was closed"):
+        await client2.get(echo_server.url).build_consumed().send()

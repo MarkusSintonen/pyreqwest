@@ -66,7 +66,7 @@ async def test_version(client: Client, echo_server: Server, https_echo_server: S
     resp.version = "HTTP/3.0"
     assert resp.version == "HTTP/3.0"
 
-    with pytest.raises(ValueError, match="expected http version"):
+    with pytest.raises(ValueError, match="invalid http version"):
         resp.version = "foobar"
 
 

@@ -113,7 +113,7 @@ impl RequestBuilder {
             .map_err(|e| BuilderError::from_err("Failed to build request", &e))?;
 
         if request.body().is_some() && self.body.is_some() {
-            return Err(BuilderError::from_causes("Can not set body when multipart or form is used", Vec::new()));
+            return Err(BuilderError::from_causes("Can not set body when multipart or form is used", vec![]));
         }
 
         let request = Request::new(

@@ -21,6 +21,7 @@ pub struct ClientBuilder {
     pool_timeout: Option<Duration>,
     error_for_status: bool,
     default_headers: Option<HeaderMap>,
+    runtime: Option<Py<Runtime>>,
 }
 #[pymethods]
 impl ClientBuilder {
@@ -37,13 +38,20 @@ impl ClientBuilder {
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?;
+
         let inner = builder
             .use_rustls_tls()
             .build()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let runtime = match self.runtime.take() {
+            Some(runtime) => Python::with_gil(|py| Ok::<_, PyErr>(runtime.try_borrow(py)?.handle().clone()))?,
+            None => Runtime::global_handle()?.clone(),
+        };
+
         let client = Client::new(
             inner,
-            Runtime::start_new()?,
+            runtime,
             self.middlewares.take(),
             self.total_timeout,
             self.max_connections
@@ -52,6 +60,12 @@ impl ClientBuilder {
             self.default_headers.take(),
         );
         Ok(client)
+    }
+
+    fn runtime(mut slf: PyRefMut<Self>, runtime: Py<Runtime>) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.runtime = Some(runtime);
+        Ok(slf)
     }
 
     fn with_middleware(mut slf: PyRefMut<Self>, middleware: Py<PyAny>) -> PyResult<PyRefMut<Self>> {

@@ -1,12 +1,11 @@
 use crate::asyncio::get_running_loop;
-use crate::client::runtime::Runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
-use crate::http::UrlType;
+use crate::http::{Extensions, UrlType};
 use crate::http::{HeaderMap, Method};
 use crate::middleware::Next;
 use crate::request::{ConnectionLimiter, RequestBuilder};
-use crate::response::ResponseBuilder;
+use crate::response::{BodyConsumeConfig, Response, ResponseBuilder};
 use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::asyncio::CancelledError;
@@ -15,18 +14,25 @@ use pyo3::sync::GILOnceCell;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OwnedSemaphorePermit;
+use tokio_util::sync::CancellationToken;
 
 #[pyclass]
 pub struct Client(Arc<ClientInner>);
 struct ClientInner {
     client: reqwest::Client,
-    runtime: Runtime,
+    runtime: tokio::runtime::Handle,
     middlewares: Option<Vec<Py<PyAny>>>,
     total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
     default_headers: Option<HeaderMap>,
     event_loop_cell: GILOnceCell<Py<PyAny>>,
+    close_cancellation: CancellationToken,
+}
+impl Drop for ClientInner {
+    fn drop(&mut self) {
+        self.close_cancellation.cancel();
+    }
 }
 
 #[pymethods]
@@ -81,7 +87,7 @@ impl Client {
     }
 
     async fn close(&self) {
-        self.0.runtime.close();
+        self.0.close_cancellation.cancel();
     }
 
     fn response_builder(&self) -> ResponseBuilder {
@@ -91,7 +97,7 @@ impl Client {
 impl Client {
     pub fn new(
         client: reqwest::Client,
-        runtime: Runtime,
+        runtime: tokio::runtime::Handle,
         middlewares: Option<Vec<Py<PyAny>>>,
         total_timeout: Option<Duration>,
         connection_limiter: Option<ConnectionLimiter>,
@@ -107,47 +113,66 @@ impl Client {
             error_for_status,
             default_headers,
             event_loop_cell: GILOnceCell::new(),
+            close_cancellation: CancellationToken::new(),
         }))
     }
 
-    pub async fn spawn<F, T>(&self, future: F, mut cancel: CancelHandle) -> PyResult<T>
-    where
-        F: Future<Output = PyResult<T>> + Send + 'static,
-        T: Send + 'static,
-    {
-        let join_handle = self.0.runtime.spawn(future)?;
+    pub async fn spawn_reqwest(
+        &self,
+        mut request: reqwest::Request,
+        body_consume_config: BodyConsumeConfig,
+        extensions: Option<Extensions>,
+        mut cancel: CancelHandle,
+    ) -> PyResult<Response> {
+        let client = self.0.client.clone();
+        let connection_limiter = self.0.connection_limiter.clone();
+        let close_handle = self.0.close_cancellation.clone();
+
+        let fut = async move {
+            let permit = match connection_limiter {
+                Some(lim) => Some(Self::limit_connections(&lim, &mut request).await?),
+                _ => None,
+            };
+
+            let mut resp = client.execute(request).await.map_err(map_send_error)?;
+
+            extensions
+                .map(|ext| ext.into_response(resp.extensions_mut()))
+                .transpose()?;
+
+            Response::initialize(resp, permit, body_consume_config).await
+        };
+
+        let join_handle = self.0.runtime.spawn(fut);
 
         tokio::select! {
-            res = join_handle => res.map_err(|e| {
-                match e.try_into_panic() {
-                    Ok(payload) => RequestPanicError::from_panic_payload("Request panicked", payload),
-                    Err(e) => CloseError::from_err("Client was closed", &e),
-                }
+            res = join_handle => res.map_err(|e| match e.try_into_panic() {
+                Ok(panic_payload) => RequestPanicError::from_panic_payload("Request panicked", panic_payload),
+                Err(e) => CloseError::from_err("Runtime was closed", &e),
             })?,
             _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
+            _ = close_handle.cancelled() => Err(CloseError::from_causes("Client was closed", vec![]),)
         }
     }
 
-    pub async fn execute_reqwest(&self, request: reqwest::Request) -> PyResult<reqwest::Response> {
-        self.0.client.execute(request).await.map_err(map_send_error)
-    }
+    pub async fn limit_connections(
+        connection_limiter: &ConnectionLimiter,
+        request: &mut reqwest::Request,
+    ) -> PyResult<OwnedSemaphorePermit> {
+        let req_timeout = request.timeout().copied();
+        let now = std::time::Instant::now();
 
-    pub async fn limit_connections(&self, request: &mut reqwest::Request) -> PyResult<Option<OwnedSemaphorePermit>> {
-        if let Some(connection_limiter) = self.0.connection_limiter.clone() {
-            let req_timeout = request.timeout().copied();
-            let (permit, elapsed) = connection_limiter.limit_connections(req_timeout).await?;
-
-            if let Some(req_timeout) = req_timeout {
-                if elapsed >= req_timeout {
-                    return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", Vec::new()));
-                } else {
-                    *request.timeout_mut() = Some(req_timeout - elapsed);
-                }
+        let permit = connection_limiter.limit_connections(req_timeout).await?;
+        let elapsed = now.elapsed();
+        if let Some(req_timeout) = req_timeout {
+            if elapsed >= req_timeout {
+                return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", vec![]));
+            } else {
+                *request.timeout_mut() = Some(req_timeout - elapsed);
             }
-            Ok(Some(permit))
-        } else {
-            Ok(None)
         }
+
+        Ok(permit)
     }
 
     pub fn init_middleware_next(&self, py: Python) -> PyResult<Option<Py<Next>>> {

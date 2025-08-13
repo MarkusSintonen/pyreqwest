@@ -20,7 +20,7 @@ mod pyreqwest {
     mod client {
         use super::*;
         #[pymodule_export]
-        use crate::client::{Client, ClientBuilder};
+        use crate::client::{Client, ClientBuilder, Runtime};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "client")
