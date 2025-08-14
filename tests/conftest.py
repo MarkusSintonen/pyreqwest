@@ -4,6 +4,7 @@ from typing import AsyncGenerator, Generator
 import pytest
 import trustme
 
+from pyreqwest.pytest_mock import client_mocker  # Import the fixture
 from .servers.echo_body_parts_server import EchoBodyPartsServer
 from .servers.echo_server import EchoServer
 
