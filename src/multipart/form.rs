@@ -1,5 +1,9 @@
+use crate::client::Runtime;
+use crate::multipart::Part;
+use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use std::path::PathBuf;
 
 #[pyclass]
 pub struct Form {
@@ -14,12 +18,45 @@ impl Form {
         }
     }
 
+    #[getter]
+    fn boundary(&self) -> PyResult<&str> {
+        Ok(self.inner_ref()?.boundary())
+    }
+
     fn text(slf: PyRefMut<Self>, name: String, value: String) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.text(name, value)))
     }
 
-    fn boundary(&self) -> PyResult<&str> {
-        Ok(self.inner_ref()?.boundary())
+    async fn file<'py>(
+        slf: Py<Self>,
+        name: String,
+        path: PathBuf,
+        #[pyo3(cancel_handle)] cancel: CancelHandle,
+    ) -> PyResult<Py<Self>> {
+        let part = Runtime::global_handle()?
+            .spawn(reqwest::multipart::Part::file(path), cancel)
+            .await??;
+        Python::with_gil(|py| {
+            Self::apply(slf.try_borrow_mut(py)?, |builder| Ok(builder.part(name, part)))?;
+            Ok(slf)
+        })
+    }
+
+    fn part<'py>(slf: PyRefMut<'py, Self>, name: String, mut part: PyRefMut<Part>) -> PyResult<PyRefMut<'py, Self>> {
+        let part = part.take_inner()?;
+        Self::apply(slf, |builder| Ok(builder.part(name, part)))
+    }
+
+    fn percent_encode_path_segment(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.percent_encode_path_segment()))
+    }
+
+    fn percent_encode_attr_chars(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.percent_encode_attr_chars()))
+    }
+
+    fn percent_encode_noop(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.percent_encode_noop()))
     }
 }
 impl Form {

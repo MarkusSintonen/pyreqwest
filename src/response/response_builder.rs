@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::http::{Body, HeaderArg, HeaderName, HeaderValue};
+use crate::http::{Body, ExtensionsType, HeaderName, HeaderValue, HeadersType};
 use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -19,18 +19,21 @@ impl ResponseBuilder {
             .body
             .take()
             .map(|mut b| {
-                Python::with_gil(|py| b.set_task_local(py, &self.client))?;
+                Python::with_gil(|py| b.set_task_local(py, Some(&self.client)))?;
                 b.to_reqwest()
             })
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(Vec::new()));
+
         let mut resp = self
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?
             .body(body)
             .map_err(|e| PyValueError::new_err(format!("Failed to build response: {}", e)))?;
+
         self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
+
         let resp = reqwest::Response::from(resp);
         Response::initialize(resp, None, BodyConsumeConfig::Fully).await
     }
@@ -47,7 +50,7 @@ impl ResponseBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    pub fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderArg) -> PyResult<PyRefMut<'py, Self>> {
+    pub fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeadersType) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |mut builder| {
             let headers_mut = builder
                 .headers_mut()
@@ -66,8 +69,8 @@ impl ResponseBuilder {
         Ok(slf)
     }
 
-    pub fn extensions(mut slf: PyRefMut<Self>, value: Option<Extensions>) -> PyRefMut<Self> {
-        slf.extensions = value;
+    pub fn extensions(mut slf: PyRefMut<Self>, value: ExtensionsType) -> PyRefMut<Self> {
+        slf.extensions = Some(value.0);
         slf
     }
 }

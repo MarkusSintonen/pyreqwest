@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::http::{Body, HeaderArg};
+use crate::http::{Body, ExtensionsType, HeadersType};
 use crate::http::{Extensions, HeaderMap, Method};
 use crate::http::{Url, UrlType};
 use crate::middleware::Next;
@@ -56,7 +56,7 @@ impl Request {
     }
 
     #[setter]
-    fn set_headers(&mut self, py: Python, value: HeaderArg) -> PyResult<()> {
+    fn set_headers(&mut self, py: Python, value: HeadersType) -> PyResult<()> {
         self.py_headers = Some(value.0.into_pyobject(py)?.unbind());
         Ok(())
     }
@@ -86,8 +86,8 @@ impl Request {
     }
 
     #[setter]
-    fn set_extensions(&mut self, value: Extensions) -> PyResult<()> {
-        self.extensions = Some(value);
+    fn set_extensions(&mut self, value: ExtensionsType) -> PyResult<()> {
+        self.extensions = Some(value.0);
         Ok(())
     }
 
@@ -131,14 +131,14 @@ impl Request {
 
             error_for_status = this.error_for_status;
             if with_middlewares {
-                middlewares_next = this.client.init_middleware_next(py)?;
+                middlewares_next = client.init_middleware_next(py)?;
             }
 
             if let Some(body) = this.body.as_mut() {
-                body.set_task_local(py, &client)?;
+                body.set_task_local(py, Some(&client))?;
             }
             if let Some(body) = this.py_body.as_mut() {
-                body.borrow_mut(py).set_task_local(py, &client)?;
+                body.borrow_mut(py).set_task_local(py, Some(&client))?;
             }
             Ok(())
         })?;

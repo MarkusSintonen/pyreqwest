@@ -1,10 +1,11 @@
 use crate::http::header_map::iters::HeaderMapKeysIter;
 use crate::http::header_map::views::{HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView};
+use crate::http::utils::{KeyValPairs, ellipsis};
 use crate::http::{HeaderName, HeaderValue};
 use http::header::Entry;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyEllipsis, PyIterator, PyList, PyMapping, PySequence, PyString};
+use pyo3::types::{PyDict, PyEllipsis, PyList, PyMapping, PyString};
 use pyo3::{IntoPyObjectExt, intern};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ pub struct Inner {
 impl HeaderMap {
     #[new]
     #[pyo3(signature = (other=None))]
-    fn py_new(other: Option<UpdateArg>) -> PyResult<Self> {
+    fn py_new(other: Option<KeyValPairs>) -> PyResult<Self> {
         let mut inner = http::HeaderMap::new();
         if let Some(other) = other {
             HeaderMap::extend_inner(&mut inner, other)?;
@@ -104,7 +105,7 @@ impl HeaderMap {
                     return Ok(false);
                 }
                 let mut other_map = http::HeaderMap::new();
-                return match HeaderMap::extend_inner(&mut other_map, UpdateArg::Mapping(other_dict)) {
+                return match HeaderMap::extend_inner(&mut other_map, KeyValPairs::Mapping(other_dict)) {
                     Ok(()) => Ok(map == &other_map),
                     Err(_) => Ok(false),
                 };
@@ -142,9 +143,8 @@ impl HeaderMap {
     }
 
     #[pyo3(signature = (other=None, **py_kwargs))]
-    fn update(&mut self, other: Option<UpdateArg>, py_kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
-        fn insert(map: &mut http::HeaderMap, tup: Bound<PyAny>) -> PyResult<()> {
-            let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
+    fn update(&mut self, other: Option<KeyValPairs>, py_kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
+        fn insert(map: &mut http::HeaderMap, k: HeaderName, v: HeaderValue) -> PyResult<()> {
             map.try_insert(k.0, v.0)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
                 .map(|_| ())
@@ -152,10 +152,13 @@ impl HeaderMap {
 
         self.mut_map(|map| {
             if let Some(other) = other {
-                other.apply(|tup| insert(map, tup))?;
+                other.for_each(|(k, v)| insert(map, k, v))?;
             }
             if let Some(kwargs) = py_kwargs {
-                kwargs.items().iter().try_for_each(|tup| insert(map, tup))?;
+                kwargs.items().iter().try_for_each(|tup| {
+                    let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
+                    insert(map, k, v)
+                })?;
             }
             Ok(())
         })
@@ -214,7 +217,7 @@ impl HeaderMap {
         })
     }
 
-    fn extend(&mut self, other: UpdateArg) -> PyResult<()> {
+    fn extend(&mut self, other: KeyValPairs) -> PyResult<()> {
         self.mut_map(|map| HeaderMap::extend_inner(map, other))
     }
 
@@ -344,9 +347,8 @@ impl HeaderMap {
         res.into_bound_py_any(py)
     }
 
-    fn extend_inner(map: &mut http::HeaderMap, other: UpdateArg) -> PyResult<()> {
-        other.apply(|tup| {
-            let (k, v): (HeaderName, HeaderValue) = tup.extract()?;
+    fn extend_inner(map: &mut http::HeaderMap, other: KeyValPairs) -> PyResult<()> {
+        other.for_each(|(k, v): (HeaderName, HeaderValue)| {
             map.try_append(k.0, v.0)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
                 .map(|_| ())
@@ -397,33 +399,14 @@ impl<'py> PopArg<'py> {
         }
     }
 }
-fn ellipsis() -> Py<PyEllipsis> {
-    Python::with_gil(|py| PyEllipsis::get(py).to_owned().unbind())
-}
 
-#[derive(FromPyObject)]
-enum UpdateArg<'py> {
-    Mapping(Bound<'py, PyMapping>),
-    Sequence(Bound<'py, PySequence>),
-    Iterator(Bound<'py, PyIterator>),
-}
-impl<'py> UpdateArg<'py> {
-    fn apply<F: FnMut(Bound<'py, PyAny>) -> PyResult<()>>(self, mut f: F) -> PyResult<()> {
-        match self {
-            UpdateArg::Mapping(mapping) => mapping.items()?.iter().try_for_each(f),
-            UpdateArg::Sequence(seq) => seq.try_iter()?.try_for_each(|v| f(v?)),
-            UpdateArg::Iterator(mut iter) => iter.try_for_each(|v| f(v?)),
-        }
-    }
-}
-
-pub struct HeaderArg(pub HeaderMap);
-impl<'py> FromPyObject<'py> for HeaderArg {
+pub struct HeadersType(pub HeaderMap);
+impl<'py> FromPyObject<'py> for HeadersType {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if let Ok(map) = ob.downcast_exact::<HeaderMap>() {
-            Ok(HeaderArg(map.try_borrow()?.try_clone()?))
+            Ok(HeadersType(map.try_borrow()?.try_clone()?))
         } else {
-            Ok(HeaderArg(HeaderMap::py_new(Some(ob.extract::<UpdateArg>()?))?))
+            Ok(HeadersType(HeaderMap::py_new(Some(ob.extract::<KeyValPairs>()?))?))
         }
     }
 }

@@ -16,7 +16,7 @@ def test_init__empty():
 @pytest.mark.parametrize(
     "pairs", [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]]
 )
-@pytest.mark.parametrize("kind", [list, tuple, dict, iter, CIMultiDict, HeaderMap])
+@pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
 def test_init__args(pairs: list[tuple[str, str]], kind: Callable[[list], Any]):
     headers = HeaderMap(kind(pairs))
     if kind == dict:
@@ -315,7 +315,7 @@ def test_clear(pairs: list[tuple[str, str]]):
     assert len(items) == 0 and len(keys) == 0 and len(values) == 0
 
 
-@pytest.mark.parametrize("kind", [list, tuple, dict, iter, CIMultiDict, HeaderMap])
+@pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
 def test_update(kind: Callable[[list], Any]):
     headers = HeaderMap([("a", "v1"), ("b", "v2"), ("a", "v3")])
     assert len(headers) == 3
@@ -437,7 +437,7 @@ def test_append__sensitive(sensitive_arg: dict):
         assert repr(headers) == "HeaderMap({'a': ['v1', 'v2']})"
 
 
-@pytest.mark.parametrize("kind", [list, tuple, dict, iter, CIMultiDict, HeaderMap])
+@pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
 def test_extend(kind: Callable[[list], Any]):
     headers = HeaderMap([("a", "v1"), ("b", "v2")])
     assert len(headers) == 2

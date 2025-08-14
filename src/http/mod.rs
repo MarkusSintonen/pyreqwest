@@ -3,6 +3,7 @@ mod header_map;
 mod mime;
 mod types;
 mod url;
+mod utils;
 
 pub use body::*;
 pub use header_map::*;

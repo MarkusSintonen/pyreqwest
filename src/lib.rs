@@ -75,7 +75,7 @@ mod pyreqwest {
     mod multipart {
         use super::*;
         #[pymodule_export]
-        use crate::multipart::Form;
+        use crate::multipart::{Form, Part};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "multipart")

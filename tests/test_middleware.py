@@ -260,7 +260,7 @@ async def test_stream_context_var(echo_server: EchoServer) -> None:
 
 @pytest.mark.parametrize("body_stream", [False, True])
 async def test_override_with_response_builder(body_stream: bool) -> None:
-    async def override_response(client: Client, _request: Request, _next_handler: Next) -> Response:
+    async def override_response(_client: Client, _request: Request, next_handler: Next) -> Response:
         if body_stream:
             async def stream_gen():
                 yield b"test "
@@ -270,7 +270,7 @@ async def test_override_with_response_builder(body_stream: bool) -> None:
         else:
             body = Body.from_text("test override")
 
-        return await client.response_builder().status(201).body(body).build()
+        return await next_handler.override_response_builder().status(201).body(body).build()
 
     resp = await build_client(override_response).get("http://foo.invalid").build_consumed().send()
     assert resp.status == 201
@@ -280,13 +280,13 @@ async def test_override_with_response_builder(body_stream: bool) -> None:
 async def test_response_builder_stream_context_var() -> None:
     context_var = ContextVar("test_var", default="default_value")
 
-    async def override_response(client: Client, _request: Request, _next_handler: Next) -> Response:
+    async def override_response(_client: Client, _request: Request, next_handler: Next) -> Response:
         async def stream_gen():
             assert context_var.get() == "val1"
             yield b"test "
             yield b"override"
 
-        return await client.response_builder().status(201).body(Body.from_stream(stream_gen())).build()
+        return await next_handler.override_response_builder().status(201).body(Body.from_stream(stream_gen())).build()
 
     context_var.set("val1")
 

@@ -1,4 +1,8 @@
+use crate::exceptions::{CloseError, RequestPanicError};
+use futures_util::FutureExt;
+use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::prelude::*;
 use std::sync::LazyLock;
 
@@ -8,8 +12,28 @@ static GLOBAL_HANDLE: LazyLock<PyResult<InnerRuntime>> = LazyLock::new(|| {
     Ok(InnerRuntime { handle, close_tx })
 });
 
+#[derive(Clone)]
+pub struct Handle(tokio::runtime::Handle);
+impl Handle {
+    pub async fn spawn<F, T>(&self, future: F, mut cancel: CancelHandle) -> PyResult<T>
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let join_handle = self.0.spawn(future);
+
+        tokio::select! {
+            res = join_handle => res.map_err(|e| match e.try_into_panic() {
+                Ok(panic_payload) => RequestPanicError::from_panic_payload("Request panicked", panic_payload),
+                Err(e) => CloseError::from_err("Runtime was closed", &e),
+            }),
+            _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
+        }
+    }
+}
+
 pub struct InnerRuntime {
-    handle: tokio::runtime::Handle,
+    handle: Handle,
     close_tx: tokio::sync::mpsc::Sender<()>,
 }
 
@@ -34,21 +58,18 @@ impl Runtime {
     }
 }
 impl Runtime {
-    pub fn global_handle() -> PyResult<&'static tokio::runtime::Handle> {
+    pub fn global_handle() -> PyResult<&'static Handle> {
         let inner = GLOBAL_HANDLE
             .as_ref()
             .map_err(|e| Python::with_gil(|py| e.clone_ref(py)))?;
         Ok(&inner.handle)
     }
 
-    pub fn handle(&self) -> &tokio::runtime::Handle {
+    pub fn handle(&self) -> &Handle {
         &self.0.handle
     }
 
-    fn new_handle(
-        thread_name: Option<String>,
-        mut close_rx: tokio::sync::mpsc::Receiver<()>,
-    ) -> PyResult<tokio::runtime::Handle> {
+    fn new_handle(thread_name: Option<String>, mut close_rx: tokio::sync::mpsc::Receiver<()>) -> PyResult<Handle> {
         let (handle_tx, handle_rx) = std::sync::mpsc::channel::<PyResult<tokio::runtime::Handle>>();
 
         std::thread::spawn(move || {
@@ -71,9 +92,10 @@ impl Runtime {
             }
         });
 
-        handle_rx
+        let handle = handle_rx
             .recv()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to recv tokio runtime: {}", e)))?
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to recv tokio runtime: {}", e)))??;
+        Ok(Handle(handle))
     }
 }
 impl Drop for Runtime {

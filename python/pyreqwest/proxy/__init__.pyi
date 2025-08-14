@@ -1,9 +1,10 @@
 # src/proxy.pyi
 
-from typing import Callable, Mapping
+from typing import Callable
 from typing_extensions import Self
 
-from pyreqwest.http import UrlType, Url
+from pyreqwest.http import Url
+from pyreqwest.types import UrlType, HeadersType
 
 
 class Proxy:
@@ -18,5 +19,5 @@ class Proxy:
 
     def basic_auth(self, username: str, password: str) -> Self: ...
     def custom_http_auth(self, header_value: str) -> Self: ...
-    def headers(self, headers: Mapping[str, str]) -> Self: ...
+    def headers(self, headers: HeadersType) -> Self: ...
     def no_proxy(self, no_proxy_list: str | None) -> Self: ...

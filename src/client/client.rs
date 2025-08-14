@@ -1,14 +1,13 @@
 use crate::asyncio::get_running_loop;
+use crate::client::runtime::Handle;
 use crate::exceptions::utils::map_send_error;
-use crate::exceptions::{CloseError, PoolTimeoutError, RequestPanicError};
+use crate::exceptions::{CloseError, PoolTimeoutError};
 use crate::http::{Extensions, UrlType};
 use crate::http::{HeaderMap, Method};
 use crate::middleware::Next;
 use crate::request::{ConnectionLimiter, RequestBuilder};
-use crate::response::{BodyConsumeConfig, Response, ResponseBuilder};
-use futures_util::FutureExt;
+use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
-use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use std::sync::Arc;
@@ -20,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 pub struct Client(Arc<ClientInner>);
 struct ClientInner {
     client: reqwest::Client,
-    runtime: tokio::runtime::Handle,
+    runtime: Handle,
     middlewares: Option<Vec<Py<PyAny>>>,
     total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
@@ -89,15 +88,11 @@ impl Client {
     async fn close(&self) {
         self.0.close_cancellation.cancel();
     }
-
-    fn response_builder(&self) -> ResponseBuilder {
-        ResponseBuilder::new(self.clone())
-    }
 }
 impl Client {
     pub fn new(
         client: reqwest::Client,
-        runtime: tokio::runtime::Handle,
+        runtime: Handle,
         middlewares: Option<Vec<Py<PyAny>>>,
         total_timeout: Option<Duration>,
         connection_limiter: Option<ConnectionLimiter>,
@@ -122,7 +117,7 @@ impl Client {
         mut request: reqwest::Request,
         body_consume_config: BodyConsumeConfig,
         extensions: Option<Extensions>,
-        mut cancel: CancelHandle,
+        cancel: CancelHandle,
     ) -> PyResult<Response> {
         let client = self.0.client.clone();
         let connection_limiter = self.0.connection_limiter.clone();
@@ -143,14 +138,10 @@ impl Client {
             Response::initialize(resp, permit, body_consume_config).await
         };
 
-        let join_handle = self.0.runtime.spawn(fut);
+        let fut = self.0.runtime.spawn(fut, cancel);
 
         tokio::select! {
-            res = join_handle => res.map_err(|e| match e.try_into_panic() {
-                Ok(panic_payload) => RequestPanicError::from_panic_payload("Request panicked", panic_payload),
-                Err(e) => CloseError::from_err("Runtime was closed", &e),
-            })?,
-            _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
+            res = fut => res?,
             _ = close_handle.cancelled() => Err(CloseError::from_causes("Client was closed", vec![]),)
         }
     }
@@ -177,7 +168,7 @@ impl Client {
 
     pub fn init_middleware_next(&self, py: Python) -> PyResult<Option<Py<Next>>> {
         if self.0.middlewares.is_some() {
-            let task_local = self.get_task_local_state(py)?;
+            let task_local = Self::get_task_local_state(Some(self), py)?;
             let next = Py::new(py, Next::new(self.clone(), task_local))?;
             Ok(Some(next))
         } else {
@@ -189,14 +180,20 @@ impl Client {
         self.0.middlewares.as_ref().map(|v| v.get(idx)).flatten()
     }
 
-    pub fn get_task_local_state(&self, py: Python) -> PyResult<TaskLocal> {
+    pub fn get_task_local_state(client: Option<&Self>, py: Python) -> PyResult<TaskLocal> {
         static ONCE_CTX_VARS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
-        Ok(TaskLocal {
-            event_loop: self
+
+        let event_loop = match client {
+            Some(client) => client
                 .0
                 .event_loop_cell
                 .get_or_try_init(py, || Ok::<_, PyErr>(get_running_loop(py)?.unbind()))?
                 .clone_ref(py),
+            None => get_running_loop(py)?.unbind(),
+        };
+
+        Ok(TaskLocal {
+            event_loop,
             context: ONCE_CTX_VARS
                 .import(py, "contextvars", "copy_context")?
                 .call0()?

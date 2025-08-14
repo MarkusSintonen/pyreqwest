@@ -1,6 +1,7 @@
+use crate::http::utils::KeyValPairs;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyDictItems, PyInt, PyList, PyMapping, PyString, PyTuple};
+use pyo3::types::{PyDict, PyInt, PyString};
 use pyo3::{Bound, FromPyObject, IntoPyObject, Py, PyAny, PyErr, PyResult, Python, intern};
 use pythonize::{depythonize, pythonize};
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,8 @@ pub struct StatusCode(pub http::StatusCode);
 pub struct JsonValue(pub serde_json::Value);
 #[derive(FromPyObject, IntoPyObject)]
 pub struct Extensions(pub Py<PyDict>);
-pub struct EncodablePairs(pub Vec<(String, JsonValue)>);
+pub struct QueryParams(pub Vec<(String, JsonValue)>);
+pub struct FormParams(pub Vec<(String, JsonValue)>);
 
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyString;
@@ -113,47 +115,14 @@ impl PartialOrd for HeaderValue {
     }
 }
 
-impl<'py> FromPyObject<'py> for EncodablePairs {
+impl<'py> FromPyObject<'py> for QueryParams {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(EncodablePairs(EncodableParams::extract(ob)?))
+        Ok(QueryParams(ob.extract::<KeyValPairs>()?.to_vec()?))
     }
 }
-#[derive(FromPyObject)]
-enum EncodableParams<'py> {
-    List(Bound<'py, PyList>),
-    Tuple(Bound<'py, PyTuple>),
-    DictItems(Bound<'py, PyDictItems>),
-    Mapping(Bound<'py, PyMapping>),
-}
-impl EncodableParams<'_> {
-    fn extract(ob: &Bound<PyAny>) -> PyResult<Vec<(String, JsonValue)>> {
-        match ob.extract::<EncodableParams>()? {
-            EncodableParams::List(v) => Self::extract_sized_iter(v.into_iter()),
-            EncodableParams::Tuple(v) => Self::extract_sized_iter(v.into_iter()),
-            EncodableParams::DictItems(v) => Self::extract_iter(v.len()?, v.try_iter()?),
-            EncodableParams::Mapping(v) => Self::extract_sized_iter(v.items()?.into_iter()),
-        }
-    }
-
-    fn extract_sized_iter<'py, I: ExactSizeIterator<Item = Bound<'py, PyAny>>>(
-        iter: I,
-    ) -> PyResult<Vec<(String, JsonValue)>> {
-        let mut res: Vec<(String, JsonValue)> = Vec::with_capacity(iter.len());
-        for item in iter {
-            res.push(item.extract()?);
-        }
-        Ok(res)
-    }
-
-    fn extract_iter<'py, I: Iterator<Item = PyResult<Bound<'py, PyAny>>>>(
-        len: usize,
-        iter: I,
-    ) -> PyResult<Vec<(String, JsonValue)>> {
-        let mut res: Vec<(String, JsonValue)> = Vec::with_capacity(len);
-        for item in iter {
-            res.push(item?.extract()?);
-        }
-        Ok(res)
+impl<'py> FromPyObject<'py> for FormParams {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(FormParams(ob.extract::<KeyValPairs>()?.to_vec()?))
     }
 }
 
@@ -250,5 +219,19 @@ impl<'py> IntoPyObject<'py> for JsonValue {
 impl<'py> FromPyObject<'py> for JsonValue {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)
+    }
+}
+
+pub struct ExtensionsType(pub Extensions);
+impl<'py> FromPyObject<'py> for ExtensionsType {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(dict) = ob.downcast_exact::<PyDict>() {
+            Ok(ExtensionsType(Extensions(dict.as_unbound().clone_ref(ob.py()))))
+        } else {
+            let dict = PyDict::new(ob.py());
+            ob.extract::<KeyValPairs>()?
+                .for_each(|(key, value): (Bound<'py, PyString>, Bound<'py, PyAny>)| dict.set_item(key, value))?;
+            Ok(ExtensionsType(Extensions(dict.unbind())))
+        }
     }
 }

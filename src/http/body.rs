@@ -76,7 +76,7 @@ impl Body {
         }
     }
 
-    pub fn set_task_local(&mut self, py: Python, client: &Client) -> PyResult<()> {
+    pub fn set_task_local(&mut self, py: Python, client: Option<&Client>) -> PyResult<()> {
         match self.body.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
             Some(InnerBody::Stream(stream)) => stream.set_task_local(py, client),
@@ -158,11 +158,11 @@ impl BodyStream {
         Ok(reqwest::Body::wrap_stream(self))
     }
 
-    fn set_task_local(&mut self, py: Python, client: &Client) -> PyResult<()> {
+    pub fn set_task_local(&mut self, py: Python, client: Option<&Client>) -> PyResult<()> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
         }
-        self.task_local = Some(client.get_task_local_state(py)?);
+        self.task_local = Some(Client::get_task_local_state(client, py)?);
         Ok(())
     }
 

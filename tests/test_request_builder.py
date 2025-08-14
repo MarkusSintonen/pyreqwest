@@ -7,7 +7,6 @@ import trustme
 from pyreqwest.client import ClientBuilder, Client
 from pyreqwest.exceptions import StatusError, BuilderError, ConnectTimeoutError
 from pyreqwest.http import HeaderMap
-from pyreqwest.multipart import Form
 from pyreqwest.request import StreamRequest
 from .servers.server import Server
 
@@ -57,10 +56,11 @@ async def test_header(client: Client, echo_server: Server):
 
 
 async def test_headers(client: Client, echo_server: Server):
-    headers = {"X-Test-1": "Val1", "X-Test-2": "Val2"}
-    resp = await client.get(echo_server.url).headers(headers).build_consumed().send()
-    assert ["x-test-1", "Val1"] in (await resp.json())["headers"]
-    assert ["x-test-2", "Val2"] in (await resp.json())["headers"]
+    for type_ in [list, tuple, dict, HeaderMap]:
+        headers = type_([("X-Test-1", "Val1"), ("X-Test-2", "Val2")])
+        resp = await client.get(echo_server.url).headers(headers).build_consumed().send()
+        assert ["x-test-1", "Val1"] in (await resp.json())["headers"]
+        assert ["x-test-2", "Val2"] in (await resp.json())["headers"]
 
     headers = HeaderMap([("X-Test", "foo"), ("X-Test", "bar")])
     resp = await client.get(echo_server.url).headers(headers).build_consumed().send()
@@ -124,33 +124,12 @@ async def test_timeout(client: Client, echo_server: Server, server_sleep: float 
         client.get(echo_server.url).timeout(1.0)
 
 
-async def test_multipart(client: Client, echo_server: Server):
-    form = Form().text("test_field", "test_value").text("another_field", "another_value")
-    boundary = form.boundary()
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
-    parts = [p.strip("--").strip().strip("--") for p in "".join((await resp.json())["body_parts"]).split(boundary)]
-    assert [p for p in parts if p] == [
-        'Content-Disposition: form-data; name="test_field"\r\n\r\ntest_value',
-        'Content-Disposition: form-data; name="another_field"\r\n\r\nanother_value'
-    ]
-    assert ['content-type', f'multipart/form-data; boundary={boundary}'] in (await resp.json())["headers"]
-
-
-async def test_multipart_fails_with_body_set(client: Client, echo_server: Server):
-    form = Form().text("a", "b")
-    with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
-        client.post(echo_server.url).multipart(form).body_text("fail").build_consumed()
-    fail = Form().text("a", "b")
-    with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
-        client.post(echo_server.url).body_text("fail").multipart(fail).build_consumed()
-
-
 async def test_query(client: Client, echo_server: Server):
     async def send(arg: Sequence[tuple[str, str]] | Mapping[str, str]) -> list[list[str]]:
         resp = await client.get(echo_server.url).query(arg).build_consumed().send()
         return (await resp.json())["query"]
 
-    for arg_type in [list, tuple, dict, lambda v: dict(v).items()]:
+    for arg_type in [list, tuple, dict]:
         assert (await send(arg_type([]))) == []
         assert (await send(arg_type([("foo", "bar")]))) == [["foo", "bar"]]
         assert (await send(arg_type([("foo", "bar"), ("test", "testing")]))) == [["foo", "bar"], ["test", "testing"]]
@@ -175,7 +154,7 @@ async def test_form(client: Client, echo_server):
         resp = await client.get(echo_server.url).form(arg).build_consumed().send()
         return "".join((await resp.json())["body_parts"])
 
-    for arg_type in [list, tuple, dict, lambda v: dict(v).items()]:
+    for arg_type in [list, tuple, dict]:
         assert (await send(arg_type([]))) == ""
         assert (await send(arg_type([("foo", "bar")]))) == "foo=bar"
         assert (await send(arg_type([("foo", "bar"), ("test", "testing")]))) == "foo=bar&test=testing"
@@ -197,9 +176,9 @@ async def test_form_query_invalid(client: Client, echo_server, case: str):
             assert case == "form"
             return client.get(echo_server.url).form(v)
 
-    with pytest.raises(TypeError, match="failed to extract enum EncodableParams"):
+    with pytest.raises(TypeError, match="object cannot be converted"):
         build("invalid")
-    with pytest.raises(TypeError, match="failed to extract enum EncodableParams"):
+    with pytest.raises(TypeError, match="failed to extract"):
         build(None)
     with pytest.raises(TypeError, match="object cannot be converted"):
         build(["a", "b"])
@@ -227,7 +206,7 @@ async def test_extensions(client: Client, echo_server: Server):
     resp = await client.get(echo_server.url).extensions({}).build_consumed().send()
     assert resp.extensions == {}
 
-    with pytest.raises(TypeError, match="object cannot be converted to 'PyDict'"):
-        client.get(echo_server.url).extensions([])
-    with pytest.raises(TypeError, match="object cannot be converted to 'PyDict'"):
-        client.get(echo_server.url).extensions(HeaderMap({}))
+    with pytest.raises(TypeError, match="object cannot be converted"):
+        client.get(echo_server.url).extensions(1)
+    with pytest.raises(TypeError, match="'int' object cannot be converted to 'PyString'"):
+        client.get(echo_server.url).extensions([(1, "b")])

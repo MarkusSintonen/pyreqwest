@@ -7,9 +7,12 @@ from pyreqwest.request import Request
 from pyreqwest.response import Response
 
 UrlType = Url | str
+HeadersType = Mapping[str, str] | Sequence[tuple[str, str]]
+QueryParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
+FormParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
+ExtensionsType = Mapping[str, Any] | Sequence[tuple[str, Any]]
 Stream = AsyncGenerator[bytes] | AsyncGenerator[bytearray] | AsyncGenerator[memoryview]
-Params = Sequence[tuple[str, Any]] | Mapping[str, Any]
 
 
 class Middleware(Protocol):
-    async def __call__(self, client: Client, request: Request, next_: Next) -> Response: ...
+    async def __call__(self, client: Client, request: Request, next_handler: Next) -> Response: ...

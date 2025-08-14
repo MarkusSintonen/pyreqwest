@@ -1,4 +1,4 @@
-use crate::http::EncodablePairs;
+use crate::http::QueryParams;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
@@ -30,7 +30,7 @@ impl Url {
     }
 
     #[staticmethod]
-    fn parse_with_params(url: &str, query: EncodablePairs) -> PyResult<Self> {
+    fn parse_with_params(url: &str, query: QueryParams) -> PyResult<Self> {
         let mut url = Url::parse(url)?;
         Self::extend_query_inner(&mut url.url, Some(query))?;
         Ok(url)
@@ -164,14 +164,14 @@ impl Url {
         Url::new(url)
     }
 
-    fn with_query(&self, query: Option<EncodablePairs>) -> PyResult<Self> {
+    fn with_query(&self, query: Option<QueryParams>) -> PyResult<Self> {
         let mut url = self.url.clone();
         url.set_query(None);
         Self::extend_query_inner(&mut url, query)?;
         Ok(Url::new(url))
     }
 
-    fn extend_query(&self, query: Option<EncodablePairs>) -> PyResult<Self> {
+    fn extend_query(&self, query: Option<QueryParams>) -> PyResult<Self> {
         let mut url = self.url.clone();
         Self::extend_query_inner(&mut url, query)?;
         Ok(Url::new(url))
@@ -298,7 +298,7 @@ impl Url {
         })
     }
 
-    fn extend_query_inner(url: &mut url::Url, query: Option<EncodablePairs>) -> PyResult<()> {
+    fn extend_query_inner(url: &mut url::Url, query: Option<QueryParams>) -> PyResult<()> {
         if let Some(query) = query.map(|q| q.0) {
             let mut pairs = Vec::new();
             for (key, val) in query.iter() {

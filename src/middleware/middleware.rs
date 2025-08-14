@@ -2,7 +2,7 @@ use crate::asyncio::py_coro_waiter;
 use crate::client::Client;
 use crate::client::client::TaskLocal;
 use crate::request::Request;
-use crate::response::Response;
+use crate::response::{Response, ResponseBuilder};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -28,6 +28,10 @@ impl Next {
         } else {
             Request::send_inner(request, false, cancel).await // No more middleware, execute the request
         }
+    }
+
+    fn override_response_builder(&self) -> ResponseBuilder {
+        ResponseBuilder::new(self.client.clone())
     }
 }
 impl Next {
