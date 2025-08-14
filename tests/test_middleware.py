@@ -338,3 +338,26 @@ async def test_proxy_modify_request(echo_server: EchoServer) -> None:
 
     await build_client(proxy).get("http://foo.invalid").build_consumed().send()
     assert echo_server.calls == 1
+
+
+async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
+    mocked_ids: set[int] = set()
+    orig_build = ClientBuilder.build
+
+    def build_patch(self: ClientBuilder) -> Client:
+        if id(self) in mocked_ids:  # Break recursion
+            mocked_ids.remove(id(self))
+            return orig_build(self)
+
+        async def mock_request(_client: Client, request: Request, next_handler: Next) -> Response:
+            assert request.url == "http://foo.invalid" and request.method == "GET"
+            return await next_handler.override_response_builder().status(202).body(Body.from_text("Mocked")).build()
+
+        mocked_ids.add(id(self))
+        return self.with_middleware(mock_request).build()
+
+    monkeypatch.setattr(ClientBuilder, "build", build_patch)
+
+    client = ClientBuilder().error_for_status(True).build()
+    resp = await client.get("http://foo.invalid").build_consumed().send()
+    assert resp.status == 202 and (await resp.text()) == "Mocked"
