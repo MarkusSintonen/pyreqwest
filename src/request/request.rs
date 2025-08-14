@@ -1,7 +1,5 @@
 use crate::client::Client;
-use crate::http::{Body, ExtensionsType, HeadersType};
-use crate::http::{Extensions, HeaderMap, Method};
-use crate::http::{Url, UrlType};
+use crate::http::{Body, Extensions, HeaderMap, Method, Url, UrlType};
 use crate::middleware::Next;
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
@@ -56,8 +54,8 @@ impl Request {
     }
 
     #[setter]
-    fn set_headers(&mut self, py: Python, value: HeadersType) -> PyResult<()> {
-        self.py_headers = Some(value.0.into_pyobject(py)?.unbind());
+    fn set_headers(&mut self, py: Python, value: HeaderMap) -> PyResult<()> {
+        self.py_headers = Some(value.into_pyobject(py)?.unbind());
         Ok(())
     }
 
@@ -86,8 +84,8 @@ impl Request {
     }
 
     #[setter]
-    fn set_extensions(&mut self, value: ExtensionsType) -> PyResult<()> {
-        self.extensions = Some(value.0);
+    fn set_extensions(&mut self, value: Extensions) -> PyResult<()> {
+        self.extensions = Some(value);
         Ok(())
     }
 
@@ -228,7 +226,7 @@ impl Request {
             body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
             py_body,
             py_headers,
-            extensions: self.extensions.as_ref().map(|ext| ext.copy_dict(py)).transpose()?,
+            extensions: self.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
             body_consume_config: self.body_consume_config,
             error_for_status: self.error_for_status,
         })

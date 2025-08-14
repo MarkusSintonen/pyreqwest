@@ -1,8 +1,6 @@
 use crate::client::Client;
 use crate::exceptions::BuilderError;
-use crate::http::{
-    Body, Extensions, ExtensionsType, FormParams, HeaderMap, HeaderName, HeaderValue, HeadersType, QueryParams,
-};
+use crate::http::{Body, Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, QueryParams};
 use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
@@ -42,8 +40,8 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeadersType) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.headers(headers.0.try_take_inner()?)))
+    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 
     fn basic_auth(slf: PyRefMut<Self>, username: String, password: Option<String>) -> PyResult<PyRefMut<Self>> {
@@ -88,9 +86,9 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.form(&form.extract::<FormParams>()?.0)))
     }
 
-    fn extensions<'py>(mut slf: PyRefMut<'py, Self>, extensions: ExtensionsType) -> PyResult<PyRefMut<'py, Self>> {
+    fn extensions<'py>(mut slf: PyRefMut<'py, Self>, extensions: Extensions) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
-        slf.extensions = Some(extensions.0);
+        slf.extensions = Some(extensions);
         Ok(slf)
     }
 }

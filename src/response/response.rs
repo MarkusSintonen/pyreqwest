@@ -1,6 +1,6 @@
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
-use crate::http::{Extensions, ExtensionsType, HeaderMap, HeaderValue, HeadersType, Mime, Version};
+use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
@@ -44,8 +44,8 @@ impl Response {
     }
 
     #[setter]
-    fn set_headers(&mut self, py: Python, value: HeadersType) -> PyResult<()> {
-        self.py_headers = Some(value.0.into_pyobject(py)?.unbind());
+    fn set_headers(&mut self, py: Python, value: HeaderMap) -> PyResult<()> {
+        self.py_headers = Some(value.into_pyobject(py)?.unbind());
         Ok(())
     }
 
@@ -63,8 +63,8 @@ impl Response {
     }
 
     #[setter]
-    fn set_extensions(&mut self, extensions: ExtensionsType) {
-        self.py_extensions = Some(extensions.0);
+    fn set_extensions(&mut self, extensions: Extensions) {
+        self.py_extensions = Some(extensions);
     }
 
     async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {

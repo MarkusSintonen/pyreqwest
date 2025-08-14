@@ -1,5 +1,5 @@
 use crate::client::Runtime;
-use crate::http::{BodyStream, HeadersType};
+use crate::http::{BodyStream, HeaderMap};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -52,8 +52,8 @@ impl Part {
         Self::apply(slf, |builder| Ok(builder.file_name(filename)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeadersType) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.headers(headers.0.try_take_inner()?)))
+    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 }
 impl Part {

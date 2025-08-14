@@ -1,4 +1,4 @@
-use crate::http::{HeaderValue, HeadersType};
+use crate::http::{HeaderMap, HeaderValue};
 use crate::http::{Url, UrlType};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -49,8 +49,8 @@ impl Proxy {
         Self::apply(slf, |builder| Ok(builder.custom_http_auth(header_value.0)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeadersType) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.headers(headers.0.try_take_inner()?)))
+    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 
     fn no_proxy<'py>(slf: PyRefMut<'py, Self>, no_proxy_list: Option<&str>) -> PyResult<PyRefMut<'py, Self>> {

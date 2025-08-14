@@ -18,9 +18,8 @@ pub struct HeaderValue(pub http::HeaderValue);
 pub struct Version(pub http::Version);
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct StatusCode(pub http::StatusCode);
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 pub struct JsonValue(pub serde_json::Value);
-#[derive(FromPyObject, IntoPyObject)]
 pub struct Extensions(pub Py<PyDict>);
 pub struct QueryParams(pub Vec<(String, JsonValue)>);
 pub struct FormParams(pub Vec<(String, JsonValue)>);
@@ -164,8 +163,20 @@ impl From<reqwest::Version> for Version {
     }
 }
 
+impl<'py> FromPyObject<'py> for Extensions {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(dict) = ob.downcast_exact::<PyDict>() {
+            Ok(Extensions(dict.copy()?.unbind()))
+        } else {
+            let dict = PyDict::new(ob.py());
+            ob.extract::<KeyValPairs>()?
+                .for_each(|(key, value): (Bound<'py, PyString>, Bound<'py, PyAny>)| dict.set_item(key, value))?;
+            Ok(Extensions(dict.unbind()))
+        }
+    }
+}
 impl Extensions {
-    pub fn copy_dict(&self, py: Python) -> PyResult<Extensions> {
+    pub fn copy(&self, py: Python) -> PyResult<Extensions> {
         Ok(Extensions(self.0.bind(py).copy()?.unbind()))
     }
 
@@ -219,19 +230,5 @@ impl<'py> IntoPyObject<'py> for JsonValue {
 impl<'py> FromPyObject<'py> for JsonValue {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         Ok(depythonize(ob)?)
-    }
-}
-
-pub struct ExtensionsType(pub Extensions);
-impl<'py> FromPyObject<'py> for ExtensionsType {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(dict) = ob.downcast_exact::<PyDict>() {
-            Ok(ExtensionsType(Extensions(dict.as_unbound().clone_ref(ob.py()))))
-        } else {
-            let dict = PyDict::new(ob.py());
-            ob.extract::<KeyValPairs>()?
-                .for_each(|(key, value): (Bound<'py, PyString>, Bound<'py, PyAny>)| dict.set_item(key, value))?;
-            Ok(ExtensionsType(Extensions(dict.unbind())))
-        }
     }
 }

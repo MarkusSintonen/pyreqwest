@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::http::{Body, ExtensionsType, HeaderName, HeaderValue, HeadersType};
+use crate::http::{Body, HeaderMap, HeaderName, HeaderValue};
 use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -50,27 +50,27 @@ impl ResponseBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    pub fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeadersType) -> PyResult<PyRefMut<'py, Self>> {
+    pub fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |mut builder| {
             let headers_mut = builder
                 .headers_mut()
                 .ok_or_else(|| PyRuntimeError::new_err("ResponseBuilder has an error"))?;
-            *headers_mut = headers.0.try_take_inner()?;
+            *headers_mut = headers.try_take_inner()?;
             Ok(builder)
         })
     }
 
-    pub fn body<'py>(mut slf: PyRefMut<'py, Self>, value: Bound<PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+    pub fn body<'py>(mut slf: PyRefMut<'py, Self>, value: Bound<Body>) -> PyResult<PyRefMut<'py, Self>> {
         if value.is_none() {
             slf.body = None;
         } else {
-            slf.body = Some(value.downcast::<Body>()?.try_borrow_mut()?.take_inner()?);
+            slf.body = Some(value.try_borrow_mut()?.take_inner()?);
         }
         Ok(slf)
     }
 
-    pub fn extensions(mut slf: PyRefMut<Self>, value: ExtensionsType) -> PyRefMut<Self> {
-        slf.extensions = Some(value.0);
+    pub fn extensions(mut slf: PyRefMut<Self>, value: Extensions) -> PyRefMut<Self> {
+        slf.extensions = Some(value);
         slf
     }
 }

@@ -400,13 +400,12 @@ impl<'py> PopArg<'py> {
     }
 }
 
-pub struct HeadersType(pub HeaderMap);
-impl<'py> FromPyObject<'py> for HeadersType {
+impl<'py> FromPyObject<'py> for HeaderMap {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if let Ok(map) = ob.downcast_exact::<HeaderMap>() {
-            Ok(HeadersType(map.try_borrow()?.try_clone()?))
+            Ok(map.try_borrow()?.try_clone()?)
         } else {
-            Ok(HeadersType(HeaderMap::py_new(Some(ob.extract::<KeyValPairs>()?))?))
+            Ok(HeaderMap::py_new(Some(ob.extract::<KeyValPairs>()?))?)
         }
     }
 }
