@@ -1,10 +1,8 @@
-mod connection_limiter;
 mod consumed_request;
 mod request;
 mod request_builder;
 mod stream_request;
 
-pub use connection_limiter::ConnectionLimiter;
 pub use consumed_request::ConsumedRequest;
 pub use request::Request;
 pub use request_builder::RequestBuilder;

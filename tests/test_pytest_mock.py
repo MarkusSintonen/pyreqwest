@@ -1,13 +1,12 @@
-"""Tests for pytest mocking utilities."""
-
 import json
 import re
+from typing import Any
 
 import pytest
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker, RequestMatcher
-from pyreqwest.request import Request, RequestBuilder
+from pyreqwest.request import Request
 from pyreqwest.response import ResponseBuilder
 
 
@@ -144,11 +143,9 @@ async def test_request_capture(client_mocker: ClientMocker) -> None:
         .body_text(json.dumps({"key": "value"})) \
         .build_consumed().send()
 
-    # Get all requests
     all_requests = client_mocker.get_requests()
     assert len(all_requests) == 2
 
-    # Get filtered requests
     get_requests = client_mocker.get_requests(method="GET")
     assert len(get_requests) == 1
     assert get_requests[0].method == "GET"
@@ -158,7 +155,6 @@ async def test_request_capture(client_mocker: ClientMocker) -> None:
     assert len(post_requests) == 1
     assert post_requests[0].method == "POST"
 
-    # Get requests by URL
     api_requests = client_mocker.get_requests(url="http://api.example.com/test")
     assert len(api_requests) == 2
 
@@ -168,7 +164,6 @@ async def test_call_counting(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    # Make multiple calls
     for _ in range(3):
         await client.get("http://api.example.com/endpoint").build_consumed().send()
 
@@ -219,11 +214,9 @@ async def test_strict_mode(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    # Allowed request should work
     resp = await client.get("http://api.example.com/allowed").build_consumed().send()
     assert await resp.text() == "OK"
 
-    # Unmatched request should raise error
     with pytest.raises(AssertionError, match="No mock rule matched request"):
         await client.get("http://api.example.com/forbidden").build_consumed().send()
 
@@ -282,12 +275,9 @@ async def test_request_matcher_methods() -> None:
 async def test_mock_response_builder() -> None:
     response = ResponseBuilder.create_for_mocking()
 
-    # Test method chaining
     result = response.status(201).header("Location", "/users/123")
-    assert result is response  # Should return self for chaining
+    assert result is response
 
-    # Since ResponseBuilder is from Rust, we can't access internal state directly
-    # Instead, we test that it builds a proper response
     built_response = await response.build()
     assert built_response.status == 201
     assert built_response.headers["Location"] == "/users/123"
@@ -359,3 +349,54 @@ async def test_mock_chaining_and_reset(client_mocker: ClientMocker) -> None:
     client_mocker.reset()
     assert client_mocker.get_call_count() == 0
     assert len(client_mocker.get_requests()) == 0
+
+
+@pytest.mark.parametrize(
+    ("body_match", "matches"),
+    [
+        (b"part1part2", True),
+        (b"part1", False),
+        ("part1part2", True),
+        ("part1", False),
+        (re.compile(r"part1part2"), True),
+        (re.compile(r"part1"), True),
+        (re.compile(r"t1pa"), True),
+        (re.compile(r"part3"), False),
+    ],
+)
+async def test_stream_match(client_mocker: ClientMocker, body_match: Any, matches: bool) -> None:
+    async def stream_generator():
+        yield b"part1"
+        yield b"part2"
+
+    client_mocker.strict(True).mock(
+        method="POST", url="http://api.example.com/stream", body=body_match
+    ).body_text("Stream received")
+
+    client = ClientBuilder().error_for_status(True).build()
+    req = client.post("http://api.example.com/stream").body_stream(stream_generator()).build_consumed()
+
+    if matches:
+        resp = await req.send()
+        assert await resp.text() == "Stream received"
+        assert len(client_mocker.get_requests()) == 1
+        request = client_mocker.get_requests()[0]
+        assert request.method == "POST"
+        assert request.url == "http://api.example.com/stream"
+        assert request.body is not None and request.body.copy_bytes() == b"part1part2"
+    else:
+        with pytest.raises(AssertionError, match="No mock rule matched request"):
+            await req.send()
+        assert len(client_mocker.get_requests()) == 0
+
+
+import_time_client = ClientBuilder().build()
+
+
+async def test_import_time_client_is_mocked(client_mocker: ClientMocker) -> None:
+    client_mocker.get("http://foo.invalid").body_text("Mocked response")
+
+    resp = await import_time_client.get("http://foo.invalid").build_consumed().send()
+    assert resp.status == 200
+    assert (await resp.text()) == "Mocked response"
+    assert client_mocker.get_call_count() == 1

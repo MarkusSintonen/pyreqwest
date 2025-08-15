@@ -1,4 +1,4 @@
-use crate::client::client::TaskLocal;
+use crate::client::TaskLocal;
 use futures_util::FutureExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;

@@ -1,8 +1,10 @@
+use crate::http::Body;
 use crate::request::Request;
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
 
@@ -16,7 +18,7 @@ impl StreamRequest {
     async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
         let req = Python::with_gil(|py| slf.clone_ref(py));
 
-        let resp = Request::send_inner(req.into_any(), true, cancel).await?;
+        let resp = Request::send_inner(req.into_any(), cancel).await?;
 
         Python::with_gil(|py| {
             slf.try_borrow_mut(py)?.ctx_response = Some(resp.clone_ref(py));
@@ -61,6 +63,16 @@ impl StreamRequest {
     #[staticmethod]
     pub fn default_initial_read_size() -> usize {
         DEFAULT_INITIAL_READ_SIZE
+    }
+
+    #[classmethod]
+    pub fn from_request_and_body(
+        _cls: &Bound<'_, PyType>,
+        py: Python,
+        request: Bound<PyAny>,
+        body: Option<Bound<Body>>,
+    ) -> PyResult<Py<Self>> {
+        Self::new_py(Request::inner_from_request_and_body(py, request, body)?)
     }
 }
 impl StreamRequest {

@@ -6,8 +6,9 @@ from typing import Pattern, Self
 import pytest
 
 from pyreqwest.client import Client, ClientBuilder
+from pyreqwest.http import Body
 from pyreqwest.middleware import Next
-from pyreqwest.request import Request
+from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
 from pyreqwest.types import Middleware
 
@@ -51,7 +52,6 @@ class RequestMatcher:
             if body_bytes is None:
                 return False
 
-            # Convert the custom Bytes object to regular Python bytes using the buffer protocol
             body_data = bytes(body_bytes)
 
             if isinstance(self.body, bytes):
@@ -79,8 +79,7 @@ class MockRule:
         return self._built_response
 
     async def handle(self, request: Request) -> Response:
-        """Handle a matching request."""
-        self.requests.append(request.copy())
+        self.requests.append(request)
         return await self.response()
 
 
@@ -170,6 +169,10 @@ class ClientMocker:
 
     def _create_middleware(self) -> Middleware:
         async def mock_middleware(_client: Client, request: Request, next_handler: Next) -> Response:
+            if request.body is not None and (stream := request.body.get_stream()) is not None:
+                body = [bytes(chunk) async for chunk in stream]  # Read the body stream into bytes
+                request = request.from_request_and_body(request, Body.from_bytes(b"".join(body)))
+
             for rule in self._rules:
                 if rule.matcher.matches(request):
                     return await rule.handle(request)
@@ -186,18 +189,17 @@ class ClientMocker:
 
 @pytest.fixture
 def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
-    """Pytest fixture that provides a ClientMocker instance."""
     mocker = ClientMocker()
-    mocked_ids: set[int] = set()
-    orig_build = ClientBuilder.build
 
-    def build_patch(self: ClientBuilder) -> Client:
-        if id(self) in mocked_ids:  # Break recursion
-            mocked_ids.remove(id(self))
-            return orig_build(self)
+    orig_build_consumed = RequestBuilder.build_consumed
+    orig_build_streamed = RequestBuilder.build_streamed
 
-        mocked_ids.add(id(self))
-        return self.with_middleware(mocker._create_middleware()).build()
+    def build_patch(self: RequestBuilder, orig) -> Request:
+        request = orig(self)
+        assert request._interceptor is None
+        request._interceptor = mocker._create_middleware()
+        return request
 
-    monkeypatch.setattr(ClientBuilder, "build", build_patch)
+    monkeypatch.setattr(RequestBuilder, "build_consumed", lambda slf: build_patch(slf, orig_build_consumed))
+    monkeypatch.setattr(RequestBuilder, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
     return mocker

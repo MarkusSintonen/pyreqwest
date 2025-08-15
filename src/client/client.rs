@@ -1,11 +1,12 @@
 use crate::asyncio::get_running_loop;
+use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Handle;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{CloseError, PoolTimeoutError};
 use crate::http::{Extensions, UrlType};
 use crate::http::{HeaderMap, Method};
 use crate::middleware::Next;
-use crate::request::{ConnectionLimiter, RequestBuilder};
+use crate::request::RequestBuilder;
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
@@ -166,18 +167,21 @@ impl Client {
         Ok(permit)
     }
 
-    pub fn init_middleware_next(&self, py: Python) -> PyResult<Option<Py<Next>>> {
-        if self.0.middlewares.is_some() {
+    pub fn init_middleware_next(
+        &self,
+        py: Python,
+        override_middlewares: Option<Vec<Py<PyAny>>>,
+    ) -> PyResult<Option<Next>> {
+        if self.0.middlewares.is_some() || override_middlewares.is_some() {
             let task_local = Self::get_task_local_state(Some(self), py)?;
-            let next = Py::new(py, Next::new(self.clone(), task_local))?;
-            Ok(Some(next))
+            Ok(Some(Next::new(self.clone(), task_local, override_middlewares)))
         } else {
             Ok(None)
         }
     }
 
-    pub fn get_middleware(&self, idx: usize) -> Option<&Py<PyAny>> {
-        self.0.middlewares.as_ref().map(|v| v.get(idx)).flatten()
+    pub fn middlewares(&self) -> Option<&Vec<Py<PyAny>>> {
+        self.0.middlewares.as_ref()
     }
 
     pub fn get_task_local_state(client: Option<&Self>, py: Python) -> PyResult<TaskLocal> {

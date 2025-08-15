@@ -1,6 +1,5 @@
 use crate::asyncio::{PyCoroWaiter, py_coro_waiter};
-use crate::client::Client;
-use crate::client::client::TaskLocal;
+use crate::client::{Client, TaskLocal};
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
@@ -169,7 +168,9 @@ impl BodyStream {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
         }
-        self.task_local = Some(Client::get_task_local_state(client, py)?);
+        if self.task_local.is_none() {
+            self.task_local = Some(Client::get_task_local_state(client, py)?);
+        }
         Ok(())
     }
 

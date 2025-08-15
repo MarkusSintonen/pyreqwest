@@ -1,8 +1,8 @@
 use crate::client::Client;
+use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Runtime;
 use crate::http::HeaderMap;
 use crate::proxy::Proxy;
-use crate::request::ConnectionLimiter;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
