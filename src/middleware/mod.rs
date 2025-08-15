@@ -1,3 +1,3 @@
-mod middleware;
+mod next;
 
-pub use middleware::Next;
+pub use next::Next;
