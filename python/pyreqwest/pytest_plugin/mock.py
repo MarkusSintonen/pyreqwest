@@ -1,67 +1,85 @@
-"""Pytest mocking utilities for pyreqwest client."""
-
-import re
-from typing import Pattern, Self
+from typing import Pattern, Self, TypedDict, Unpack, assert_never
 
 import pytest
 
-from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.http import Body
+from pyreqwest.client import Client
+from pyreqwest.http import Body, Url
 from pyreqwest.middleware import Next
 from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
 from pyreqwest.types import Middleware
 
+UrlMatcher = str | Url | Pattern[str]
+
+
+class MockOpts(TypedDict, total=False):
+    url: str | Pattern[str]
+    headers: dict[str, str | Pattern[str]]
+    body: str | bytes | Pattern[str]
+
 
 class RequestMatcher:
     """Matcher for HTTP requests."""
 
-    def __init__(
-        self,
-        method: str | None = None,
-        url: str | Pattern[str] | None = None,
-        headers: dict[str, str | Pattern[str]] | None = None,
-        body: str | bytes | Pattern[str] | None = None,
-    ) -> None:
+    def __init__(self, method: str | None = None, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> None:
         self.method = method
-        self.url = url if isinstance(url, (type(None), Pattern)) else re.compile(re.escape(url))
-        self.headers = headers or {}
-        self.body = body
+        self.url = url
+        self.headers = kwargs.get("headers") or {}
+        self.body = kwargs.get("body")
 
     def matches(self, request: Request) -> bool:
         """Check if the request matches this matcher."""
-        if self.method and request.method != self.method:
-            return False
+        return (
+            self._matches_method(request)
+            and self._matches_url(request)
+            and self._matches_headers(request)
+            and self._matches_body(request)
+        )
 
-        if self.url and not self.url.search(str(request.url)):
-            return False
+    def _matches_method(self, request: Request) -> bool:
+        return self.method is None or request.method == self.method
 
+    def _matches_url(self, request: Request) -> bool:
+        if self.url is None:
+            return True
+        elif isinstance(self.url, str | Url):
+            return request.url == self.url
+        elif isinstance(self.url, Pattern):
+            return self.url.search(str(request.url)) is not None
+        else:
+            assert_never(self.url)
+
+    def _matches_headers(self, request: Request) -> bool:
         for header_name, expected_value in self.headers.items():
             actual_value = request.headers.get(header_name)
             if actual_value is None:
                 return False
-
-            if isinstance(expected_value, Pattern):
+            elif isinstance(expected_value, Pattern):
                 if not expected_value.search(actual_value):
                     return False
             elif actual_value != expected_value:
                 return False
 
-        if self.body is not None and request.body is not None:
-            body_bytes = request.body.copy_bytes()
-            if body_bytes is None:
-                return False
-
-            body_data = bytes(body_bytes)
-
-            if isinstance(self.body, bytes):
-                return body_data == self.body
-            elif isinstance(self.body, str):
-                return body_data.decode() == self.body
-            elif isinstance(self.body, Pattern):
-                return self.body.search(body_data.decode()) is not None
-
         return True
+
+    def _matches_body(self, request: Request) -> bool:
+        if self.body is None:
+            return True
+
+        body_bytes = request.body.copy_bytes() if request.body is not None else None
+        if body_bytes is None:
+            return False
+
+        body_data = bytes(body_bytes)
+
+        if isinstance(self.body, bytes):
+            return body_data == self.body
+        elif isinstance(self.body, str):
+            return body_data.decode() == self.body
+        elif isinstance(self.body, Pattern):
+            return self.body.search(body_data.decode()) is not None
+        else:
+            assert_never(self.body)
 
 
 class MockRule:
@@ -91,46 +109,42 @@ class ClientMocker:
         self._strict = False
 
     def mock(
-        self,
-        method: str | None = None,
-        url: str | Pattern[str] | None = None,
-        headers: dict[str, str | Pattern[str]] | None = None,
-        body: str | bytes | Pattern[str] | None = None,
+        self, method: str | None = None, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]
     ) -> ResponseBuilder:
         """Add a mock rule for requests matching the given criteria."""
-        matcher = RequestMatcher(method=method, url=url, headers=headers, body=body)
+        matcher = RequestMatcher(method, url, **kwargs)
         response_builder = ResponseBuilder.create_for_mocking()
         rule = MockRule(matcher, response_builder)
         self._rules.append(rule)
         return response_builder
 
-    def get(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def get(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock GET requests to the given URL."""
-        return self.mock(method="GET", url=url)
+        return self.mock("GET", url, **kwargs)
 
-    def post(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def post(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock POST requests to the given URL."""
-        return self.mock(method="POST", url=url)
+        return self.mock("POST", url, **kwargs)
 
-    def put(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def put(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock PUT requests to the given URL."""
-        return self.mock(method="PUT", url=url)
+        return self.mock("PUT", url, **kwargs)
 
-    def patch(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def patch(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock PATCH requests to the given URL."""
-        return self.mock(method="PATCH", url=url)
+        return self.mock("PATCH", url, **kwargs)
 
-    def delete(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def delete(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock DELETE requests to the given URL."""
-        return self.mock(method="DELETE", url=url)
+        return self.mock("DELETE", url, **kwargs)
 
-    def head(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def head(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock HEAD requests to the given URL."""
-        return self.mock(method="HEAD", url=url)
+        return self.mock("HEAD", url, **kwargs)
 
-    def options(self, url: str | Pattern[str]) -> ResponseBuilder:
+    def options(self, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> ResponseBuilder:
         """Mock OPTIONS requests to the given URL."""
-        return self.mock(method="OPTIONS", url=url)
+        return self.mock("OPTIONS", url, **kwargs)
 
     def strict(self, enabled: bool = True) -> Self:
         """Enable strict mode - unmatched requests will raise an error."""
