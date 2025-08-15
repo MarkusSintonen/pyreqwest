@@ -270,7 +270,7 @@ async def test_override_with_response_builder(body_stream: bool) -> None:
         else:
             body = Body.from_text("test override")
 
-        return await next_handler.override_response_builder().status(201).body(body).build()
+        return await next_handler.response_builder().status(201).body(body).build()
 
     resp = await build_client(override_response).get("http://foo.invalid").build_consumed().send()
     assert resp.status == 201
@@ -286,7 +286,7 @@ async def test_response_builder_stream_context_var() -> None:
             yield b"test "
             yield b"override"
 
-        return await next_handler.override_response_builder().status(201).body(Body.from_stream(stream_gen())).build()
+        return await next_handler.response_builder().status(201).body(Body.from_stream(stream_gen())).build()
 
     context_var.set("val1")
 
@@ -351,7 +351,7 @@ async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
 
         async def mock_request(_client: Client, request: Request, next_handler: Next) -> Response:
             assert request.url == "http://foo.invalid" and request.method == "GET"
-            return await next_handler.override_response_builder().status(202).body(Body.from_text("Mocked")).build()
+            return await next_handler.response_builder().status(202).body(Body.from_text("Mocked")).build()
 
         mocked_ids.add(id(self))
         return self.with_middleware(mock_request).build()

@@ -12,8 +12,7 @@ use pyo3::types::PyDict;
 pub struct Request {
     client: Client,
     inner: Option<reqwest::Request>,
-    body: Option<Body>,
-    py_body: Option<Py<Body>>,
+    body: Option<ReqBody>,
     py_headers: Option<Py<HeaderMap>>,
     extensions: Option<Extensions>,
     error_for_status: bool,
@@ -60,18 +59,21 @@ impl Request {
     }
 
     #[getter]
-    fn get_body(&mut self) -> PyResult<Option<&Py<Body>>> {
-        if let Some(body) = self.body.take() {
-            self.py_body = Some(Python::with_gil(|py| Py::new(py, body))?);
-        };
-        Ok(self.py_body.as_ref())
+    fn get_body(&mut self, py: Python) -> PyResult<Option<Py<Body>>> {
+        match self.body.as_mut() {
+            Some(ReqBody::Body(body)) => {
+                let py_body = Py::new(py, body.take_inner()?)?;
+                self.body = Some(ReqBody::PyBody(py_body.clone_ref(py)));
+                Ok(Some(py_body))
+            }
+            Some(ReqBody::PyBody(py_body)) => Ok(Some(py_body.clone_ref(py))),
+            None => Ok(None),
+        }
     }
 
     #[setter]
-    fn set_body(&mut self, value: Option<Bound<Body>>) -> PyResult<()> {
-        self.body.take().map(drop);
-        self.py_body.take().map(drop);
-        self.py_body = value.map(|value| value.unbind());
+    fn set_body(&mut self, body: Option<Py<Body>>) -> PyResult<()> {
+        self.body = body.map(ReqBody::PyBody);
         Ok(())
     }
 
@@ -110,8 +112,7 @@ impl Request {
             client,
             inner: Some(request),
             extensions,
-            body,
-            py_body: None,
+            body: body.map(ReqBody::Body),
             py_headers: None,
             error_for_status,
             body_consume_config,
@@ -132,11 +133,10 @@ impl Request {
                 middlewares_next = client.init_middleware_next(py)?;
             }
 
-            if let Some(body) = this.body.as_mut() {
-                body.set_task_local(py, Some(&client))?;
-            }
-            if let Some(body) = this.py_body.as_mut() {
-                body.borrow_mut(py).set_task_local(py, Some(&client))?;
+            match this.body.as_mut() {
+                Some(ReqBody::Body(body)) => body.set_task_local(py, Some(&client))?,
+                Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local(py, Some(&client))?,
+                None => {}
             }
             Ok(())
         })?;
@@ -183,10 +183,10 @@ impl Request {
                 *request.headers_mut() = py_headers.try_borrow_mut(py)?.try_clone_inner()?;
             }
 
-            if let Some(mut body) = this.body.take() {
-                *request.body_mut() = Some(body.to_reqwest()?);
-            } else if let Some(body) = this.py_body.take() {
-                *request.body_mut() = Some(body.try_borrow_mut(py)?.to_reqwest()?);
+            match this.body.take() {
+                Some(ReqBody::Body(mut body)) => *request.body_mut() = Some(body.to_reqwest()?),
+                Some(ReqBody::PyBody(py_body)) => *request.body_mut() = Some(py_body.try_borrow_mut(py)?.to_reqwest()?),
+                None => {}
             }
             inner_request = Some(request);
             Ok(())
@@ -208,11 +208,11 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
         self.inner = Some(inner);
 
-        let py_body = self
-            .py_body
-            .as_ref()
-            .map(|b| Py::new(py, b.try_borrow(py)?.try_clone(py)?))
-            .transpose()?;
+        let body = match self.body.as_ref() {
+            Some(ReqBody::Body(body)) => Some(body.try_clone(py)?),
+            Some(ReqBody::PyBody(py_body)) => Some(py_body.borrow_mut(py).try_clone(py)?),
+            None => None,
+        };
 
         let py_headers = self
             .py_headers
@@ -223,8 +223,7 @@ impl Request {
         Ok(Request {
             client: self.client.clone(),
             inner: Some(new_inner),
-            body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
-            py_body,
+            body: body.map(ReqBody::Body),
             py_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
             body_consume_config: self.body_consume_config,
@@ -239,4 +238,9 @@ impl Request {
     pub fn body_consume_config_mut(&mut self) -> &mut BodyConsumeConfig {
         &mut self.body_consume_config
     }
+}
+
+enum ReqBody {
+    Body(Body),
+    PyBody(Py<Body>), // In Python heap
 }

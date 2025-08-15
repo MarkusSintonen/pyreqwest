@@ -1,29 +1,30 @@
 use crate::client::Client;
-use crate::http::{Body, HeaderMap, HeaderName, HeaderValue};
+use crate::http::{Body, HeaderMap, HeaderName, HeaderValue, JsonValue};
 use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3_bytes::PyBytes;
 
 #[pyclass]
 pub struct ResponseBuilder {
-    client: Client,
+    client: Option<Client>,
     inner: Option<http::response::Builder>,
     body: Option<Body>,
     extensions: Option<Extensions>,
 }
 #[pymethods]
 impl ResponseBuilder {
-    pub async fn build(&mut self) -> PyResult<Response> {
+    async fn build(&mut self) -> PyResult<Response> {
         let body: reqwest::Body = self
             .body
             .take()
             .map(|mut b| {
-                Python::with_gil(|py| b.set_task_local(py, Some(&self.client)))?;
+                Python::with_gil(|py| b.set_task_local(py, self.client.as_ref()))?;
                 b.to_reqwest()
             })
             .transpose()?
-            .unwrap_or_else(|| reqwest::Body::from(Vec::new()));
+            .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));
 
         let mut resp = self
             .inner
@@ -38,46 +39,75 @@ impl ResponseBuilder {
         Response::initialize(resp, None, BodyConsumeConfig::Fully).await
     }
 
-    pub fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {
+    fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.status(value.0)))
     }
 
-    pub fn version(slf: PyRefMut<Self>, value: Version) -> PyResult<PyRefMut<Self>> {
+    fn version(slf: PyRefMut<Self>, value: Version) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.version(value.0)))
     }
 
-    pub fn header(slf: PyRefMut<Self>, name: HeaderName, value: HeaderValue) -> PyResult<PyRefMut<Self>> {
+    fn header(slf: PyRefMut<Self>, name: HeaderName, value: HeaderValue) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    pub fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+    fn headers<'py>(slf: PyRefMut<'py, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
         Self::apply(slf, |mut builder| {
             let headers_mut = builder
                 .headers_mut()
                 .ok_or_else(|| PyRuntimeError::new_err("ResponseBuilder has an error"))?;
-            *headers_mut = headers.try_take_inner()?;
+            headers.extend_into_inner(headers_mut)?;
             Ok(builder)
         })
     }
 
-    pub fn body<'py>(mut slf: PyRefMut<'py, Self>, value: Bound<Body>) -> PyResult<PyRefMut<'py, Self>> {
-        if value.is_none() {
-            slf.body = None;
-        } else {
-            slf.body = Some(value.try_borrow_mut()?.take_inner()?);
-        }
+    fn extensions(mut slf: PyRefMut<Self>, value: Extensions) -> PyRefMut<Self> {
+        slf.extensions = Some(value);
+        slf
+    }
+
+    fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<Body>>) -> PyResult<PyRefMut<'py, Self>> {
+        slf.body = body
+            .map(|v| Ok::<_, PyErr>(v.try_borrow_mut()?.take_inner()?))
+            .transpose()?;
         Ok(slf)
     }
 
-    pub fn extensions(mut slf: PyRefMut<Self>, value: Extensions) -> PyRefMut<Self> {
-        slf.extensions = Some(value);
-        slf
+    fn body_bytes(mut slf: PyRefMut<Self>, body: PyBytes) -> PyResult<PyRefMut<Self>> {
+        slf.body = Some(Body::from_bytes(body));
+        Ok(slf)
+    }
+
+    fn body_text(mut slf: PyRefMut<Self>, body: String) -> PyResult<PyRefMut<Self>> {
+        slf.body = Some(Body::from_text(body));
+        Ok(slf)
+    }
+
+    fn body_json<'py>(mut slf: PyRefMut<'py, Self>, data: JsonValue) -> PyResult<PyRefMut<'py, Self>> {
+        let bytes = serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        slf.body = Some(bytes.into());
+        Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
+    }
+
+    fn body_stream(mut slf: PyRefMut<Self>, async_gen: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
+        slf.body = Some(Body::from_stream(slf.py(), async_gen));
+        Ok(slf)
+    }
+
+    #[staticmethod]
+    pub fn create_for_mocking() -> PyResult<Self> {
+        Ok(ResponseBuilder {
+            client: None,
+            inner: Some(http::response::Builder::new()),
+            body: None,
+            extensions: None,
+        })
     }
 }
 impl ResponseBuilder {
     pub fn new(client: Client) -> Self {
         Self {
-            client,
+            client: Some(client),
             inner: Some(http::response::Builder::new()),
             body: None,
             extensions: None,

@@ -19,11 +19,9 @@ pub struct Response {
     status: StatusCode,
     #[pyo3(get, set)]
     version: Version,
-    py_headers: Option<Py<HeaderMap>>,
-    py_extensions: Option<Extensions>,
 
-    inner_headers: Option<HeaderMap>,
-    inner_extensions: Option<http::Extensions>,
+    headers: RespHeaders,
+    extensions: RespExtensions,
 
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
     body_stream: Option<reqwest::Body>,
@@ -36,35 +34,40 @@ pub struct Response {
 impl Response {
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
-        if self.py_headers.is_none() {
-            let headers = self.inner_headers.take().unwrap();
-            self.py_headers = Some(Py::new(py, headers)?);
-        };
-        Ok(self.py_headers.as_ref().unwrap())
+        if let RespHeaders::Headers(headers) = &mut self.headers {
+            let py_headers = Py::new(py, HeaderMap::from(headers.try_take_inner()?))?;
+            self.headers = RespHeaders::PyHeaders(py_headers);
+        }
+        match &self.headers {
+            RespHeaders::PyHeaders(py_headers) => Ok(py_headers),
+            RespHeaders::Headers(_) => Err(PyRuntimeError::new_err("Expected PyHeaders")),
+        }
     }
 
     #[setter]
-    fn set_headers(&mut self, py: Python, value: HeaderMap) -> PyResult<()> {
-        self.py_headers = Some(value.into_pyobject(py)?.unbind());
+    fn set_headers(&mut self, value: Py<HeaderMap>) -> PyResult<()> {
+        self.headers = RespHeaders::PyHeaders(value);
         Ok(())
     }
 
     #[getter]
     fn get_extensions(&mut self, py: Python) -> PyResult<&Py<PyDict>> {
-        if self.py_extensions.is_none() {
-            let ext = self
-                .inner_extensions
-                .take()
-                .map(|mut ext| ext.remove::<Extensions>())
-                .flatten();
-            self.py_extensions = Some(ext.unwrap_or_else(|| Extensions(PyDict::new(py).unbind())));
+        if let RespExtensions::Extensions(ext) = &mut self.extensions {
+            let py_ext = ext
+                .remove::<Extensions>()
+                .unwrap_or_else(|| Extensions(PyDict::new(py).unbind()))
+                .0;
+            self.extensions = RespExtensions::PyExtensions(py_ext);
         }
-        Ok(&self.py_extensions.as_ref().unwrap().0)
+        match &self.extensions {
+            RespExtensions::PyExtensions(py_ext) => Ok(py_ext),
+            RespExtensions::Extensions(_) => Err(PyRuntimeError::new_err("Expected PyExtensions")),
+        }
     }
 
     #[setter]
     fn set_extensions(&mut self, extensions: Extensions) {
-        self.py_extensions = Some(extensions);
+        self.extensions = RespExtensions::PyExtensions(extensions.0);
     }
 
     async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
@@ -159,10 +162,8 @@ impl Response {
         let resp = Response {
             status: StatusCode(head.status),
             version: Version(head.version),
-            py_headers: None,
-            py_extensions: None,
-            inner_headers: Some(HeaderMap::from(head.headers)),
-            inner_extensions: Some(head.extensions),
+            headers: RespHeaders::Headers(HeaderMap::from(head.headers)),
+            extensions: RespExtensions::Extensions(head.extensions),
             body_stream,
             request_semaphore_permit: permit,
             init_chunks,
@@ -173,12 +174,9 @@ impl Response {
     }
 
     fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
-        if let Some(inner_headers) = self.inner_headers.as_ref() {
-            inner_headers.get_one(name)
-        } else if let Some(py_headers) = self.py_headers.as_ref() {
-            py_headers.try_borrow(py)?.get_one(name)
-        } else {
-            Err(PyRuntimeError::new_err("Headers incorrectly initialized"))
+        match self.headers {
+            RespHeaders::Headers(ref headers) => headers.get_one(name),
+            RespHeaders::PyHeaders(ref py_headers) => py_headers.try_borrow(py)?.get_one(name),
         }
     }
 
@@ -217,7 +215,7 @@ impl Response {
             return Err(PyRuntimeError::new_err("Response body already consumed"));
         }
 
-        let mut bytes: Vec<u8> = Vec::new();
+        let mut bytes: Vec<u8> = vec![];
         while let Some(chunk) = self.next_chunk_inner().await? {
             bytes.extend(chunk);
         }
@@ -304,4 +302,14 @@ impl Drop for Response {
 pub enum BodyConsumeConfig {
     Fully,
     Partially(usize),
+}
+
+enum RespHeaders {
+    Headers(HeaderMap),
+    PyHeaders(Py<HeaderMap>), // In Python heap
+}
+
+enum RespExtensions {
+    Extensions(http::Extensions),
+    PyExtensions(Py<PyDict>), // In Python heap
 }

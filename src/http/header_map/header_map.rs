@@ -355,6 +355,22 @@ impl HeaderMap {
         })
     }
 
+    pub fn extend_into_inner(mut self, map: &mut http::HeaderMap) -> PyResult<()> {
+        let mut prev_k: Option<http::HeaderName> = None;
+        for (k, v) in self.try_take_inner()? {
+            match k {
+                Some(k) => {
+                    prev_k = Some(k.clone());
+                    map.try_append(k, v)
+                }
+                None => map.try_append(prev_k.clone().unwrap(), v),
+            }
+            .map(|_| ())
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn dict_multi_value_inner<'py>(&self, py: Python<'py>, hide_sensitive: bool) -> PyResult<Bound<'py, PyDict>> {
         self.ref_map(|map| {
             let dict = PyDict::new(py);

@@ -300,7 +300,7 @@ impl Url {
 
     fn extend_query_inner(url: &mut url::Url, query: Option<QueryParams>) -> PyResult<()> {
         if let Some(query) = query.map(|q| q.0) {
-            let mut pairs = Vec::new();
+            let mut pairs = vec![];
             for (key, val) in query.iter() {
                 match val.0.as_array() {
                     Some(arr) => pairs.extend(arr.iter().map(|v| (key, v))),

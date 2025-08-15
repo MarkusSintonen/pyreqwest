@@ -8,6 +8,9 @@ license = {file = "LICENSE"}
 requires-python = ">=3.11"
 dependencies = [] # Pure Rust project, no Python dependencies
 
+[project.entry-points.pytest11]
+pyreqwest = "pyreqwest.pytest_plugin.plugin"
+
 [dependency-groups]
 dev = [
     "maturin==1.9.1",

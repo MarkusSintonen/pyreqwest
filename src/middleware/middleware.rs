@@ -30,7 +30,7 @@ impl Next {
         }
     }
 
-    fn override_response_builder(&self) -> ResponseBuilder {
+    fn response_builder(&self) -> ResponseBuilder {
         ResponseBuilder::new(self.client.clone())
     }
 }

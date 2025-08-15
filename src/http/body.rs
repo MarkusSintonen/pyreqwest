@@ -92,6 +92,13 @@ impl Body {
         }
     }
 }
+impl From<Vec<u8>> for Body {
+    fn from(bytes: Vec<u8>) -> Self {
+        Body {
+            body: Some(InnerBody::Bytes(bytes.into())),
+        }
+    }
+}
 
 enum InnerBody {
     Bytes(Bytes),

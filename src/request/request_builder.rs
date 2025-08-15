@@ -1,12 +1,12 @@
 use crate::client::Client;
 use crate::exceptions::BuilderError;
-use crate::http::{Body, Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, QueryParams};
+use crate::http::{Body, Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, JsonValue, QueryParams};
 use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
 use crate::response::BodyConsumeConfig;
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::time::Duration;
@@ -52,6 +52,14 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.bearer_auth(token)))
     }
 
+    fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<Body>>) -> PyResult<PyRefMut<'py, Self>> {
+        slf.check_inner()?;
+        slf.body = body
+            .map(|v| Ok::<_, PyErr>(v.try_borrow_mut()?.take_inner()?))
+            .transpose()?;
+        Ok(slf)
+    }
+
     fn body_bytes(mut slf: PyRefMut<Self>, body: PyBytes) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
         slf.body = Some(Body::from_bytes(body));
@@ -62,6 +70,13 @@ impl RequestBuilder {
         slf.check_inner()?;
         slf.body = Some(Body::from_text(body));
         Ok(slf)
+    }
+
+    fn body_json<'py>(mut slf: PyRefMut<'py, Self>, data: JsonValue) -> PyResult<PyRefMut<'py, Self>> {
+        slf.check_inner()?;
+        let bytes = serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        slf.body = Some(bytes.into());
+        Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
     }
 
     fn body_stream(mut slf: PyRefMut<Self>, async_gen: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
