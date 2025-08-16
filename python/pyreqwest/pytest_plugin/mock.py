@@ -9,11 +9,11 @@ from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
 from pyreqwest.types import Middleware
 
+MethodMatcher = str | set[str]
 UrlMatcher = str | Url | Pattern[str]
 
 
 class MockOpts(TypedDict, total=False):
-    url: str | Pattern[str]
     headers: dict[str, str | Pattern[str]]
     body: str | bytes | Pattern[str]
 
@@ -21,7 +21,9 @@ class MockOpts(TypedDict, total=False):
 class RequestMatcher:
     """Matcher for HTTP requests."""
 
-    def __init__(self, method: str | None = None, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]) -> None:
+    def __init__(
+        self, method: MethodMatcher | None = None, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]
+    ) -> None:
         self.method = method
         self.url = url
         self.headers = kwargs.get("headers") or {}
@@ -37,7 +39,14 @@ class RequestMatcher:
         )
 
     def _matches_method(self, request: Request) -> bool:
-        return self.method is None or request.method == self.method
+        if self.method is None:
+            return True
+        elif isinstance(self.method, str):
+            return request.method == self.method
+        elif isinstance(self.method, set):
+            return request.method in self.method
+        else:
+            assert_never(self.method)
 
     def _matches_url(self, request: Request) -> bool:
         if self.url is None:
@@ -109,7 +118,7 @@ class ClientMocker:
         self._strict = False
 
     def mock(
-        self, method: str | None = None, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]
+        self, method: MethodMatcher | None = None, url: UrlMatcher | None = None, **kwargs: Unpack[MockOpts]
     ) -> ResponseBuilder:
         """Add a mock rule for requests matching the given criteria."""
         matcher = RequestMatcher(method, url, **kwargs)
@@ -152,21 +161,13 @@ class ClientMocker:
         return self
 
     def _filter_requests(self, method: str | None = None, url: str | Pattern[str] | None = None) -> list[Request]:
-        """Filter all captured requests by method and URL."""
+        requests = [request for rule in self._rules for request in rule.requests]
+
         if not method and not url:
-            # Return all requests if no filters
-            return [request for rule in self._rules for request in rule.requests]
+            return requests
 
-        # Create a matcher for filtering
         filter_matcher = RequestMatcher(method=method, url=url)
-        filtered_requests = []
-
-        for rule in self._rules:
-            for request in rule.requests:
-                if filter_matcher.matches(request):
-                    filtered_requests.append(request)
-
-        return filtered_requests
+        return [request for request in requests if filter_matcher.matches(request)]
 
     def get_requests(self, method: str | None = None, url: str | Pattern[str] | None = None) -> list[Request]:
         """Get all captured requests, optionally filtered by method and URL."""

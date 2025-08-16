@@ -5,8 +5,7 @@ from typing import Any
 import pytest
 
 from pyreqwest.client import ClientBuilder
-from pyreqwest.pytest_plugin import ClientMocker, RequestMatcher
-from pyreqwest.request import Request
+from pyreqwest.pytest_plugin import ClientMocker
 from pyreqwest.response import ResponseBuilder
 
 
@@ -249,27 +248,28 @@ async def test_multiple_rules_first_match_wins(client_mocker: ClientMocker) -> N
     assert await resp.text() == "Specific user"
 
 
-async def test_request_matcher_methods() -> None:
-    # Test method matching
-    matcher = RequestMatcher(method="POST")
+async def test_method_set_matching(client_mocker: ClientMocker) -> None:
+    client_mocker.strict(True).mock(method={"GET", "POST"}, url="http://api.example.com/data").body_json({"message": "success"})
+
     client = ClientBuilder().build()
 
-    def mock_request(method: str, url: str = "http://example.com") -> Request:
-        return client.request(method, url).build_consumed()
+    get_resp = await client.get("http://api.example.com/data").build_consumed().send()
+    assert get_resp.status == 200
+    assert await get_resp.json() == {"message": "success"}
 
-    assert matcher.matches(mock_request("POST"))
-    assert not matcher.matches(mock_request("GET"))
+    post_resp = await client.post("http://api.example.com/data").build_consumed().send()
+    assert post_resp.status == 200
+    assert await post_resp.json() == {"message": "success"}
 
-    # Test URL matching with string
-    matcher = RequestMatcher(url="http://example.com")
-    assert matcher.matches(mock_request("GET", "http://example.com"))
-    assert not matcher.matches(mock_request("GET", "http://other.com"))
+    req = client.put("http://api.example.com/data").build_consumed()
+    with pytest.raises(AssertionError, match="No mock rule matched request"):
+        await req.send()
 
-    # Test URL matching with regex
-    matcher = RequestMatcher(url=re.compile(r"http://.*\.example\.com"))
-    assert matcher.matches(mock_request("GET", "http://api.example.com"))
-    assert matcher.matches(mock_request("GET", "http://sub.example.com"))
-    assert not matcher.matches(mock_request("GET", "http://example.org"))
+    assert client_mocker.get_call_count() == 2
+    requests = client_mocker.get_requests()
+    assert len(requests) == 2
+    assert requests[0].method == "GET"
+    assert requests[1].method == "POST"
 
 
 async def test_mock_response_builder() -> None:
