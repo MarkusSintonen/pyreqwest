@@ -182,6 +182,15 @@ wheels = [
 ]
 
 [[package]]
+name = "dirty-equals"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/99/133892f401ced5a27e641a473c547d5fbdb39af8f85dac8a9d633ea3e7a7/dirty_equals-0.9.0.tar.gz", hash = "sha256:17f515970b04ed7900b733c95fd8091f4f85e52f1fb5f268757f25c858eb1f7b", size = 50412, upload-time = "2025-01-11T23:23:40.491Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/0c/03cc99bf3b6328604b10829de3460f2b2ad3373200c45665c38508e550c6/dirty_equals-0.9.0-py3-none-any.whl", hash = "sha256:ff4d027f5cfa1b69573af00f7ba9043ea652dbdce3fe5cbe828e478c7346db9c", size = 28226, upload-time = "2025-01-11T23:23:37.489Z" },
+]
+
+[[package]]
 name = "granian"
 version = "2.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -472,6 +481,7 @@ source = { editable = "." }
 [package.dev-dependencies]
 dev = [
     { name = "asgi-types" },
+    { name = "dirty-equals" },
     { name = "granian" },
     { name = "maturin" },
     { name = "multidict" },
@@ -487,6 +497,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "asgi-types", specifier = "==0.1.0" },
+    { name = "dirty-equals", specifier = "==0.9.0" },
     { name = "granian", specifier = "==2.4.1" },
     { name = "maturin", specifier = "==1.9.1" },
     { name = "multidict", specifier = "==6.6.3" },

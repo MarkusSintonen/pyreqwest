@@ -22,6 +22,7 @@ dev = [
     "orjson==3.10.18",
     "multidict==6.6.3",
     "requests-toolbelt==1.0.0",
+    "dirty-equals==0.9.0",
 ]
 
 [tool.maturin]

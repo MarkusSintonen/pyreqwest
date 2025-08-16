@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 import pytest
+from dirty_equals import Contains
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
@@ -53,14 +54,16 @@ async def test_method_specific_mocks(client_mocker: ClientMocker) -> None:
     assert mock_delete.get_call_count() == 2
 
 
-async def test_regex_url_matching(client_mocker: ClientMocker) -> None:
+async def test_regex_path_matching(client_mocker: ClientMocker) -> None:
     pattern = re.compile(r"http://api\.example\.com/users/\d+")
-    client_mocker.get().match_url(pattern).with_body_json({"id": 456, "name": "Test User"})
+    client_mocker.strict(True).get(pattern).with_body_json({"id": 456, "name": "Test User"})
 
     client = ClientBuilder().build()
 
     resp1 = await client.get("http://api.example.com/users/123").build_consumed().send()
     resp2 = await client.get("http://api.example.com/users/456").build_consumed().send()
+    with pytest.raises(AssertionError, match="No mock rule matched request"):
+        await client.get("http://api.example.com/users/abc").build_consumed().send()
 
     assert await resp1.json() == {"id": 456, "name": "Test User"}
     assert await resp2.json() == {"id": 456, "name": "Test User"}
@@ -171,15 +174,13 @@ async def test_response_headers(client_mocker: ClientMocker) -> None:
     client_mocker.get("http://api.example.com/test") \
         .with_body_text("Hello") \
         .with_header("X-Custom-Header", "custom-value") \
-        .with_header("X-Rate-Limit", "100") \
-        .with_header("X-Remaining", "99")
+        .with_header("x-rate-limit", "100") \
 
     client = ClientBuilder().build()
     resp = await client.get("http://api.example.com/test").build_consumed().send()
 
     assert resp.headers["X-Custom-Header"] == "custom-value"
     assert resp.headers["X-Rate-Limit"] == "100"
-    assert resp.headers["X-Remaining"] == "99"
 
 
 async def test_json_response(client_mocker: ClientMocker) -> None:
@@ -233,12 +234,12 @@ async def test_reset_mocks(client_mocker: ClientMocker) -> None:
 
 async def test_multiple_rules_first_match_wins(client_mocker: ClientMocker) -> None:
     # More specific rule first
-    client_mocker.get("http://api.example.com/users/123").with_body_text("Specific user")
+    client_mocker.get("http://api.example.com/users/123").match_query({"param": "1"}).with_body_text("Specific user")
     # More general rule second
-    client_mocker.get().match_url(re.compile(r"http://api\.example\.com/users/\d+")).with_body_text("General user")
+    client_mocker.get("http://api.example.com/users/123").with_body_text("General user")
 
     client = ClientBuilder().build()
-    resp = await client.get("http://api.example.com/users/123").build_consumed().send()
+    resp = await client.get("http://api.example.com/users/123?param=1").build_consumed().send()
 
     # Should match the first (more specific) rule
     assert await resp.text() == "Specific user"
@@ -638,18 +639,251 @@ async def test_get_call_count_after_reset(client_mocker: ClientMocker) -> None:
 
 
 async def test_get_call_count_edge_cases(client_mocker: ClientMocker) -> None:
-    """Test edge cases for get_call_count."""
-    mock = client_mocker.get("http://test.com").with_body_text("response")
+    mock = client_mocker.strict(True).get("http://test.com").with_body_text("response")
 
     client = ClientBuilder().build()
 
-    # Initially no calls
     assert client_mocker.get_call_count() == 0
     assert mock.get_call_count() == 0
 
-    # Make a request
-    await client.get("http://test.com").build_consumed().send()
+    resp = await client.get("http://test.com").build_consumed().send()
+    assert await resp.text() == "response"
 
-    # Test counts after request
     assert client_mocker.get_call_count() == 1
     assert mock.get_call_count() == 1
+
+
+async def test_query_matching_dict_string_values(client_mocker: ClientMocker) -> None:
+    """Test query matching with dictionary matcher and string values."""
+    client_mocker.get("http://api.example.com/search") \
+        .match_query({"q": "python", "type": "repo"}) \
+        .with_body_json({"results": ["pyreqwest"]})
+
+    client_mocker.get("http://api.example.com/search") \
+        .with_body_json({"results": []})
+
+    client = ClientBuilder().build()
+
+    # Request with matching query parameters
+    match_resp = await client.get("http://api.example.com/search?q=python&type=repo").build_consumed().send()
+    assert await match_resp.json() == {"results": ["pyreqwest"]}
+
+    # Request with different query parameters
+    no_match_resp = await client.get("http://api.example.com/search?q=rust&type=repo").build_consumed().send()
+    assert await no_match_resp.json() == {"results": []}
+
+    # Request with missing query parameters
+    missing_resp = await client.get("http://api.example.com/search?q=python").build_consumed().send()
+    assert await missing_resp.json() == {"results": []}
+
+
+async def test_query_matching_dict_regex_values(client_mocker: ClientMocker) -> None:
+    """Test query matching with dictionary matcher and regex values."""
+    client_mocker.get("http://api.example.com/search") \
+        .match_query({"q": re.compile(r"py.*"), "limit": re.compile(r"\d+")}) \
+        .with_body_json({"matched": True})
+
+    client_mocker.get("http://api.example.com/search") \
+        .with_body_json({"matched": False})
+
+    client = ClientBuilder().build()
+
+    # Request matching regex patterns
+    match_resp = await client.get("http://api.example.com/search?q=python&limit=10").build_consumed().send()
+    assert await match_resp.json() == {"matched": True}
+
+    # Another request matching regex patterns
+    match2_resp = await client.get("http://api.example.com/search?q=pyreqwest&limit=50").build_consumed().send()
+    assert await match2_resp.json() == {"matched": True}
+
+    # Request not matching regex patterns
+    no_match_resp = await client.get("http://api.example.com/search?q=rust&limit=abc").build_consumed().send()
+    assert await no_match_resp.json() == {"matched": False}
+
+
+async def test_query_matching_regex_pattern(client_mocker: ClientMocker) -> None:
+    """Test query matching with regex pattern matcher."""
+    client_mocker.get("http://api.example.com/data") \
+        .match_query(re.compile(r".*token=\w+.*")) \
+        .with_body_json({"authorized": True})
+
+    client_mocker.get("http://api.example.com/data") \
+        .with_body_json({"authorized": False})
+
+    client = ClientBuilder().build()
+
+    # Request with token in query string
+    auth_resp = await client.get("http://api.example.com/data?token=abc123&other=value").build_consumed().send()
+    assert await auth_resp.json() == {"authorized": True}
+
+    # Request without token
+    no_auth_resp = await client.get("http://api.example.com/data?other=value").build_consumed().send()
+    assert await no_auth_resp.json() == {"authorized": False}
+
+    # Request with no query string
+    empty_resp = await client.get("http://api.example.com/data").build_consumed().send()
+    assert await empty_resp.json() == {"authorized": False}
+
+
+async def test_query_matching_empty(client_mocker: ClientMocker) -> None:
+    client_mocker.get("http://api.example.com/endpoint") \
+        .match_query("") \
+        .with_body_json({"no_params": True})
+
+    client_mocker.get("http://api.example.com/endpoint") \
+        .with_body_json({"has_params": True})
+
+    client = ClientBuilder().build()
+
+    no_params_resp = await client.get("http://api.example.com/endpoint").build_consumed().send()
+    assert await no_params_resp.json() == {"no_params": True}
+
+    with_params_resp = await client.get("http://api.example.com/endpoint?foo=bar").build_consumed().send()
+    assert await with_params_resp.json() == {"has_params": True}
+
+
+async def test_query_matching_regex_empty_string(client_mocker: ClientMocker) -> None:
+    client_mocker.get("http://api.example.com/flexible") \
+        .match_query(re.compile(r"^$|.*debug=true.*")) \
+        .with_body_json({"debug_or_empty": True})
+
+    client_mocker.get("http://api.example.com/flexible") \
+        .with_body_json({"other": True})
+
+    client = ClientBuilder().build()
+
+    empty_resp = await client.get("http://api.example.com/flexible").build_consumed().send()
+    assert await empty_resp.json() == {"debug_or_empty": True}
+
+    debug_resp = await client.get("http://api.example.com/flexible?debug=true").build_consumed().send()
+    assert await debug_resp.json() == {"debug_or_empty": True}
+
+    other_resp = await client.get("http://api.example.com/flexible?other=value").build_consumed().send()
+    assert await other_resp.json() == {"other": True}
+
+
+async def test_query_matching_multiple_values_same_key(client_mocker: ClientMocker) -> None:
+    client_mocker.get("http://api.example.com/multi") \
+        .match_query({"tag": ["python", "web"]}) \
+        .with_body_json({"match": 1})
+
+    client_mocker.get("http://api.example.com/multi") \
+        .match_query({"tag": Contains("rust")}) \
+        .with_body_json({"match": 2})
+
+    client_mocker.get("http://api.example.com/multi") \
+        .with_body_json({"no_match": True})
+
+    client = ClientBuilder().build()
+
+    resp1 = await client.get("http://api.example.com/multi?tag=python&tag=web").build_consumed().send()
+    assert await resp1.json() == {"match": 1}
+
+    resp2 = await client.get("http://api.example.com/multi?tag=python&tag=rust").build_consumed().send()
+    assert await resp2.json() == {"match": 2}
+
+    no_match_resp = await client.get("http://api.example.com/multi?tag=python&tag=java").build_consumed().send()
+    assert await no_match_resp.json() == {"no_match": True}
+
+
+async def test_query_matching_mixed_string_and_regex(client_mocker: ClientMocker) -> None:
+    """Test query matching with mixed string and regex values in dict."""
+    client_mocker.get("http://api.example.com/mixed") \
+        .match_query({
+            "exact": "value",
+            "pattern": re.compile(r"test_\d+"),
+            "optional": ""
+        }) \
+        .with_body_json({"mixed_match": True})
+
+    client = ClientBuilder().build()
+
+    # Request matching all criteria
+    match_resp = await client.get("http://api.example.com/mixed?exact=value&pattern=test_123&optional=").build_consumed().send()
+    assert await match_resp.json() == {"mixed_match": True}
+
+
+async def test_query_matching_url_encoded_values(client_mocker: ClientMocker) -> None:
+    """Test query matching with URL-encoded values."""
+    client_mocker.get("http://api.example.com/encoded") \
+        .match_query({"search": "hello world", "special": "a+b=c"}) \
+        .with_body_json({"encoded_match": True})
+
+    client = ClientBuilder().build()
+
+    # Request with URL-encoded query parameters
+    encoded_resp = await client.get("http://api.example.com/encoded?search=hello%20world&special=a%2Bb%3Dc").build_consumed().send()
+    assert await encoded_resp.json() == {"encoded_match": True}
+
+
+async def test_query_matching_case_sensitivity(client_mocker: ClientMocker) -> None:
+    """Test that query matching is case-sensitive."""
+    client_mocker.get("http://api.example.com/case") \
+        .match_query({"Key": "Value"}) \
+        .with_body_json({"case_match": True})
+
+    client_mocker.get("http://api.example.com/case") \
+        .with_body_json({"no_match": True})
+
+    client = ClientBuilder().build()
+
+    # Exact case match
+    exact_resp = await client.get("http://api.example.com/case?Key=Value").build_consumed().send()
+    assert await exact_resp.json() == {"case_match": True}
+
+    # Different case should not match
+    wrong_case_resp = await client.get("http://api.example.com/case?key=value").build_consumed().send()
+    assert await wrong_case_resp.json() == {"no_match": True}
+
+
+async def test_query_matching_with_other_matchers(client_mocker: ClientMocker) -> None:
+    """Test query matching combined with other matchers."""
+    client_mocker.post("http://api.example.com/combined") \
+        .match_query({"action": "create"}) \
+        .match_header("Content-Type", "application/json") \
+        .match_body(re.compile(r'.*"name":\s*"test".*')) \
+        .with_body_json({"combined_match": True})
+
+    client_mocker.post("http://api.example.com/combined") \
+        .with_body_json({"partial_match": True})
+
+    client = ClientBuilder().build()
+
+    # Request matching all criteria
+    full_match_resp = await client.post("http://api.example.com/combined?action=create") \
+        .header("Content-Type", "application/json") \
+        .body_text('{"name": "test", "other": "data"}') \
+        .build_consumed().send()
+    assert await full_match_resp.json() == {"combined_match": True}
+
+    # Request missing query parameter
+    partial_resp = await client.post("http://api.example.com/combined?action=update") \
+        .header("Content-Type", "application/json") \
+        .body_text('{"name": "test", "other": "data"}') \
+        .build_consumed().send()
+    assert await partial_resp.json() == {"partial_match": True}
+
+
+async def test_query_matching_request_capture(client_mocker: ClientMocker) -> None:
+    """Test that requests with query parameters are properly captured."""
+    query_mock = client_mocker.get("http://api.example.com/capture") \
+        .match_query({"filter": "active"}) \
+        .with_body_json({"captured": True})
+
+    client = ClientBuilder().build()
+
+    await client.get("http://api.example.com/capture?filter=active&sort=name").build_consumed().send()
+    await client.get("http://api.example.com/capture?filter=active").build_consumed().send()
+
+    captured_requests = query_mock.get_requests()
+    assert len(captured_requests) == 2
+
+    # Verify first captured request
+    first_request = captured_requests[0]
+    assert str(first_request.url) == "http://api.example.com/capture?filter=active&sort=name"
+    assert first_request.url.query_dict_multi_value == {"filter": "active", "sort": "name"}
+
+    # Verify second captured request
+    second_request = captured_requests[1]
+    assert str(second_request.url) == "http://api.example.com/capture?filter=active"
+    assert second_request.url.query_dict_multi_value == {"filter": "active"}
