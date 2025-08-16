@@ -9,6 +9,8 @@ from pyreqwest.pytest_plugin import ClientMocker
 from pyreqwest.request import Request
 from pyreqwest.response import ResponseBuilder
 
+import_time_client = ClientBuilder().build()
+
 
 async def test_simple_get_mock(client_mocker: ClientMocker) -> None:
     client_mocker.get("http://example.com/api").with_body_text("Hello World")
@@ -22,10 +24,10 @@ async def test_simple_get_mock(client_mocker: ClientMocker) -> None:
 
 
 async def test_method_specific_mocks(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://api.example.com/users").with_body_json({"users": []})
-    client_mocker.post("http://api.example.com/users").with_status(201).with_body_json({"id": 123})
-    client_mocker.put("http://api.example.com/users/123").with_status(202)
-    client_mocker.delete("http://api.example.com/users/123").with_status(204)
+    mock_get = client_mocker.get("http://api.example.com/users").with_body_json({"users": []})
+    mock_post = client_mocker.post("http://api.example.com/users").with_status(201).with_body_json({"id": 123})
+    mock_put = client_mocker.put("http://api.example.com/users/123").with_status(202)
+    mock_delete = client_mocker.delete("http://api.example.com/users/123").with_status(204)
 
     client = ClientBuilder().build()
 
@@ -40,8 +42,15 @@ async def test_method_specific_mocks(client_mocker: ClientMocker) -> None:
     put_resp = await client.put("http://api.example.com/users/123").body_text(json.dumps({"name": "Jane"})).build_consumed().send()
     assert put_resp.status == 202
 
-    delete_resp = await client.delete("http://api.example.com/users/123").build_consumed().send()
-    assert delete_resp.status == 204
+    for _ in range(2):
+        delete_resp = await client.delete("http://api.example.com/users/123").build_consumed().send()
+        assert delete_resp.status == 204
+
+    assert client_mocker.get_call_count() == 5
+    assert mock_get.get_call_count() == 1
+    assert mock_post.get_call_count() == 1
+    assert mock_put.get_call_count() == 1
+    assert mock_delete.get_call_count() == 2
 
 
 async def test_regex_url_matching(client_mocker: ClientMocker) -> None:
@@ -359,9 +368,6 @@ async def test_stream_match(client_mocker: ClientMocker, body_match: Any, matche
         assert len(client_mocker.get_requests()) == 0
 
 
-import_time_client = ClientBuilder().build()
-
-
 async def test_import_time_client_is_mocked(client_mocker: ClientMocker) -> None:
     client_mocker.get("http://foo.invalid").with_body_text("Mocked response")
 
@@ -468,30 +474,26 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
         if request.body is None:
             return None
 
-        try:
-            body_bytes = request.body.copy_bytes()
-            if body_bytes is None:
-                return None
-            body_text = body_bytes.to_bytes().decode()
-            body_data = json.loads(body_text)
+        body_bytes = request.body.copy_bytes()
+        if body_bytes is None:
+            return None
+        body_text = body_bytes.to_bytes().decode()
+        body_data = json.loads(body_text)
 
-            # Handle admin requests specially
-            if body_data.get("role") == "admin":
-                response_builder = ResponseBuilder.create_for_mocking() \
-                    .status(200) \
-                    .body_json({
-                        "message": f"Admin action: {body_data.get('action', 'unknown')}",
-                        "user": body_data.get("user", "anonymous")
-                    })
-                return await response_builder.build()
-
-        except (json.JSONDecodeError, AttributeError):
-            pass
+        # Handle admin requests specially
+        if body_data.get("role") == "admin":
+            response_builder = ResponseBuilder.create_for_mocking() \
+                .status(200) \
+                .body_json({
+                    "message": f"Admin action: {body_data.get('action', 'unknown')}",
+                    "user": body_data.get("user", "anonymous")
+                })
+            return await response_builder.build()
 
         return None
 
-    client_mocker.mock().match_request_with_response(conditional_handler)
-    client_mocker.post("http://api.example.com/actions").with_status(403).with_body_text("Forbidden")
+    mock_cond = client_mocker.mock().match_request_with_response(conditional_handler)
+    mock_403 = client_mocker.post("http://api.example.com/actions").with_status(403).with_body_text("Forbidden")
 
     client = ClientBuilder().build()
 
@@ -512,6 +514,9 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
 
     assert user_resp.status == 403
     assert await user_resp.text() == "Forbidden"
+    assert mock_cond.get_call_count() == 1
+    assert mock_403.get_call_count() == 1
+    assert client_mocker.get_call_count() == 2
 
 
 async def test_get_call_count_comprehensive(client_mocker: ClientMocker) -> None:
