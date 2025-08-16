@@ -1,13 +1,14 @@
+import json
 from functools import cached_property
-from typing import Pattern, Self, Any
+from typing import Pattern, Self, Any, Literal, assert_never
 
 import pytest
 
 from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
-from pyreqwest.pytest_plugin.types import MethodMatcher, UrlMatcher, BodyMatcher, CustomMatcher, CustomHandler, \
-    Matcher, QueryMatcher
+from pyreqwest.pytest_plugin.types import MethodMatcher, UrlMatcher, BodyContentMatcher, CustomMatcher, CustomHandler, \
+    Matcher, QueryMatcher, SupportsEq
 from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
 from pyreqwest.types import Middleware
@@ -19,7 +20,7 @@ class Mock:
         self._path_matcher = path
         self._query_matcher: QueryMatcher | None = None
         self._header_matchers: dict[str, Matcher] = {}
-        self._body_matcher: BodyMatcher | None = None
+        self._body_matcher: tuple[BodyContentMatcher, Literal["content"]] | tuple[SupportsEq | Literal["json"]] | None = None
         self._custom_matcher: CustomMatcher | None = None
         self._custom_handler: CustomHandler | None = None
 
@@ -54,8 +55,12 @@ class Mock:
         self._header_matchers[name] = value
         return self
 
-    def match_body(self, matcher: BodyMatcher) -> Self:
-        self._body_matcher = matcher
+    def match_body(self, matcher: BodyContentMatcher) -> Self:
+        self._body_matcher = (matcher, "content")
+        return self
+
+    def match_body_json(self, matcher: SupportsEq) -> Self:
+        self._body_matcher = (matcher, "json")
         return self
 
     def match_request(self, matcher: CustomMatcher) -> Self:
@@ -160,9 +165,18 @@ class Mock:
         assert body_buf is not None, "Unknown body type"
         body_bytes = body_buf.to_bytes()
 
-        if isinstance(self._body_matcher, bytes):
-            return body_bytes == self._body_matcher
-        return self._value_matches(body_bytes.decode(), self._body_matcher)
+        matcher, kind = self._body_matcher
+        if kind == "json":
+            try:
+                return json.loads(body_bytes) == matcher
+            except json.JSONDecodeError:
+                return False
+        elif kind == "content":
+            if isinstance(matcher, bytes):
+                return body_bytes == matcher
+            return self._value_matches(body_bytes.decode(), matcher)
+        else:
+            assert_never(kind)
 
     def _match_query(self, request: Request) -> bool:
         if self._query_matcher is None:

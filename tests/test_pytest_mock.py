@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 import pytest
-from dirty_equals import Contains
+from dirty_equals import Contains, IsPartialDict, IsStr
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
@@ -878,12 +878,63 @@ async def test_query_matching_request_capture(client_mocker: ClientMocker) -> No
     captured_requests = query_mock.get_requests()
     assert len(captured_requests) == 2
 
-    # Verify first captured request
     first_request = captured_requests[0]
     assert str(first_request.url) == "http://api.example.com/capture?filter=active&sort=name"
     assert first_request.url.query_dict_multi_value == {"filter": "active", "sort": "name"}
 
-    # Verify second captured request
     second_request = captured_requests[1]
     assert str(second_request.url) == "http://api.example.com/capture?filter=active"
     assert second_request.url.query_dict_multi_value == {"filter": "active"}
+
+
+async def test_json_body_matching_basic(client_mocker: ClientMocker) -> None:
+    client_mocker.strict(True).post("http://api.example.com/users") \
+        .match_body_json({"name": "John", "age": 30}) \
+        .with_status(201) \
+        .with_body_json({"id": 123})
+
+    client = ClientBuilder().build()
+
+    resp = await client.post("http://api.example.com/users").body_json({"name": "John", "age": 30}).build_consumed().send()
+    assert resp.status == 201 and await resp.json() == {"id": 123}
+
+    req = client.post("http://api.example.com/users").body_json({"name": "John", "age": 31}).build_consumed()
+    with pytest.raises(AssertionError, match="No mock rule matched request"):
+        await req.send()
+
+
+async def test_json_body_matching_with_custom_equals(client_mocker: ClientMocker) -> None:
+    client_mocker.strict(True).post("http://api.example.com/partial") \
+        .match_body_json(IsPartialDict(name=IsStr, action="create")) \
+        .with_body_text("Partial match successful")
+
+    client = ClientBuilder().build()
+
+    resp1 = await client.post("http://api.example.com/partial") \
+        .body_json({"name": "Alice", "action": "create", "extra": "ignored"}) \
+        .build_consumed().send()
+    assert await resp1.text() == "Partial match successful"
+
+    req = client.post("http://api.example.com/partial").body_json({"action": "create"}).build_consumed()
+    with pytest.raises(AssertionError, match="No mock rule matched request"):
+        await req.send()
+
+
+async def test_json_body_matching_invalid(client_mocker: ClientMocker) -> None:
+    client_mocker.strict(True).post("http://api.example.com/strict") \
+        .match_body_json({"required": "value"}) \
+        .with_body_text("Matched")
+
+    client = ClientBuilder().build()
+
+    # Invalid JSON body not matching the mock rule
+    with pytest.raises(AssertionError, match="No mock rule matched request"):
+        await client.post("http://api.example.com/strict") \
+            .body_text('{"required": value}') \
+            .build_consumed().send()
+
+    # Valid JSON text body matching the mock rule
+    resp = await client.post("http://api.example.com/strict") \
+        .body_text('{"required":"value"}') \
+        .build_consumed().send()
+    assert await resp.text() == "Matched"

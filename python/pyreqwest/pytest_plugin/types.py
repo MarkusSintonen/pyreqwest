@@ -15,6 +15,6 @@ Matcher = str | Pattern[str] | SupportsEq
 MethodMatcher = str | set[str]
 UrlMatcher = Matcher | Url
 QueryMatcher = dict[str, Matcher] | Matcher
-BodyMatcher = bytes | Matcher
+BodyContentMatcher = bytes | Matcher
 CustomMatcher = Callable[[Request], Awaitable[bool]]
 CustomHandler = Callable[[Request], Awaitable[Response | None]]
