@@ -12,7 +12,7 @@ async def test_fixture_loads(client_mocker: "ClientMocker") -> None:
     client_mocker fixture is available through pytest's plugin discovery
     mechanism, not through direct imports in other test files.
     """
-    client_mocker.get("http://example.com").body_text("test")
+    client_mocker.get("http://example.com").with_body_text("test")
 
     resp = await ClientBuilder().build().get("http://example.com").build_consumed().send()
     assert resp.status == 200

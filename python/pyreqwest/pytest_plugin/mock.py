@@ -31,6 +31,7 @@ class Mock:
         self._matched_requests: list[Request] = []
 
         self._using_response_builder = False
+        self._built_response: Response | None = None
 
     def get_requests(self) -> list[Request]:
         """Get all captured requests by this mock"""
@@ -78,18 +79,23 @@ class Mock:
 
     def with_body(self, body: Body) -> Self:
         self._response_builder.body(body)
+        return self
 
     def with_body_bytes(self, body: bytes | bytearray | memoryview) -> Self:
         self._response_builder.body_bytes(body)
+        return self
 
     def with_body_text(self, body: str) -> Self:
         self._response_builder.body_text(body)
+        return self
 
     def with_body_json(self, json: Any) -> Self:
         self._response_builder.body_json(json)
+        return self
 
     def with_version(self, version: str) -> Self:
         self._response_builder.version(version)
+        return self
 
     async def _handle(self, request: Request) -> Response | None:
         if self._using_response_builder and self._custom_handler is not None:
@@ -108,7 +114,7 @@ class Mock:
         response = (
             await self._custom_handler(request)
             if self._custom_handler is not None
-            else await self._response_builder.build()
+            else await self._response()
         )
         if response is None:
             return None
@@ -119,7 +125,12 @@ class Mock:
     @cached_property
     def _response_builder(self) -> ResponseBuilder:
         self._using_response_builder = True
-        return ResponseBuilder()
+        return ResponseBuilder.create_for_mocking()
+
+    async def _response(self) -> Response:
+        if self._built_response is None:
+            self._built_response = await self._response_builder.build()
+        return self._built_response
 
     def _matches_method(self, request: Request) -> bool:
         if self._method_matcher is None:
