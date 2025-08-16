@@ -422,7 +422,8 @@ async def test_custom_matcher_basic(client_mocker: ClientMocker) -> None:
 
 
 async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
-    def has_user_agent(request: Request):
+    """Test custom matcher combined with other standard matchers."""
+    def has_user_agent(request):
         return "TestClient" in request.headers.get("User-Agent", "")
 
     client_mocker.mock(
@@ -436,19 +437,381 @@ async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
+    # Request matching all conditions (method, URL, headers, custom matcher)
     success_resp = await client.get("http://api.example.com/protected") \
         .header("Authorization", "Bearer valid-token") \
         .header("User-Agent", "TestClient/1.0") \
         .build_consumed().send()
     assert await success_resp.text() == "All conditions matched"
 
+    # Request missing User-Agent (custom matcher fails)
     no_ua_resp = await client.get("http://api.example.com/protected") \
         .header("Authorization", "Bearer valid-token") \
         .build_consumed().send()
     assert await no_ua_resp.text() == "Fallback response"
 
+    # Request with wrong auth header (standard matcher fails)
     wrong_auth_resp = await client.get("http://api.example.com/protected") \
         .header("Authorization", "Bearer wrong-token") \
         .header("User-Agent", "TestClient/1.0") \
         .build_consumed().send()
     assert await wrong_auth_resp.text() == "Fallback response"
+
+
+async def test_custom_handler_basic(client_mocker: ClientMocker) -> None:
+    """Test basic custom handler functionality."""
+    async def echo_handler(request):
+        if request.method == "POST" and "echo" in str(request.url):
+            # Create a dynamic response based on request
+            response_builder = ResponseBuilder.create_for_mocking() \
+                .status(200) \
+                .body_json({
+                    "method": request.method,
+                    "url": str(request.url),
+                    "test_header": request.headers.get("X-Test", "not-found"),
+                })
+            return await response_builder.build()
+        return None  # Don't handle this request
+
+    client_mocker.custom_handler(echo_handler)
+    client_mocker.get("http://api.example.com/test").body_text("Default response")
+
+    client = ClientBuilder().build()
+
+    # Request that matches custom handler
+    echo_resp = await client.post("http://api.example.com/echo") \
+        .header("X-Test", "custom-value") \
+        .build_consumed().send()
+
+    assert echo_resp.status == 200
+    echo_data = await echo_resp.json()
+    assert echo_data["method"] == "POST"
+    assert echo_data["url"] == "http://api.example.com/echo"
+    assert echo_data["test_header"] == "custom-value"
+
+    # Request that doesn't match custom handler falls back to standard rules
+    default_resp = await client.get("http://api.example.com/test").build_consumed().send()
+    assert await default_resp.text() == "Default response"
+
+
+async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) -> None:
+    """Test custom handler that inspects request body."""
+    import json
+
+    async def conditional_handler(request):
+        if request.body is None:
+            return None
+
+        try:
+            body_bytes = request.body.copy_bytes()
+            if body_bytes is None:
+                return None
+            body_text = bytes(body_bytes).decode()
+            body_data = json.loads(body_text)
+
+            # Handle admin requests specially
+            if body_data.get("role") == "admin":
+                response_builder = ResponseBuilder.create_for_mocking() \
+                    .status(200) \
+                    .body_json({
+                        "message": f"Admin action: {body_data.get('action', 'unknown')}",
+                        "user": body_data.get("user", "anonymous")
+                    })
+                return await response_builder.build()
+
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        return None
+
+    client_mocker.custom_handler(conditional_handler)
+    client_mocker.post("http://api.example.com/actions").status(403).body_text("Forbidden")
+
+    client = ClientBuilder().build()
+
+    # Admin request handled by custom handler
+    admin_resp = await client.post("http://api.example.com/actions") \
+        .body_text(json.dumps({"role": "admin", "action": "delete", "user": "alice"})) \
+        .build_consumed().send()
+
+    assert admin_resp.status == 200
+    admin_data = await admin_resp.json()
+    assert admin_data["message"] == "Admin action: delete"
+    assert admin_data["user"] == "alice"
+
+    # Regular user request falls back to standard rule
+    user_resp = await client.post("http://api.example.com/actions") \
+        .body_text(json.dumps({"role": "user", "action": "create"})) \
+        .build_consumed().send()
+
+    assert user_resp.status == 403
+    assert await user_resp.text() == "Forbidden"
+
+
+async def test_get_call_count_comprehensive(client_mocker: ClientMocker) -> None:
+    """Comprehensive test for get_call_count method with various filters and scenarios."""
+    # Setup multiple mock rules
+    client_mocker.get("http://api.example.com/users").body_json({"users": []})
+    client_mocker.post("http://api.example.com/users").status(201).body_json({"id": 1})
+    client_mocker.get("http://api.example.com/posts").body_json({"posts": []})
+    client_mocker.put("http://other.com/data").status(200).body_text("updated")
+
+    client = ClientBuilder().build()
+
+    # Initially no calls
+    assert client_mocker.get_call_count() == 0
+    assert client_mocker.get_call_count(method="GET") == 0
+    assert client_mocker.get_call_count(method="POST") == 0
+    assert client_mocker.get_call_count(url="http://api.example.com/users") == 0
+
+    # Make first request
+    await client.get("http://api.example.com/users").build_consumed().send()
+
+    assert client_mocker.get_call_count() == 1
+    assert client_mocker.get_call_count(method="GET") == 1
+    assert client_mocker.get_call_count(method="POST") == 0
+    assert client_mocker.get_call_count(method="PUT") == 0
+    assert client_mocker.get_call_count(url="http://api.example.com/users") == 1
+    assert client_mocker.get_call_count(url="http://api.example.com/posts") == 0
+
+    # Make second request (different endpoint, same method)
+    await client.get("http://api.example.com/posts").build_consumed().send()
+
+    assert client_mocker.get_call_count() == 2
+    assert client_mocker.get_call_count(method="GET") == 2
+    assert client_mocker.get_call_count(method="POST") == 0
+    assert client_mocker.get_call_count(url="http://api.example.com/users") == 1
+    assert client_mocker.get_call_count(url="http://api.example.com/posts") == 1
+
+    # Make third request (same endpoint as first, should increment)
+    await client.get("http://api.example.com/users").build_consumed().send()
+
+    assert client_mocker.get_call_count() == 3
+    assert client_mocker.get_call_count(method="GET") == 3
+    assert client_mocker.get_call_count(url="http://api.example.com/users") == 2
+    assert client_mocker.get_call_count(url="http://api.example.com/posts") == 1
+
+    # Make POST request
+    await client.post("http://api.example.com/users").body_text("{}").build_consumed().send()
+
+    assert client_mocker.get_call_count() == 4
+    assert client_mocker.get_call_count(method="GET") == 3
+    assert client_mocker.get_call_count(method="POST") == 1
+    assert client_mocker.get_call_count(url="http://api.example.com/users") == 3  # Both GET and POST
+
+    # Make PUT request to different domain
+    await client.put("http://other.com/data").body_text("data").build_consumed().send()
+
+    assert client_mocker.get_call_count() == 5
+    assert client_mocker.get_call_count(method="GET") == 3
+    assert client_mocker.get_call_count(method="POST") == 1
+    assert client_mocker.get_call_count(method="PUT") == 1
+    assert client_mocker.get_call_count(url="http://other.com/data") == 1
+    assert client_mocker.get_call_count(url="http://api.example.com/users") == 3
+
+    # Test with regex URL matching
+    import re
+    pattern = re.compile(r"http://api\.example\.com/.*")
+    assert client_mocker.get_call_count(url=pattern) == 4  # All api.example.com requests
+
+    # Test non-existent method/url
+    assert client_mocker.get_call_count(method="DELETE") == 0
+    assert client_mocker.get_call_count(url="http://nonexistent.com") == 0
+
+    # Test combined filters (method AND url)
+    assert client_mocker.get_call_count(method="GET", url="http://api.example.com/users") == 2
+    assert client_mocker.get_call_count(method="POST", url="http://api.example.com/users") == 1
+    assert client_mocker.get_call_count(method="GET", url="http://api.example.com/posts") == 1
+    assert client_mocker.get_call_count(method="POST", url="http://api.example.com/posts") == 0
+
+
+async def test_get_call_count_with_custom_handlers(client_mocker: ClientMocker) -> None:
+    """Test that get_call_count works correctly with custom handlers."""
+    call_count = 0
+
+    async def custom_handler(request):
+        nonlocal call_count
+        if request.method == "GET" and "custom" in str(request.url):
+            call_count += 1
+            return await ResponseBuilder.create_for_mocking() \
+                .status(200) \
+                .body_text(f"Custom response {call_count}") \
+                .build()
+        return None
+
+    client_mocker.custom_handler(custom_handler)
+    client_mocker.get("http://api.example.com/normal").body_text("Normal response")
+
+    client = ClientBuilder().build()
+
+    # Initially no calls
+    assert client_mocker.get_call_count() == 0
+
+    # Request handled by custom handler
+    resp1 = await client.get("http://api.example.com/custom").build_consumed().send()
+    assert await resp1.text() == "Custom response 1"
+    assert client_mocker.get_call_count() == 1
+    assert client_mocker.get_call_count(method="GET") == 1
+
+    # Another custom handler request
+    resp2 = await client.get("http://api.example.com/custom/data").build_consumed().send()
+    assert await resp2.text() == "Custom response 2"
+    assert client_mocker.get_call_count() == 2
+    assert client_mocker.get_call_count(method="GET") == 2
+
+    # Request handled by standard mock
+    resp3 = await client.get("http://api.example.com/normal").build_consumed().send()
+    assert await resp3.text() == "Normal response"
+    assert client_mocker.get_call_count() == 3
+    assert client_mocker.get_call_count(method="GET") == 3
+
+    # Test URL filtering with custom handler requests
+    custom_pattern = re.compile(r".*custom.*")
+    assert client_mocker.get_call_count(url=custom_pattern) == 2
+    assert client_mocker.get_call_count(url="http://api.example.com/normal") == 1
+
+
+async def test_get_call_count_after_reset(client_mocker: ClientMocker) -> None:
+    """Test that get_call_count returns 0 after reset."""
+    client_mocker.get("http://api.example.com/test").body_text("test")
+    client_mocker.post("http://api.example.com/test").body_text("posted")
+
+    client = ClientBuilder().build()
+
+    # Make some requests
+    await client.get("http://api.example.com/test").build_consumed().send()
+    await client.post("http://api.example.com/test").body_text("data").build_consumed().send()
+    await client.get("http://api.example.com/test").build_consumed().send()
+
+    # Verify counts before reset
+    assert client_mocker.get_call_count() == 3
+    assert client_mocker.get_call_count(method="GET") == 2
+    assert client_mocker.get_call_count(method="POST") == 1
+    assert client_mocker.get_call_count(url="http://api.example.com/test") == 3
+
+    # Reset and verify all counts are 0
+    client_mocker.reset()
+
+    assert client_mocker.get_call_count() == 0
+    assert client_mocker.get_call_count(method="GET") == 0
+    assert client_mocker.get_call_count(method="POST") == 0
+    assert client_mocker.get_call_count(method="PUT") == 0
+    assert client_mocker.get_call_count(url="http://api.example.com/test") == 0
+    assert client_mocker.get_call_count(url="http://any.url.com") == 0
+
+
+async def test_get_call_count_edge_cases(client_mocker: ClientMocker) -> None:
+    """Test edge cases for get_call_count."""
+    client_mocker.get("http://test.com").body_text("response")
+
+    client = ClientBuilder().build()
+
+    # Test with empty string parameters (should be treated as None)
+    assert client_mocker.get_call_count(method="") == 0
+    assert client_mocker.get_call_count(url="") == 0
+
+    # Test with None parameters explicitly
+    assert client_mocker.get_call_count(method=None) == 0
+    assert client_mocker.get_call_count(url=None) == 0
+    assert client_mocker.get_call_count(method=None, url=None) == 0
+
+    # Make a request
+    await client.get("http://test.com").build_consumed().send()
+
+    # Test that None parameters return total count
+    assert client_mocker.get_call_count(method=None) == 1
+    assert client_mocker.get_call_count(url=None) == 1
+    assert client_mocker.get_call_count(method=None, url=None) == 1
+
+    # Test case sensitivity for methods
+    assert client_mocker.get_call_count(method="get") == 0  # Should be 0, methods are case sensitive
+    assert client_mocker.get_call_count(method="GET") == 1
+
+
+async def test_custom_handler_fallback_to_standard_matchers(client_mocker: ClientMocker) -> None:
+    """Test that when custom handler returns None, it falls back to standard matchers for the same rule."""
+    async def selective_handler(request):
+        # Only handle POST requests, return None for others
+        if request.method == "POST":
+            return await ResponseBuilder.create_for_mocking() \
+                .status(201) \
+                .body_text("Custom POST response") \
+                .build()
+        return None  # Let standard matchers handle this
+
+    # Create a rule with both custom handler AND standard matchers
+    client_mocker.mock(
+        method="GET",
+        url="http://api.example.com/data",
+        custom_handler=selective_handler
+    ).status(200).body_text("Standard GET response")
+
+    # Also add a fallback rule
+    client_mocker.get("http://api.example.com/other").body_text("Other response")
+
+    client = ClientBuilder().build()
+
+    # POST request should be handled by custom handler
+    post_resp = await client.post("http://api.example.com/data").build_consumed().send()
+    assert post_resp.status == 201
+    assert await post_resp.text() == "Custom POST response"
+
+    # GET request should fall back to standard matchers for the same rule
+    get_resp = await client.get("http://api.example.com/data").build_consumed().send()
+    assert get_resp.status == 200
+    assert await get_resp.text() == "Standard GET response"
+
+    # Different URL should use different rule
+    other_resp = await client.get("http://api.example.com/other").build_consumed().send()
+    assert await other_resp.text() == "Other response"
+
+    # Verify call counts
+    assert client_mocker.get_call_count() == 3
+    assert client_mocker.get_call_count(method="POST") == 1
+    assert client_mocker.get_call_count(method="GET") == 2
+
+
+async def test_custom_handler_with_standard_matchers_combined(client_mocker: ClientMocker) -> None:
+    """Test custom handler combined with standard matchers on the same rule."""
+    async def auth_required_handler(request):
+        # Only handle requests with auth header
+        if request.headers.get("Authorization"):
+            return await ResponseBuilder.create_for_mocking() \
+                .status(200) \
+                .body_json({"authenticated": True, "message": "Custom auth response"}) \
+                .build()
+        return None  # No auth header, let standard matchers handle
+
+    # Rule with custom handler AND standard matchers (method + URL)
+    client_mocker.mock(
+        method="POST",
+        url="http://api.example.com/secure",
+        custom_handler=auth_required_handler
+    ).status(401).body_json({"error": "Unauthorized"})
+
+    client = ClientBuilder().build()
+
+    # Request with auth header should be handled by custom handler
+    auth_resp = await client.post("http://api.example.com/secure") \
+        .header("Authorization", "Bearer token") \
+        .build_consumed().send()
+
+    assert auth_resp.status == 200
+    auth_data = await auth_resp.json()
+    assert auth_data["authenticated"] is True
+    assert auth_data["message"] == "Custom auth response"
+
+    # Request without auth header should fall back to standard matchers
+    unauth_resp = await client.post("http://api.example.com/secure").build_consumed().send()
+
+    assert unauth_resp.status == 401
+    unauth_data = await unauth_resp.json()
+    assert unauth_data["error"] == "Unauthorized"
+
+    # Wrong method shouldn't match the rule at all (since standard matchers check method)
+    client_mocker.get("http://fallback.com").body_text("Fallback")
+
+    get_resp = await client.get("http://api.example.com/secure").build_consumed().send()
+    assert await get_resp.text() == "Fallback"
+
+    assert client_mocker.get_call_count() == 3

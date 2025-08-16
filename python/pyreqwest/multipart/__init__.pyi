@@ -1,4 +1,4 @@
-from typing_extensions import Self
+from typing import Self
 from pathlib import Path
 
 from pyreqwest.types import Stream, HeadersType

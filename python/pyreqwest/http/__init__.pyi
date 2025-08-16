@@ -1,6 +1,5 @@
 from collections.abc import MutableMapping, ItemsView, KeysView, ValuesView
-from typing import Iterator, overload, TypeVar, Any
-from typing_extensions import Self
+from typing import Iterator, overload, TypeVar, Any, Self
 
 from ..bytes import Bytes
 from ..types import Stream, QueryParams, HeadersType

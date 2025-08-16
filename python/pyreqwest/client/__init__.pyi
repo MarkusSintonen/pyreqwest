@@ -1,7 +1,6 @@
 # ruff: noqa: E501, F401
 from datetime import timedelta
-from typing import Any
-from typing_extensions import Self
+from typing import Any, Self
 
 from pyreqwest.proxy import Proxy
 from pyreqwest.request import RequestBuilder
