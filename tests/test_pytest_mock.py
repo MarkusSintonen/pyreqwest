@@ -6,6 +6,7 @@ import pytest
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
+from pyreqwest.request import Request
 from pyreqwest.response import ResponseBuilder
 
 
@@ -400,3 +401,54 @@ async def test_import_time_client_is_mocked(client_mocker: ClientMocker) -> None
     assert resp.status == 200
     assert (await resp.text()) == "Mocked response"
     assert client_mocker.get_call_count() == 1
+
+
+async def test_custom_matcher_basic(client_mocker: ClientMocker) -> None:
+    def has_api_version(request: Request):
+        return request.headers.get("X-API-Version") == "v2"
+
+    client_mocker.mock(custom_matcher=has_api_version).body_text("API v2 response")
+    client_mocker.get().body_text("Default response")
+
+    client = ClientBuilder().build()
+
+    v2_resp = await client.get("http://api.example.com/data") \
+        .header("X-API-Version", "v2") \
+        .build_consumed().send()
+    assert await v2_resp.text() == "API v2 response"
+
+    default_resp = await client.get("http://api.example.com/data").build_consumed().send()
+    assert await default_resp.text() == "Default response"
+
+
+async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
+    def has_user_agent(request: Request):
+        return "TestClient" in request.headers.get("User-Agent", "")
+
+    client_mocker.mock(
+        method="GET",
+        url="http://api.example.com/protected",
+        headers={"Authorization": "Bearer valid-token"},
+        custom_matcher=has_user_agent
+    ).body_text("All conditions matched")
+
+    client_mocker.get("http://api.example.com/protected").body_text("Fallback response")
+
+    client = ClientBuilder().build()
+
+    success_resp = await client.get("http://api.example.com/protected") \
+        .header("Authorization", "Bearer valid-token") \
+        .header("User-Agent", "TestClient/1.0") \
+        .build_consumed().send()
+    assert await success_resp.text() == "All conditions matched"
+
+    no_ua_resp = await client.get("http://api.example.com/protected") \
+        .header("Authorization", "Bearer valid-token") \
+        .build_consumed().send()
+    assert await no_ua_resp.text() == "Fallback response"
+
+    wrong_auth_resp = await client.get("http://api.example.com/protected") \
+        .header("Authorization", "Bearer wrong-token") \
+        .header("User-Agent", "TestClient/1.0") \
+        .build_consumed().send()
+    assert await wrong_auth_resp.text() == "Fallback response"

@@ -1,4 +1,4 @@
-from typing import Pattern, Self, TypedDict, Unpack, assert_never
+from typing import Pattern, Self, TypedDict, Unpack, assert_never, Callable
 
 import pytest
 
@@ -16,6 +16,7 @@ UrlMatcher = str | Url | Pattern[str]
 class MockOpts(TypedDict, total=False):
     headers: dict[str, str | Pattern[str]]
     body: str | bytes | Pattern[str]
+    custom_matcher: Callable[[Request], bool]
 
 
 class RequestMatcher:
@@ -28,6 +29,7 @@ class RequestMatcher:
         self.url = url
         self.headers = kwargs.get("headers") or {}
         self.body = kwargs.get("body")
+        self.custom_matcher = kwargs.get("custom_matcher")
 
     def matches(self, request: Request) -> bool:
         """Check if the request matches this matcher."""
@@ -36,6 +38,7 @@ class RequestMatcher:
             and self._matches_url(request)
             and self._matches_headers(request)
             and self._matches_body(request)
+            and self._matches_custom(request)
         )
 
     def _matches_method(self, request: Request) -> bool:
@@ -89,6 +92,11 @@ class RequestMatcher:
             return self.body.search(body_data.decode()) is not None
         else:
             assert_never(self.body)
+
+    def _matches_custom(self, request: Request) -> bool:
+        if self.custom_matcher is None:
+            return True
+        return self.custom_matcher(request)
 
 
 class MockRule:
