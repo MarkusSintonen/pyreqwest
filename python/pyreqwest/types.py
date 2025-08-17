@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Sequence, Mapping, Any, Protocol
+from typing import AsyncIterable, Sequence, Mapping, Any, Protocol
 
 from pyreqwest.client import Client
 from pyreqwest.http import Url
@@ -11,7 +11,7 @@ HeadersType = Mapping[str, str] | Sequence[tuple[str, str]]
 QueryParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
 FormParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
 ExtensionsType = Mapping[str, Any] | Sequence[tuple[str, Any]]
-Stream = AsyncGenerator[bytes] | AsyncGenerator[bytearray] | AsyncGenerator[memoryview]
+Stream = AsyncIterable[bytes] | AsyncIterable[bytearray] | AsyncIterable[memoryview]
 
 
 class Middleware(Protocol):

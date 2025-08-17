@@ -32,10 +32,10 @@ impl Body {
     }
 
     #[staticmethod]
-    pub fn from_stream(py: Python, async_gen: Py<PyAny>) -> Self {
-        Body {
-            body: Some(InnerBody::Stream(BodyStream::new(py, async_gen))),
-        }
+    pub fn from_stream(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
+        Ok(Body {
+            body: Some(InnerBody::Stream(BodyStream::new(py, stream)?)),
+        })
     }
 
     fn copy_bytes(&self) -> PyResult<Option<PyBytes>> {
@@ -49,13 +49,24 @@ impl Body {
     fn get_stream(&self) -> PyResult<Option<&Py<PyAny>>> {
         match self.body.as_ref() {
             Some(InnerBody::Bytes(_)) => Ok(None),
-            Some(InnerBody::Stream(stream)) => Ok(Some(&stream.async_gen)),
+            Some(InnerBody::Stream(stream)) => Ok(Some(&stream.stream)),
             None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
 
     fn __copy__(&self, py: Python) -> PyResult<Self> {
         self.try_clone(py)
+    }
+
+    pub fn __repr__(&self, py: Python) -> PyResult<String> {
+        match &self.body {
+            Some(InnerBody::Bytes(bytes)) => Ok(format!("BodyBytes(len={})", bytes.len())),
+            Some(InnerBody::Stream(stream)) => {
+                let stream_repr = stream.stream.bind(py).repr()?;
+                Ok(format!("BodyStream(stream={})", stream_repr.to_str()?))
+            }
+            None => Ok("Body(<already consumed>)".to_string()),
+        }
     }
 }
 impl Body {
@@ -105,7 +116,8 @@ enum InnerBody {
 }
 
 pub struct BodyStream {
-    async_gen: Py<PyAny>,
+    stream: Py<PyAny>,
+    aiter: Py<PyAny>,
     task_local: Option<TaskLocal>,
     cur_waiter: Option<PyCoroWaiter>,
     started: bool,
@@ -144,17 +156,21 @@ impl Stream for BodyStream {
     }
 }
 impl BodyStream {
-    pub fn new(py: Python, async_gen: Py<PyAny>) -> Self {
+    pub fn new(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
         static ONCE_ELLIPSIS: GILOnceCell<Py<PyEllipsis>> = GILOnceCell::new();
         let ellipsis = ONCE_ELLIPSIS.get_or_init(py, || PyEllipsis::get(py).into());
 
-        BodyStream {
-            async_gen,
+        static AITER: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        let aiter = AITER.import(py, "builtins", "aiter")?.call1((&stream,))?.unbind();
+
+        Ok(BodyStream {
+            stream,
+            aiter,
             task_local: None,
             cur_waiter: None,
             started: false,
             ellipsis: ellipsis.clone_ref(py),
-        }
+        })
     }
 
     pub fn to_reqwest(self) -> PyResult<reqwest::Body> {
@@ -185,7 +201,7 @@ impl BodyStream {
                 .as_ref()
                 .ok_or_else(|| PyRuntimeError::new_err("TaskLocal not set for BodyStream"))?;
             let anext = ONCE_ANEXT.import(py, "builtins", "anext")?;
-            let coro = anext.call1((self.async_gen.bind(py), &self.ellipsis))?;
+            let coro = anext.call1((self.aiter.bind(py), &self.ellipsis))?;
             py_coro_waiter(coro, task_local)
         })
     }
@@ -194,7 +210,7 @@ impl BodyStream {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot clone a stream that was already consumed"));
         }
-        let clone = self.async_gen.call_method0(py, intern!(py, "__copy__"))?;
-        Ok(BodyStream::new(py, clone))
+        let clone = self.stream.call_method0(py, intern!(py, "__copy__"))?;
+        BodyStream::new(py, clone)
     }
 }

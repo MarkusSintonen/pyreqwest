@@ -365,7 +365,11 @@ impl HeaderMap {
         Ok(())
     }
 
-    fn dict_multi_value_inner<'py>(map: &http::HeaderMap, py: Python<'py>, hide_sensitive: bool) -> PyResult<Bound<'py, PyDict>> {
+    pub fn dict_multi_value_inner<'py>(
+        map: &http::HeaderMap,
+        py: Python<'py>,
+        hide_sensitive: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         for (key, value) in map.iter() {
             let key = key.as_str();

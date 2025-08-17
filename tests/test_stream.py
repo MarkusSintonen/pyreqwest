@@ -173,11 +173,9 @@ async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: 
 
     cases = [gen(), gen, async_gen, b"123", [b"123"]]
     for case in cases:
-        req = client.post(echo_body_parts_server.url).body_stream(case).build_streamed()
-
-        with pytest.raises(TypeError, match="object is not an async iterator"):
-            async with req as _:
-                assert False
+        req = client.post(echo_body_parts_server.url)
+        with pytest.raises(TypeError, match="object is not an async iterable"):
+            req.body_stream(case)
 
 
 async def test_body_consumed(client: Client, echo_server: EchoServer):

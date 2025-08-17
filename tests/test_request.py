@@ -7,7 +7,7 @@ import pytest
 import trustme
 
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.http import Body
+from pyreqwest.http import Body, HeaderMap
 from pyreqwest.types import Stream
 from .servers.server import Server
 
@@ -77,13 +77,12 @@ async def test_body__content(client: Client, echo_server: Server, kind: str) -> 
 
 
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
-async def test_body__stream(
+async def test_body__stream_fn(
     client: Client, echo_server: Server, yield_type: type[bytes] | type[bytearray] | type[memoryview]
 ) -> None:
     async def stream_gen() -> Stream:
         yield yield_type(b"test1")
         yield yield_type(b"test2")
-
 
     stream = stream_gen()
     req = client.post(echo_server.url).build_consumed()
@@ -104,8 +103,35 @@ async def test_body__stream(
     assert (await resp.json())["body_parts"] == ["test1", "test2"]
 
 
+async def test_body__stream_class(client: Client, echo_server: Server) -> None:
+    class StreamGen:
+        def __aiter__(self) -> AsyncGenerator[bytes]:
+            async def gen() -> AsyncGenerator[bytes]:
+                yield b"test1"
+                yield b"test2"
+            return gen()
+
+    stream = StreamGen()
+    req = client.post(echo_server.url).build_consumed()
+    assert req.body is None
+    req.body = Body.from_stream(stream)
+    assert req.body is not None and req.body.get_stream() is stream and req.body.copy_bytes() is None
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1", "test2"]
+
+    stream = StreamGen()
+    req = client.post(echo_server.url).body_stream(stream).build_consumed()
+    assert req.body is not None and req.body.get_stream() is stream and req.body.copy_bytes() is None
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1", "test2"]
+
+    stream = StreamGen()
+    resp = await client.post(echo_server.url).body_stream(stream).build_consumed().send()
+    assert (await resp.json())["body_parts"] == ["test1", "test2"]
+
+
 async def test_body__stream_error_already_used(client: Client, echo_server: Server) -> None:
-    async def stream_gen() -> Stream:
+    async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"test1"
 
     body = Body.from_stream(stream_gen())
@@ -219,3 +245,27 @@ async def test_cancel_stream_request(client: Client, echo_body_parts_server: Ser
     with pytest.raises(asyncio.CancelledError):
         await task
     assert time.time() - start < 1
+
+
+class StreamRepr:
+    def __aiter__(self) -> AsyncGenerator[bytes]:
+        async def gen() -> AsyncGenerator[bytes]:
+            yield b"test"
+        return gen()
+
+    def __repr__(self) -> str:
+        return "StreamRepr()"
+
+
+def test_repr():
+    client = ClientBuilder().build()
+    headers = HeaderMap({"X-Test": "Value"})
+    headers.append("X-Another", "AnotherValue", is_sensitive=True)
+    req = client.get("https://example.com/test?foo=bar").headers(headers).build_consumed()
+    assert repr(req) == "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=None)"
+
+    req.body = Body.from_text("test")
+    assert repr(req) == "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=BodyBytes(len=4))"
+
+    req.body = Body.from_stream(StreamRepr())
+    assert repr(req) == "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=BodyStream(stream=StreamRepr()))"

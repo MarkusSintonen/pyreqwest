@@ -89,8 +89,8 @@ impl ResponseBuilder {
         Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
     }
 
-    fn body_stream(mut slf: PyRefMut<Self>, async_gen: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
-        slf.body = Some(Body::from_stream(slf.py(), async_gen));
+    fn body_stream(mut slf: PyRefMut<Self>, stream: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
+        slf.body = Some(Body::from_stream(slf.py(), stream)?);
         Ok(slf)
     }
 

@@ -5,7 +5,8 @@ use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyString, PyType};
+use std::fmt::Display;
 
 #[pyclass(subclass)]
 pub struct Request {
@@ -99,6 +100,14 @@ impl Request {
 
     fn __copy__(&mut self, _py: Python) -> PyResult<Self> {
         Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
+    }
+
+    pub fn __repr__(&self, py: Python) -> PyResult<String> {
+        self.repr(py, true)
+    }
+
+    fn repr_full(&self, py: Python) -> PyResult<String> {
+        self.repr(py, false)
     }
 
     #[classmethod]
@@ -291,6 +300,36 @@ impl Request {
             this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
             this.error_for_status,
             this.body_consume_config.clone(),
+        ))
+    }
+
+    pub fn repr(&self, py: Python, hide_sensitive: bool) -> PyResult<String> {
+        pub fn disp_repr<T: Display>(py: Python, val: T) -> PyResult<String> {
+            Ok(PyString::new(py, &format!("{}", val)).repr()?.to_str()?.to_string())
+        }
+
+        let inner = self.inner_ref()?;
+        let mut url = Url::from(inner.url().clone());
+        let mut key_url = "url";
+        if hide_sensitive {
+            key_url = "origin_path";
+            url = url.with_query_string(None);
+        };
+
+        let headers_dict = HeaderMap::dict_multi_value_inner(inner.headers(), py, hide_sensitive)?;
+        let body_repr = match &self.body {
+            Some(ReqBody::Body(body)) => body.__repr__(py)?,
+            Some(ReqBody::PyBody(py_body)) => py_body.try_borrow(py)?.__repr__(py)?,
+            None => "None".to_string(),
+        };
+
+        Ok(format!(
+            "Request(method={}, {}={}, headers={}, body={})",
+            disp_repr(py, inner.method())?,
+            key_url,
+            disp_repr(py, url.as_str())?,
+            headers_dict.repr()?.to_str()?,
+            body_repr
         ))
     }
 }

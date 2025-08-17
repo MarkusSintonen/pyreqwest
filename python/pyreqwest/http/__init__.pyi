@@ -1,6 +1,5 @@
-from abc import abstractmethod
 from collections.abc import MutableMapping, ItemsView, KeysView, ValuesView, Sequence
-from typing import Iterator, overload, TypeVar, Any, Self, _T_co
+from typing import Iterator, overload, TypeVar, Any, Self
 
 from ..bytes import Bytes
 from ..types import Stream, QueryParams, HeadersType

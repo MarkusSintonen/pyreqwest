@@ -25,7 +25,7 @@ impl Url {
     }
 
     #[staticmethod]
-    fn parse(url: &str) -> PyResult<Self> {
+    pub fn parse(url: &str) -> PyResult<Self> {
         Ok(Url::new(url::Url::parse(url).map_err(|e| PyValueError::new_err(e.to_string()))?))
     }
 
@@ -177,7 +177,7 @@ impl Url {
         Ok(Url::new(url))
     }
 
-    fn with_query_string(&self, query: Option<&str>) -> Self {
+    pub fn with_query_string(&self, query: Option<&str>) -> Self {
         let mut url = self.url.clone();
         url.set_query(query);
         Url::new(url)
@@ -252,7 +252,7 @@ impl Url {
     }
 
     fn __str__<'py>(&self, py: Python<'py>) -> Bound<'py, PyString> {
-        PyString::new(py, self.url.as_str())
+        PyString::new(py, self.as_str())
     }
 
     fn __repr__(slf: Bound<Self>) -> PyResult<String> {
@@ -289,11 +289,11 @@ impl Url {
     // Sequence methods
 
     fn __len__(&self) -> usize {
-        self.url.as_str().len()
+        self.as_str().len()
     }
 
     fn __contains__(&self, item: &str) -> bool {
-        self.url.as_str().contains(item)
+        self.as_str().contains(item)
     }
 
     fn __getitem__<'py>(&self, py: Python<'py>, k: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
@@ -369,6 +369,10 @@ impl Url {
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
         Ok(())
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.url.as_str()
     }
 }
 impl From<reqwest::Url> for Url {
