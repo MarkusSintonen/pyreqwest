@@ -1,10 +1,10 @@
 use crate::http::QueryParams;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
-use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::OnceLockExt;
-use pyo3::types::{PyDict, PyList, PyString};
+use pyo3::sync::{GILOnceCell, OnceLockExt};
+use pyo3::types::{PyDict, PyIterator, PyList, PyString, PyTuple};
+use pyo3::{IntoPyObjectExt, intern};
 use serde::Serialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::IpAddr;
@@ -251,8 +251,8 @@ impl Url {
         self.join(other)
     }
 
-    fn __str__(&self) -> &str {
-        self.url.as_str()
+    fn __str__<'py>(&self, py: Python<'py>) -> Bound<'py, PyString> {
+        PyString::new(py, self.url.as_str())
     }
 
     fn __repr__(slf: Bound<Self>) -> PyResult<String> {
@@ -266,7 +266,15 @@ impl Url {
         hasher.finish()
     }
 
-    fn __richcmp__(&self, other: UrlType, op: CompareOp) -> bool {
+    fn __richcmp__<'py>(
+        &self,
+        py: Python<'py>,
+        other: Bound<'py, PyAny>,
+        op: CompareOp,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let Ok(other) = other.extract::<UrlType>() else {
+            return self.__str__(py).rich_compare(other, op);
+        };
         match op {
             CompareOp::Lt => self.url < other.0,
             CompareOp::Le => self.url <= other.0,
@@ -275,6 +283,50 @@ impl Url {
             CompareOp::Gt => self.url > other.0,
             CompareOp::Ge => self.url >= other.0,
         }
+        .into_bound_py_any(py)
+    }
+
+    // Sequence methods
+
+    fn __len__(&self) -> usize {
+        self.url.as_str().len()
+    }
+
+    fn __contains__(&self, item: &str) -> bool {
+        self.url.as_str().contains(item)
+    }
+
+    fn __getitem__<'py>(&self, py: Python<'py>, k: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        self.__str__(py).get_item(k)
+    }
+
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyIterator>> {
+        self.__str__(py).try_iter()
+    }
+
+    fn __reversed__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        static REVERSED: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        REVERSED.import(py, "builtins", "reversed")?.call1((self.__str__(py),))
+    }
+
+    #[pyo3(signature = (*args, **kwargs))]
+    fn index<'py>(
+        &self,
+        args: &Bound<'py, PyTuple>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.__str__(args.py())
+            .call_method(intern!(args.py(), "index"), args, kwargs)
+    }
+
+    #[pyo3(signature = (*args, **kwargs))]
+    fn count<'py>(
+        &self,
+        args: &Bound<'py, PyTuple>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.__str__(args.py())
+            .call_method(intern!(args.py(), "count"), args, kwargs)
     }
 }
 impl Url {
@@ -283,6 +335,10 @@ impl Url {
             url,
             query: OnceLock::new(),
         }
+    }
+
+    fn parse_inner(url: &str) -> PyResult<url::Url> {
+        url::Url::parse(url).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     fn query_pairs_vec(&self, py: Python) -> &Vec<(Py<PyString>, Py<PyString>)> {
@@ -330,11 +386,11 @@ pub struct UrlType(pub url::Url);
 impl<'py> FromPyObject<'py> for UrlType {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if let Ok(url) = ob.downcast_exact::<Url>() {
-            Ok(UrlType(url.borrow().url.clone()))
-        } else {
-            let url =
-                url::Url::parse(ob.str()?.extract::<&str>()?).map_err(|e| PyValueError::new_err(e.to_string()))?;
-            Ok(UrlType(url))
+            return Ok(UrlType(url.borrow().url.clone()));
         }
+        if let Ok(str) = ob.extract::<&str>() {
+            return Ok(UrlType(Url::parse_inner(str)?));
+        }
+        Ok(UrlType(Url::parse_inner(ob.str()?.extract::<&str>()?)?))
     }
 }

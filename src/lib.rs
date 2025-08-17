@@ -89,6 +89,8 @@ mod pyreqwest {
         use crate::http::{Body, HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView, Mime, Url};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_collections_abc::<Mime>(module.py(), "Sequence")?;
+            register_collections_abc::<Url>(module.py(), "Sequence")?;
             register_collections_abc::<HeaderMap>(module.py(), "MutableMapping")?;
             register_collections_abc::<HeaderMapItemsView>(module.py(), "ItemsView")?;
             register_collections_abc::<HeaderMapKeysView>(module.py(), "KeysView")?;

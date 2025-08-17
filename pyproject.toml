@@ -23,6 +23,7 @@ dev = [
     "multidict==6.6.3",
     "requests-toolbelt==1.0.0",
     "dirty-equals==0.9.0",
+    "yarl==1.20.1",
 ]
 
 [tool.maturin]

@@ -4,6 +4,7 @@ from copy import copy
 from typing import Callable, Any
 
 import pytest
+from dirty_equals import IsPartialDict, Contains
 from multidict import CIMultiDict
 
 from pyreqwest.http import HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView
@@ -222,6 +223,7 @@ def test_eq():
     assert headers == HeaderMap([("a", "v1"), ("a", "v3"), ("b", "v2")])
     assert headers == CIMultiDict(pairs)
     assert HeaderMap({"a": "v1", "b": "v2"}) == {"b": "v2", "a": "v1"}
+    assert headers == pairs
     assert not (headers == HeaderMap())
     assert not (headers == HeaderMap([("a", "v1"), ("b", "v2")]))
     assert not (headers == HeaderMap([("a", "v1"), ("b", "v2"), ("c", "v3")]))
@@ -229,10 +231,20 @@ def test_eq():
     assert not (headers == HeaderMap([*reversed(pairs)]))
     assert not (headers == {"a": "v1", "b": "v2"})
     assert not (headers == [("a", "v1"), ("b", "v2")])
-    assert not (headers == pairs)
     assert not (headers == [])
     assert not (headers == "")
     assert not (headers == 123)
+
+
+def test_eq_support():
+    headers = HeaderMap([("a", "v1"), ("b", "v2"), ("a", "v3")])
+    headers.append("c", "v4", is_sensitive=True)
+    assert headers == IsPartialDict({"b": "v2"})
+    assert headers == IsPartialDict({"a": ["v1", "v3"]})
+    assert headers == IsPartialDict({"a": Contains("v3")})
+    assert headers == IsPartialDict({"c": "v4"})
+    assert headers != IsPartialDict({"a": "v1"})
+    assert headers != IsPartialDict({"a": Contains("v")})
 
 
 def test_ne():
@@ -249,7 +261,6 @@ def test_ne():
     assert headers != HeaderMap([*reversed(pairs)])
     assert headers != {"a": "v1", "b": "v2"}
     assert headers != [("a", "v1"), ("b", "v2")]
-    assert headers != pairs
     assert headers != []
     assert headers != ""
     assert headers != 123

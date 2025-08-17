@@ -5,7 +5,7 @@ use crate::http::{HeaderName, HeaderValue};
 use http::header::Entry;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyEllipsis, PyList, PyMapping, PyString};
+use pyo3::types::{PyDict, PyEllipsis, PyList, PyString};
 use pyo3::{IntoPyObjectExt, intern};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -96,26 +96,20 @@ impl HeaderMap {
         })
     }
 
-    fn __eq__(&self, other: Bound<PyAny>) -> PyResult<bool> {
+    fn __eq__(&self, py: Python, other: Bound<PyAny>) -> PyResult<bool> {
         self.ref_map(|map| {
-            if let Ok(other_map) = other.downcast_exact::<HeaderMap>() {
-                return other_map.try_borrow()?.ref_map(|other| Ok(map == other));
-            } else if let Ok(other_dict) = other.downcast_into::<PyMapping>() {
-                if other_dict.len()? != map.len() {
-                    return Ok(false);
-                }
-                let mut other_map = http::HeaderMap::new();
-                return match HeaderMap::extend_inner(&mut other_map, KeyValPairs::Mapping(other_dict)) {
-                    Ok(()) => Ok(map == &other_map),
-                    Err(_) => Ok(false),
-                };
+            if let Ok(other) = other.downcast_exact::<HeaderMap>() {
+                return other.try_borrow()?.ref_map(|other| Ok(map == other));
+            } else if let Ok(other) = other.extract::<HeaderMap>() {
+                other.ref_map(|other| Ok(map == other))
+            } else {
+                Self::dict_multi_value_inner(map, py, false)?.eq(other)
             }
-            Ok(false)
         })
     }
 
-    fn __ne__(&self, other: Bound<PyAny>) -> PyResult<bool> {
-        Ok(!self.__eq__(other)?)
+    fn __ne__(&self, py: Python, other: Bound<PyAny>) -> PyResult<bool> {
+        Ok(!self.__eq__(py, other)?)
     }
 
     #[pyo3(signature = (key, default=PopArg::NotPresent(ellipsis())))]
@@ -191,7 +185,7 @@ impl HeaderMap {
         self.ref_map(|map| Ok(map.get_all(key).into_iter().map(|v| HeaderValue(v.clone())).collect()))
     }
 
-    #[pyo3(signature = (key, value, is_sensitive=false))]
+    #[pyo3(signature = (key, value, *, is_sensitive=false))]
     fn insert(&mut self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<Vec<HeaderValue>> {
         let mut value = value.0;
         value.set_sensitive(is_sensitive);
@@ -206,7 +200,7 @@ impl HeaderMap {
         })
     }
 
-    #[pyo3(signature = (key, value, is_sensitive=false))]
+    #[pyo3(signature = (key, value, *, is_sensitive=false))]
     fn append(&mut self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<bool> {
         let mut value = value.0;
         value.set_sensitive(is_sensitive);
@@ -241,7 +235,7 @@ impl HeaderMap {
     }
 
     fn dict_multi_value<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.dict_multi_value_inner(py, false)
+        self.ref_map(|map| Self::dict_multi_value_inner(map, py, false))
     }
 
     fn copy(&self) -> PyResult<Self> {
@@ -253,11 +247,11 @@ impl HeaderMap {
     }
 
     fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
-        self.dict_multi_value_inner(py, true)?.str()
+        self.ref_map(|map| Self::dict_multi_value_inner(map, py, true)?.str())
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {
-        let repr = self.dict_multi_value_inner(py, true)?.repr()?;
+        let repr = self.ref_map(|map| Self::dict_multi_value_inner(map, py, true)?.repr())?;
         Ok(format!("HeaderMap({})", repr.to_str()?))
     }
 }
@@ -371,27 +365,25 @@ impl HeaderMap {
         Ok(())
     }
 
-    fn dict_multi_value_inner<'py>(&self, py: Python<'py>, hide_sensitive: bool) -> PyResult<Bound<'py, PyDict>> {
-        self.ref_map(|map| {
-            let dict = PyDict::new(py);
-            for (key, value) in map.iter() {
-                let key = key.as_str();
-                let value = if hide_sensitive && value.is_sensitive() {
-                    intern!(py, "Sensitive").to_owned()
-                } else {
-                    PyString::new(py, &HeaderValue::inner_str(value))
-                };
+    fn dict_multi_value_inner<'py>(map: &http::HeaderMap, py: Python<'py>, hide_sensitive: bool) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        for (key, value) in map.iter() {
+            let key = key.as_str();
+            let value = if hide_sensitive && value.is_sensitive() {
+                intern!(py, "Sensitive").to_owned()
+            } else {
+                PyString::new(py, &HeaderValue::inner_str(value))
+            };
 
-                match dict.get_item(key)? {
-                    None => dict.set_item(key, value)?,
-                    Some(existing) => match existing.downcast_into_exact::<PyString>() {
-                        Ok(existing) => dict.set_item(key, PyList::new(py, vec![existing, value])?)?,
-                        Err(e) => e.into_inner().downcast_into_exact::<PyList>()?.append(value)?,
-                    },
-                }
+            match dict.get_item(key)? {
+                None => dict.set_item(key, value)?,
+                Some(existing) => match existing.downcast_into_exact::<PyString>() {
+                    Ok(existing) => dict.set_item(key, PyList::new(py, vec![existing, value])?)?,
+                    Err(e) => e.into_inner().downcast_into_exact::<PyList>()?.append(value)?,
+                },
             }
-            Ok(dict)
-        })
+        }
+        Ok(dict)
     }
 }
 impl From<http::HeaderMap> for HeaderMap {

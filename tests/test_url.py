@@ -1,12 +1,16 @@
+from collections.abc import Sequence
 from copy import copy
 
 import pytest
+import yarl
+from dirty_equals import Contains
 
 from pyreqwest.http import Url
 
 
-def test_init():
-    url = Url("http://example.com")
+@pytest.mark.parametrize("kind", [Url, str, yarl.URL])
+def test_init(kind: type):
+    url = Url(kind("http://example.com"))
     assert url.scheme == "http"
     assert url.host_str == "example.com"
 
@@ -306,14 +310,45 @@ def test_hash():
     assert d.get(Url("http://example3.com")) is None
 
 
-def test_eq():
+@pytest.mark.parametrize("kind", [Url, str, yarl.URL])
+def test_eq(kind: type):
     url1 = Url("http://example.com")
     url2 = Url("http://example.com/")
     url3 = Url("http://example.org")
-    assert url1 == url2
-    assert url1 == "http://example.com"
-    assert url1 == "http://example.com/"
-    assert url1 != url3
-    assert url2 != url3
-    assert url1 == Url("http://example.com")
-    assert not (url1 != Url("http://example.com"))
+    assert url1 == kind(str(url1))
+    assert url1 == kind(str(url2))
+    assert url1 != kind(str(url3))
+    assert url2 != kind(str(url3))
+    assert not (url1 != kind("http://example.com"))
+
+
+def test_eq_support():
+    assert Url("http://example.com") == Contains("example")
+
+
+@pytest.mark.parametrize("url_str", ["http://example.com/path", "http://example.com/path/"])
+def test_sequence(url_str: str):
+    url = Url(url_str)
+    assert len(url) == len(url_str)
+    assert "http://" in url and "example.com" in url and "/path" in url
+
+    for i in range(len(url)):
+        assert url[i] == url_str[i]
+    with pytest.raises(IndexError):
+        _ = url[len(url) + 1]
+    assert url[:5] == url_str[:5]
+
+    assert list(iter(url)) == list(iter(url_str))
+    assert list(reversed(url)) == list(reversed(url_str))
+
+    assert url.index("example") == url_str.index("example")
+    assert url.count("/") == url_str.count("/")
+
+
+def test_abc():
+    assert isinstance(Url("http://example.com"), Url)
+    assert isinstance(Url("http://example.com"), Sequence)
+    assert not isinstance(Url("http://example.com"), str)
+    assert issubclass(Url, Url)
+    assert issubclass(Url, Sequence)
+    assert not issubclass(Url, str)

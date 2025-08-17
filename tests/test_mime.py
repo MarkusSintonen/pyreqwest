@@ -1,4 +1,8 @@
 from copy import copy
+from typing import Sequence
+
+import pytest
+from dirty_equals import Contains
 
 from pyreqwest.http import Mime
 
@@ -46,6 +50,10 @@ def test_eq():
     assert mime1 != mime4
 
 
+def test_eq_support():
+    assert Mime.parse("application/json") == Contains("json")
+
+
 def test_copy():
     mime = Mime.parse("text/plain")
     assert copy(mime) is not mime
@@ -74,3 +82,33 @@ def test_hash():
     assert d[Mime.parse("text/plain;")] == "text2"
     assert d[Mime.parse("application/json")] == "json"
     assert d.get(Mime.parse("application/json; charset=utf-8")) is None
+
+
+@pytest.mark.parametrize(
+    "mime_str", ["application/json", "application/json; charset=utf-8", "application/json;charset=utf-8"]
+)
+def test_sequence(mime_str: str):
+    mime = Mime.parse(mime_str)
+    assert len(mime) == len(mime_str)
+    assert "application" in mime and "/json" in mime
+
+    for i in range(len(mime)):
+        assert mime[i] == mime_str[i]
+    with pytest.raises(IndexError):
+        _ = mime[len(mime) + 1]
+    assert mime[:5] == mime_str[:5]
+
+    assert list(iter(mime)) == list(iter(mime_str))
+    assert list(reversed(mime)) == list(reversed(mime_str))
+
+    assert mime.index("json") == mime_str.index("json")
+    assert mime.count("/") == mime_str.count("/")
+
+
+def test_abc():
+    assert isinstance(Mime.parse("text/plain"), Mime)
+    assert isinstance(Mime.parse("text/plain"), Sequence)
+    assert not isinstance(Mime.parse("text/plain"), str)
+    assert issubclass(Mime, Mime)
+    assert issubclass(Mime, Sequence)
+    assert not issubclass(Mime, str)
