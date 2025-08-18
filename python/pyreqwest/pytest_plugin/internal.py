@@ -1,6 +1,6 @@
 import json
 import re
-from typing import assert_never
+from typing import assert_never, Literal
 
 from pyreqwest.pytest_plugin import Mock
 from pyreqwest.pytest_plugin.types import (
@@ -9,9 +9,7 @@ from pyreqwest.pytest_plugin.types import (
     QueryMatcher,
     Matcher,
     BodyContentMatcher,
-    JsonMatcher,
-    CustomMatcher,
-    CustomHandler
+    JsonMatcher
 )
 
 
@@ -94,7 +92,7 @@ def _format_path_matcher(path_matcher: UrlMatcher | None) -> str:
     if path_matcher is None:
         return "  Path: Any"
     elif isinstance(path_matcher, re.Pattern):
-        return f"  Path: Pattern({path_matcher.pattern})"
+        return f"  Path: {path_matcher.pattern} (regex)"
     else:
         return f"  Path: {path_matcher}"
 
@@ -104,7 +102,7 @@ def _format_query_matcher(query_matcher: QueryMatcher) -> str:
         query_parts = [f"{k}={v}" for k, v in query_matcher.items()]
         return f"  Query: {', '.join(query_parts)}"
     elif isinstance(query_matcher, re.Pattern):
-        return f"  Query: Pattern({query_matcher.pattern})"
+        return f"  Query: {query_matcher.pattern} (regex)"
     else:
         return f"  Query: {query_matcher}"
 
@@ -113,21 +111,20 @@ def _format_header_matchers(header_matchers: dict[str, Matcher]) -> str:
     header_parts = []
     for name, value in header_matchers.items():
         if isinstance(value, re.Pattern):
-            header_parts.append(f"{name}: Pattern({value.pattern})")
+            header_parts.append(f"{name}: {value.pattern} (regex)")
         else:
             header_parts.append(f"{name}: {value}")
     return f"  Headers: {', '.join(header_parts)}"
 
 
 def _format_body_matcher(matcher: BodyContentMatcher | JsonMatcher, kind: Literal["content", "json"]) -> str:
-    matcher, kind = body_matcher
     if kind == "json":
         return f"  Body (JSON): {json.dumps(matcher, separators=(',', ':'))}"
     elif kind == "content":
         if isinstance(matcher, bytes):
             return f"  Body (bytes): {matcher!r}"
         elif isinstance(matcher, re.Pattern):
-            return f"  Body (text): Pattern({matcher.pattern})"
+            return f"  Body (text): {matcher.pattern} (regex)"
         else:
             return f"  Body (text): {matcher!r}"
     else:
