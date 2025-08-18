@@ -7,7 +7,7 @@
   Mock configuration:
     Method: POST
     Path: http://api.example.com/complex
-    Query: action=create, version=re.compile('v\\d+')
+    Query: action=create, version=v\d+ (regex)
     Headers: Authorization: Bearer \w+ (regex), Content-Type: application/json
     Body (JSON): {"user":{"name":"John","role":"admin"}}
   

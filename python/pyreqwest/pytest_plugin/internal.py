@@ -91,29 +91,24 @@ def _format_method_matcher(method_matcher: MethodMatcher | None) -> str:
 def _format_path_matcher(path_matcher: UrlMatcher | None) -> str:
     if path_matcher is None:
         return "  Path: Any"
-    elif isinstance(path_matcher, re.Pattern):
-        return f"  Path: {path_matcher.pattern} (regex)"
     else:
-        return f"  Path: {path_matcher}"
+        return f"  Path: {_format_matcher(path_matcher)}"
 
 
 def _format_query_matcher(query_matcher: QueryMatcher) -> str:
     if isinstance(query_matcher, dict):
-        query_parts = [f"{k}={v}" for k, v in query_matcher.items()]
+        query_parts = []
+        for k, v in query_matcher.items():
+            query_parts.append(f"{k}={_format_matcher(v)}")
         return f"  Query: {', '.join(query_parts)}"
-    elif isinstance(query_matcher, re.Pattern):
-        return f"  Query: {query_matcher.pattern} (regex)"
     else:
-        return f"  Query: {query_matcher}"
+        return f"  Query: {_format_matcher(query_matcher)}"
 
 
 def _format_header_matchers(header_matchers: dict[str, Matcher]) -> str:
     header_parts = []
     for name, value in header_matchers.items():
-        if isinstance(value, re.Pattern):
-            header_parts.append(f"{name}: {value.pattern} (regex)")
-        else:
-            header_parts.append(f"{name}: {value}")
+        header_parts.append(f"{name}: {_format_matcher(value)}")
     return f"  Headers: {', '.join(header_parts)}"
 
 
@@ -121,11 +116,16 @@ def _format_body_matcher(matcher: BodyContentMatcher | JsonMatcher, kind: Litera
     if kind == "json":
         return f"  Body (JSON): {json.dumps(matcher, separators=(',', ':'))}"
     elif kind == "content":
-        if isinstance(matcher, bytes):
-            return f"  Body (bytes): {matcher!r}"
-        elif isinstance(matcher, re.Pattern):
-            return f"  Body (text): {matcher.pattern} (regex)"
-        else:
-            return f"  Body (text): {matcher!r}"
+        type_ = "bytes" if isinstance(matcher, bytes) else "text"
+        return f"  Body ({type_}): {_format_matcher(matcher)}"
     else:
         assert_never(kind)
+
+
+def _format_matcher(matcher: Matcher) -> str:
+    if isinstance(matcher, str):
+        return matcher
+    elif isinstance(matcher, re.Pattern):
+        return f"{matcher.pattern} (regex)"
+    else:
+        return repr(matcher)

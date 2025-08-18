@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 
 import pytest
 import trustme
+from syrupy import SnapshotAssertion
 
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.http import Body, HeaderMap
@@ -257,7 +258,7 @@ class StreamRepr:
         return "StreamRepr()"
 
 
-def test_repr(snapshot):
+def test_repr(snapshot: SnapshotAssertion):
     client = ClientBuilder().build()
     url = "https://example.com/test?foo=bar"
     headers = HeaderMap({"X-Test": "Value"})
