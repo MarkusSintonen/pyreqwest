@@ -1,0 +1,19 @@
+# serializer version: 1
+# name: test_repr[repr_body]
+  "Request(method='GET', origin_path='https://example.com/', headers={}, body=BodyBytes(len=4))"
+# ---
+# name: test_repr[repr_full]
+  "Request(method='GET', url='https://example.com/test?foo=bar', headers={'x-test': 'Value', 'x-another': 'AnotherValue'}, body=None)"
+# ---
+# name: test_repr[repr_full_body]
+  "Request(method='GET', url='https://example.com/', headers={}, body=BodyBytes(len=4))"
+# ---
+# name: test_repr[repr_full_stream_body]
+  "Request(method='GET', url='https://example.com/', headers={}, body=BodyStream(stream=StreamRepr()))"
+# ---
+# name: test_repr[repr_sensitive]
+  "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=None)"
+# ---
+# name: test_repr[repr_stream_body]
+  "Request(method='GET', origin_path='https://example.com/', headers={}, body=BodyStream(stream=StreamRepr()))"
+# ---

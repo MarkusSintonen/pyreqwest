@@ -1,16 +1,18 @@
 from re import Pattern
-from typing import Callable, Awaitable, Protocol, Any
+from typing import Callable, Awaitable, Any
 
 from pyreqwest.http import Url
 from pyreqwest.request import Request
 from pyreqwest.response import Response
 
 
-class SupportsEq(Protocol):
-    def __eq__(self, other: Any) -> bool: ...
-
-
-Matcher = str | Pattern[str] | SupportsEq
+try:
+    from dirty_equals import DirtyEquals as _DirtyEquals
+    Matcher = _DirtyEquals[Any] | str | Pattern[str]
+    JsonMatcher = _DirtyEquals[Any] | Any
+except ImportError:
+    Matcher = str | Pattern[str]
+    JsonMatcher = Any
 
 MethodMatcher = str | set[str]
 UrlMatcher = Matcher | Url

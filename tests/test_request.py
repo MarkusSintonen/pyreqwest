@@ -257,15 +257,23 @@ class StreamRepr:
         return "StreamRepr()"
 
 
-def test_repr():
+def test_repr(snapshot):
     client = ClientBuilder().build()
+    url = "https://example.com/test?foo=bar"
     headers = HeaderMap({"X-Test": "Value"})
     headers.append("X-Another", "AnotherValue", is_sensitive=True)
-    req = client.get("https://example.com/test?foo=bar").headers(headers).build_consumed()
-    assert repr(req) == "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=None)"
+    req = client.get(url).headers(headers).build_consumed()
+    assert repr(req) == snapshot(name="repr_sensitive")
+    assert req.repr_full() == snapshot(name="repr_full")
 
-    req.body = Body.from_text("test")
-    assert repr(req) == "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=BodyBytes(len=4))"
+    req = client.get("https://example.com").body(Body.from_text("test")).build_consumed()
+    assert repr(req) == snapshot(name="repr_body")
+    assert req.repr_full() == snapshot(name="repr_full_body")
 
-    req.body = Body.from_stream(StreamRepr())
-    assert repr(req) == "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=BodyStream(stream=StreamRepr()))"
+    req = client.get("https://example.com").body(Body.from_stream(StreamRepr())).build_consumed()
+    assert repr(req) == snapshot(name="repr_stream_body")
+    assert req.repr_full() == snapshot(name="repr_full_stream_body")
+
+    streamed = client.get("https://example.com").body(Body.from_stream(StreamRepr())).build_streamed()
+    assert repr(streamed) == repr(req)
+    assert streamed.repr_full() == req.repr_full()

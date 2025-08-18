@@ -8,7 +8,7 @@ from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
 from pyreqwest.pytest_plugin.types import MethodMatcher, UrlMatcher, BodyContentMatcher, CustomMatcher, CustomHandler, \
-    Matcher, QueryMatcher, SupportsEq
+    Matcher, QueryMatcher, JsonMatcher
 from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
 from pyreqwest.types import Middleware
@@ -20,14 +20,46 @@ class Mock:
         self._path_matcher = path
         self._query_matcher: QueryMatcher | None = None
         self._header_matchers: dict[str, Matcher] = {}
-        self._body_matcher: tuple[BodyContentMatcher, Literal["content"]] | tuple[SupportsEq | Literal["json"]] | None = None
+        self._body_matcher: (
+            tuple[BodyContentMatcher, Literal["content"]]
+            | tuple[JsonMatcher | Literal["json"]]
+            | None
+        ) = None
         self._custom_matcher: CustomMatcher | None = None
         self._custom_handler: CustomHandler | None = None
 
         self._matched_requests: list[Request] = []
+        self._unmatched_requests_repr: list[str] = []
 
         self._using_response_builder = False
         self._built_response: Response | None = None
+
+    def assert_called(
+        self, *, count: int | None = None, min_count: int | None = None, max_count: int | None = None
+    ) -> None:
+        """Assert that this mock was called the expected number of times. By default, exactly once."""
+        actual_count = len(self._matched_requests)
+
+        # Set default to exactly once if no count specified
+        if count is None and min_count is None and max_count is None:
+            count = 1
+
+        # Check exact count
+        if count is not None:
+            if actual_count == count:
+                return
+        else:
+            # Check min/max bounds only if no exact count specified
+            if (min_count is None or actual_count >= min_count) and (max_count is None or actual_count <= max_count):
+                return
+
+        from pyreqwest.pytest_plugin.internal import format_assert_called_error
+
+        # Generate detailed error message using extracted formatting function
+        error_message = format_assert_called_error(
+            self, actual_count, count=count, min_count=min_count, max_count=max_count
+        )
+        raise AssertionError(error_message)
 
     def get_requests(self) -> list[Request]:
         """Get all captured requests by this mock"""
@@ -59,7 +91,7 @@ class Mock:
         self._body_matcher = (matcher, "content")
         return self
 
-    def match_body_json(self, matcher: SupportsEq) -> Self:
+    def match_body_json(self, matcher: JsonMatcher) -> Self:
         self._body_matcher = (matcher, "json")
         return self
 
@@ -109,19 +141,21 @@ class Mock:
             and self._match_body(request)
             and await self._matches_custom(request)
         )
-        if not matched:
-            return None
+        if matched:
+            response = (
+                await self._custom_handler(request)
+                if self._custom_handler is not None
+                else await self._response()
+            )
+        else:
+            response = None
 
-        response = (
-            await self._custom_handler(request)
-            if self._custom_handler is not None
-            else await self._response()
-        )
-        if response is None:
+        if response is not None:
+            self._matched_requests.append(request)
+            return response
+        else:
+            self._unmatched_requests_repr.append(request.repr_full())  # Memo the repr as we may consume the request
             return None
-
-        self._matched_requests.append(request)
-        return response
 
     @cached_property
     def _response_builder(self) -> ResponseBuilder:
