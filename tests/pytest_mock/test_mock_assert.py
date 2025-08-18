@@ -51,20 +51,23 @@ async def test_assert_called_exact_count_failure(client_mocker: ClientMocker, cl
         .with_status(201) \
         .with_body_json({"id": 1})
 
-    client_mocker.post("http://api.example.com/users").with_status(400).with_body_text("Bad request")
+    client_mocker.post("http://api.example.com/users").with_status(403).with_body_text("Forbidden")
     client_mocker.get("http://api.example.com/users").with_body_json({"users": []})
 
-    await client.post("http://api.example.com/users") \
+    res = await client.post("http://api.example.com/users") \
         .header("Authorization", "Bearer token123") \
         .body_json({"name": "John", "age": 30}) \
         .build_consumed().send()
+    assert await res.json() == {"id": 1}
 
-    await client.post("http://api.example.com/users") \
+    res = await client.post("http://api.example.com/users") \
         .header("Authorization", "Bearer wrong-token") \
         .body_json({"name": "Jane", "age": 25}) \
         .build_consumed().send()
+    assert res.status == 403
 
-    await client.get("http://api.example.com/users").build_consumed().send()
+    res = await client.get("http://api.example.com/users").build_consumed().send()
+    assert await res.json() == {"users": []}
 
     with pytest.raises(AssertionError) as exc_info:
         mock.assert_called(count=3)
@@ -176,13 +179,9 @@ async def test_assert_called_complex_mock_with_all_matchers(client_mocker: Clien
 
 async def test_assert_called_custom_matcher_and_handler(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
     async def is_admin_request(request: Request) -> bool:
-        if request.body is None:
+        if request.body is None or (body_bytes := request.body.copy_bytes()) is None:
             return False
-        body_bytes = request.body.copy_bytes()
-        if body_bytes is None:
-            return False
-        body_data = json.loads(body_bytes.to_bytes())
-        return body_data.get("role") == "admin"
+        return json.loads(body_bytes.to_bytes()).get("role") == "admin"
 
     async def admin_handler(_request: Request) -> Response:
         return await ResponseBuilder.create_for_mocking() \
@@ -196,12 +195,18 @@ async def test_assert_called_custom_matcher_and_handler(client_mocker: ClientMoc
 
     client_mocker.post("http://api.example.com/admin").with_status(403).with_body_text("Forbidden")
 
-    await client.post("http://api.example.com/admin") \
+    res = await client.post("http://api.example.com/admin") \
         .body_json({"role": "user", "action": "view"}) \
         .build_consumed().send()
+    assert await res.text() == "Forbidden"
+
+    res = await client.post("http://api.example.com/admin") \
+        .body_json({"role": "admin", "action": "view"}) \
+        .build_consumed().send()
+    assert await res.json() == {"message": "Admin access granted"}
 
     with pytest.raises(AssertionError) as exc_info:
-        mock.assert_called(count=2)
+        mock.assert_called(count=3)
 
     assert str(exc_info.value) == snapshot
 
@@ -275,7 +280,6 @@ async def test_assert_called_regex_matchers_display(client_mocker: ClientMocker,
 
 async def test_assert_called_zero_count_success(client_mocker: ClientMocker, client: Client) -> None:
     mock = client_mocker.get("http://api.example.com/test").with_body_text("response")
-
     client_mocker.get("http://api.example.com/different").with_body_text("different response")
 
     await client.get("http://api.example.com/different").build_consumed().send()
@@ -292,4 +296,3 @@ async def test_assert_called_zero_count_failure(client_mocker: ClientMocker, cli
         mock.assert_called(count=0)
 
     assert str(exc_info.value) == snapshot
-

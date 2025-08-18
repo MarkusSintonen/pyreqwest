@@ -21,7 +21,7 @@
 # name: test_assert_called_custom_matcher_and_handler
   '''
   Mock was not called as expected.
-  Expected exactly 2 call(s), but got 0.
+  Expected exactly 3 call(s), but got 1.
   
   Mock configuration:
     Method: POST
@@ -31,6 +31,9 @@
   
   Unmatched requests (1):
     1. Request(method='POST', url='http://api.example.com/admin', headers={'content-type': 'application/json'}, body=BodyBytes(len=31))
+  
+  Matched requests (1):
+    1. Request(method='POST', url='http://api.example.com/admin', headers={'content-type': 'application/json'}, body=BodyBytes(len=32))
   '''
 # ---
 # name: test_assert_called_default_exactly_once_failure
