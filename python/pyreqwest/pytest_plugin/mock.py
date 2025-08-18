@@ -38,28 +38,34 @@ class Mock:
         self, *, count: int | None = None, min_count: int | None = None, max_count: int | None = None
     ) -> None:
         """Assert that this mock was called the expected number of times. By default, exactly once."""
-        actual_count = len(self._matched_requests)
-
-        # Set default to exactly once if no count specified
         if count is None and min_count is None and max_count is None:
             count = 1
 
-        # Check exact count
-        if count is not None:
-            if actual_count == count:
-                return
-        else:
-            # Check min/max bounds only if no exact count specified
-            if (min_count is None or actual_count >= min_count) and (max_count is None or actual_count <= max_count):
-                return
+        actual_count = len(self._matched_requests)
 
+        if self._assertion_passes(actual_count, count, min_count, max_count):
+            return
+
+        # Generate and raise detailed error message
         from pyreqwest.pytest_plugin.internal import format_assert_called_error
-
-        # Generate detailed error message using extracted formatting function
         error_message = format_assert_called_error(
-            self, actual_count, count=count, min_count=min_count, max_count=max_count
+            self, count=count, min_count=min_count, max_count=max_count
         )
         raise AssertionError(error_message)
+
+    def _assertion_passes(
+        self, actual_count: int, count: int | None, min_count: int | None, max_count: int | None
+    ) -> bool:
+        """Check if the mock call count matches the expected criteria."""
+        # Exact count check takes precedence
+        if count is not None:
+            return actual_count == count
+
+        # Range check (both min and max can be specified independently)
+        min_satisfied = min_count is None or actual_count >= min_count
+        max_satisfied = max_count is None or actual_count <= max_count
+
+        return min_satisfied and max_satisfied
 
     def get_requests(self) -> list[Request]:
         """Get all captured requests by this mock"""

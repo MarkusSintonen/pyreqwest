@@ -1,18 +1,31 @@
 import json
+import re
+from typing import assert_never
 
 from pyreqwest.pytest_plugin import Mock
+from pyreqwest.pytest_plugin.types import (
+    MethodMatcher,
+    UrlMatcher,
+    QueryMatcher,
+    Matcher,
+    BodyContentMatcher,
+    JsonMatcher,
+    CustomMatcher,
+    CustomHandler
+)
 
 
 def format_assert_called_error(
     mock: Mock,
-    actual_count: int,
     *,
     count: int | None = None,
     min_count: int | None = None,
     max_count: int | None = None
 ) -> str:
+    actual_count = len(mock._matched_requests)
     error_parts = ["Mock was not called as expected."]
 
+    # Add expected vs actual count information
     if count is not None:
         error_parts.append(f"Expected exactly {count} call(s), but got {actual_count}.")
     else:
@@ -45,64 +58,77 @@ def format_assert_called_error(
 
 
 def _format_mock_matchers(mock: Mock) -> str:
-    parts = []
-
-    if mock._method_matcher is not None:
-        if isinstance(mock._method_matcher, set):
-            parts.append(f"  Method: {' or '.join(sorted(mock._method_matcher))}")
-        else:
-            parts.append(f"  Method: {mock._method_matcher}")
-    else:
-        parts.append("  Method: Any")
-
-    if mock._path_matcher is not None:
-        if hasattr(mock._path_matcher, 'pattern'):
-            parts.append(f"  Path: {mock._path_matcher.pattern} (regex)")
-        else:
-            parts.append(f"  Path: {mock._path_matcher}")
-    else:
-        parts.append("  Path: Any")
+    parts = [
+        _format_method_matcher(mock._method_matcher),
+        _format_path_matcher(mock._path_matcher),
+    ]
 
     if mock._query_matcher is not None:
-        if isinstance(mock._query_matcher, dict):
-            query_parts = [f"{k}={v}" for k, v in mock._query_matcher.items()]
-            parts.append(f"  Query: {', '.join(query_parts)}")
-        elif hasattr(mock._query_matcher, 'pattern'):
-            parts.append(f"  Query: {mock._query_matcher.pattern} (regex)")
-        else:
-            parts.append(f"  Query: {mock._query_matcher}")
+        parts.append(_format_query_matcher(mock._query_matcher))
 
     if mock._header_matchers:
-        header_parts = []
-        for name, value in mock._header_matchers.items():
-            if hasattr(value, 'pattern'):
-                header_parts.append(f"{name}: {value.pattern} (regex)")
-            else:
-                header_parts.append(f"{name}: {value}")
-        parts.append(f"  Headers: {', '.join(header_parts)}")
+        parts.append(_format_header_matchers(mock._header_matchers))
 
     if mock._body_matcher is not None:
-        matcher, kind = mock._body_matcher
-        if kind == "json":
-            parts.append(f"  Body (JSON): {json.dumps(matcher, separators=(',', ':'))}")
-        elif kind == "content":
-            if isinstance(matcher, bytes):
-                parts.append(f"  Body (bytes): {matcher!r}")
-            elif hasattr(matcher, 'pattern'):
-                parts.append(f"  Body (text): {matcher.pattern} (regex)")
-            else:
-                parts.append(f"  Body (text): {matcher!r}")
+        parts.append(_format_body_matcher(*mock._body_matcher))
 
     if mock._custom_matcher is not None:
-        if hasattr(mock._custom_matcher, '__name__'):
-            parts.append(f"  Custom matcher: {mock._custom_matcher.__name__}")
-        else:
-            parts.append(f"  Custom matcher: {type(mock._custom_matcher).__name__}")
+        parts.append(f"  Custom matcher: {mock._custom_matcher.__name__}")
 
     if mock._custom_handler is not None:
-        if hasattr(mock._custom_handler, '__name__'):
-            parts.append(f"  Custom handler: {mock._custom_handler.__name__}")
-        else:
-            parts.append(f"  Custom handler: {type(mock._custom_handler).__name__}")
+        parts.append(f"  Custom handler: {mock._custom_handler.__name__}")
 
     return "\n".join(parts) if parts else "  No specific matchers"
+
+
+def _format_method_matcher(method_matcher: MethodMatcher | None) -> str:
+    if method_matcher is None:
+        return "  Method: Any"
+    elif isinstance(method_matcher, set):
+        return f"  Method: {' or '.join(sorted(method_matcher))}"
+    else:
+        return f"  Method: {method_matcher}"
+
+
+def _format_path_matcher(path_matcher: UrlMatcher | None) -> str:
+    if path_matcher is None:
+        return "  Path: Any"
+    elif isinstance(path_matcher, re.Pattern):
+        return f"  Path: Pattern({path_matcher.pattern})"
+    else:
+        return f"  Path: {path_matcher}"
+
+
+def _format_query_matcher(query_matcher: QueryMatcher) -> str:
+    if isinstance(query_matcher, dict):
+        query_parts = [f"{k}={v}" for k, v in query_matcher.items()]
+        return f"  Query: {', '.join(query_parts)}"
+    elif isinstance(query_matcher, re.Pattern):
+        return f"  Query: Pattern({query_matcher.pattern})"
+    else:
+        return f"  Query: {query_matcher}"
+
+
+def _format_header_matchers(header_matchers: dict[str, Matcher]) -> str:
+    header_parts = []
+    for name, value in header_matchers.items():
+        if isinstance(value, re.Pattern):
+            header_parts.append(f"{name}: Pattern({value.pattern})")
+        else:
+            header_parts.append(f"{name}: {value}")
+    return f"  Headers: {', '.join(header_parts)}"
+
+
+def _format_body_matcher(matcher: BodyContentMatcher | JsonMatcher, kind: Literal["content", "json"]) -> str:
+    matcher, kind = body_matcher
+    if kind == "json":
+        return f"  Body (JSON): {json.dumps(matcher, separators=(',', ':'))}"
+    elif kind == "content":
+        if isinstance(matcher, bytes):
+            return f"  Body (bytes): {matcher!r}"
+        elif isinstance(matcher, re.Pattern):
+            return f"  Body (text): Pattern({matcher.pattern})"
+        else:
+            return f"  Body (text): {matcher!r}"
+    else:
+        assert_never(kind)
