@@ -1,9 +1,10 @@
 """ASGI test client for pyreqwest."""
 import asyncio
-from typing import Any, Callable
+from typing import Any, Callable, Iterator, AsyncGenerator, AsyncIterator
 from urllib.parse import unquote
 
 from pyreqwest.client import Client
+from pyreqwest.http import Body
 from pyreqwest.middleware import Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
@@ -22,26 +23,14 @@ class ASGITestMiddleware:
 
     async def __call__(self, client: Client, request: Request, next_handler: Next) -> Response:
         scope = await self._request_to_asgi_scope(request)
+        body_parts = self._asgi_body_parts(request)
 
-        receive_queue: asyncio.Queue = asyncio.Queue()
         send_queue: asyncio.Queue = asyncio.Queue()
 
-        if request.body is not None:
-            body_bytes = await self._get_request_body_bytes(request)
-            await receive_queue.put({
-                "type": "http.request",
-                "body": body_bytes,
-                "more_body": False
-            })
-        else:
-            await receive_queue.put({
-                "type": "http.request",
-                "body": b"",
-                "more_body": False
-            })
-
         async def receive():
-            return await receive_queue.get()
+            if part := await anext(body_parts, None):
+                return part
+            return {"type": "http.disconnect"}
 
         async def send(message):
             await send_queue.put(message)
@@ -65,19 +54,27 @@ class ASGITestMiddleware:
             "client": ("testclient", 12345),
         }
 
-    async def _get_request_body_bytes(self, request: Request) -> bytes:
+    async def _asgi_body_parts(self, request: Request) -> AsyncIterator[dict[str, Any]]:
         if request.body is None:
-            return b""
+            yield {"type": "http.request", "body": b"", "more_body": False}
+            return
 
         if (stream := request.body.get_stream()) is not None:
             body_parts = []
             async for chunk in stream:
                 body_parts.append(bytes(chunk))
-            return b"".join(body_parts)
+            if not body_parts:
+                yield {"type": "http.request", "body": b"", "more_body": False}
+                return
+            *parts, last = body_parts
+            for part in parts:
+                yield {"type": "http.request", "body": part, "more_body": True}
+            yield {"type": "http.request", "body": last, "more_body": False}
+            return
 
         body_buf = request.body.copy_bytes()
         assert body_buf is not None, "Unknown body type"
-        return body_buf.to_bytes()
+        yield {"type": "http.request", "body": body_buf.to_bytes(), "more_body": False}
 
     async def _asgi_response_to_response(self, send_queue: asyncio.Queue) -> Response:
         response_builder = ResponseBuilder.create_for_mocking()
@@ -102,9 +99,13 @@ class ASGITestMiddleware:
                 if not message.get("more_body", False):
                     break
 
-        # Set the complete body
-        if body_parts:
-            complete_body = b"".join(body_parts)
-            response_builder.body_bytes(complete_body)
+        if len(body_parts) > 1:
+            async def body_stream() -> AsyncIterator[bytes]:
+                for part in body_parts:
+                    yield part
+            response_builder.body(Body.from_stream(body_stream()))
+
+        elif len(body_parts) == 1:
+            response_builder.body_bytes(body_parts[0])
 
         return await response_builder.build()

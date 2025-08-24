@@ -4,7 +4,7 @@ import pytest
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from pyreqwest.client import ClientBuilder, Client
 from pyreqwest.middleware.asgi import ASGITestMiddleware
@@ -41,6 +41,18 @@ def starlette_app():
     async def error_endpoint(request: Request):
         return JSONResponse({"detail": "Not found"}, status_code=404)
 
+    async def streaming_endpoint(request: Request):
+        received_chunks = []
+        async for chunk in request.stream():
+            if chunk:
+                received_chunks.append(chunk.decode())
+
+        async def generate_response():
+            for c in received_chunks:
+                yield f"echo_{c}"
+
+        return StreamingResponse(generate_response(), media_type="text/plain")
+
     routes = [
         Route("/", root, methods=["GET"]),
         Route("/users/{user_id:int}", get_user, methods=["GET"]),
@@ -50,6 +62,7 @@ def starlette_app():
         Route("/headers", get_headers, methods=["GET"]),
         Route("/query", get_query, methods=["GET"]),
         Route("/error", error_endpoint, methods=["GET"]),
+        Route("/stream", streaming_endpoint, methods=["POST"]),
     ]
     return Starlette(routes=routes)
 
@@ -135,3 +148,20 @@ async def test_error_response(asgi_client: Client):
     assert response.status == 404
     data = await response.json()
     assert data["detail"] == "Not found"
+
+
+async def test_streaming(asgi_client: Client):
+    async def generate_stream():
+        for i in range(3):
+            yield f"data_chunk_{i}_".encode()
+
+    async with (asgi_client.post("/stream")
+                .body_stream(generate_stream())
+                .build_streamed()) as response:
+
+        assert response.status == 200
+
+        assert await response.next_chunk() == "echo_data_chunk_0_".encode()
+        assert await response.next_chunk() == "echo_data_chunk_1_".encode()
+        assert await response.next_chunk() == "echo_data_chunk_2_".encode()
+        assert await response.next_chunk() is None
