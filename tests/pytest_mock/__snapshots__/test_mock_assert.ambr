@@ -1,183 +1,174 @@
 # serializer version: 1
 # name: test_assert_called_complex_mock_with_all_matchers
   '''
-  Mock was not called as expected.
-  Expected exactly 1 call(s), but got 0.
-  
-  Mock configuration:
-    Method: POST
-    Path: http://api.example.com/complex
-    Query: action=create, version=v\d+ (regex)
-    Headers: Authorization: Bearer \w+ (regex), Content-Type: application/json
-    Body (JSON): {"user":{"name":"John","role":"admin"}}
-  
-  Unmatched requests (4):
-    1. Request(method='GET', url='http://api.example.com/complex?action=create&version=v1', headers={}, body=None)
-    2. Request(method='POST', url='http://api.example.com/complex?action=create&version=v1', headers={'content-type': ['application/json', 'application/json']}, body=BodyBytes(len=39))
-    3. Request(method='POST', url='http://api.example.com/complex?action=update&version=v1', headers={'authorization': 'Bearer abc123', 'content-type': ['application/json', 'application/json']}, body=BodyBytes(len=39))
-    4. Request(method='POST', url='http://api.example.com/complex?action=create&version=v1', headers={'authorization': 'Bearer abc123', 'content-type': ['application/json', 'application/json']}, body=BodyBytes(len=38))
+  Expected exactly 1 request(s) but received 0 to: "POST /complex". Diff with last unmatched request:
+  assert {'body': '{"user":{"name":"Jane","role":"user"}}'} == {'body': '{"user":{"name":"John","role":"admin"}}'}
+    
+    Differing items:
+    {'body': '{"user":{"name":"Jane","role":"user"}}'} != {'body': '{"user":{"name":"John","role":"admin"}}'}
+    
+    Full diff:
+      {
+    -     'body': '{"user":{"name":"John","role":"admin"}}',
+    ?                                ^^           ^^^^^
+    +     'body': '{"user":{"name":"Jane","role":"user"}}',
+    ?                                ^ +          ^^^^
+      }
   '''
 # ---
 # name: test_assert_called_custom_matcher_and_handler
   '''
-  Mock was not called as expected.
-  Expected exactly 3 call(s), but got 1.
-  
-  Mock configuration:
-    Method: POST
-    Path: http://api.example.com/admin
-    Custom matcher: is_admin_request
-    Custom handler: admin_handler
-  
-  Unmatched requests (1):
-    1. Request(method='POST', url='http://api.example.com/admin', headers={'content-type': 'application/json'}, body=BodyBytes(len=31))
-  
-  Matched requests (1):
-    1. Request(method='POST', url='http://api.example.com/admin', headers={'content-type': 'application/json'}, body=BodyBytes(len=32))
+  Expected exactly 3 request(s) but received 1 to: "POST /admin". Diff with last unmatched request:
+  assert {'custom': 'No match with request {\'method\': \'POST\', \'path\': \'/admin\', \'query\': None, \'headers\': \'Content-Type: application/json\', \'body\': \'{"action":"view","role":"user"}\'}'} == {'custom': 'Custom matcher: is_admin_request'}
+    
+    Differing items:
+    {'custom': 'No match with request {\'method\': \'POST\', \'path\': \'/admin\', \'query\': None, \'headers\': \'Content-Type: application/json\', \'body\': \'{"action":"view","role":"user"}\'}'} != {'custom': 'Custom matcher: is_admin_request'}
+    
+    Full diff:
+      {
+    -     'custom': 'Custom matcher: is_admin_request',
+    +     'custom': "No match with request {'method': 'POST', 'path': '/admin', 'query': None, "
+    +     "'headers': 'Content-Type: application/json', 'body': "
+    +     '\'{"action":"view","role":"user"}\'}',
+      }
   '''
 # ---
 # name: test_assert_called_default_exactly_once_failure
   '''
-  Mock was not called as expected.
-  Expected exactly 1 call(s), but got 0.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/test
-  
-  Unmatched requests (1):
-    1. Request(method='GET', url='http://api.example.com/different', headers={}, body=None)
+  Expected exactly 1 request(s) but received 0 to: "GET /test". Diff with last unmatched request:
+  assert {'path': '/different'} == {'path': '/test'}
+    
+    Differing items:
+    {'path': '/different'} != {'path': '/test'}
+    
+    Full diff:
+      {
+    -     'path': '/test',
+    ?               ^ ^
+    +     'path': '/different',
+    ?               ^^^^ ^^^
+      }
   '''
 # ---
 # name: test_assert_called_exact_count_failure
   '''
-  Mock was not called as expected.
-  Expected exactly 3 call(s), but got 1.
-  
-  Mock configuration:
-    Method: POST
-    Path: http://api.example.com/users
-    Headers: Authorization: Bearer token123
-    Body (JSON): {"name":"John","age":30}
-  
-  Unmatched requests (2):
-    1. Request(method='POST', url='http://api.example.com/users', headers={'authorization': 'Bearer wrong-token', 'content-type': 'application/json'}, body=BodyBytes(len=24))
-    2. Request(method='GET', url='http://api.example.com/users', headers={}, body=None)
-  
-  Matched requests (1):
-    1. Request(method='POST', url='http://api.example.com/users', headers={'authorization': 'Bearer token123', 'content-type': 'application/json'}, body=BodyBytes(len=24))
+  Expected exactly 3 request(s) but received 1 to: "POST /users". Diff with last unmatched request:
+  assert {'method': 'GET', 'headers': None, 'body': None} == {'method': 'POST', 'headers': 'Authorization: Bearer token123', 'body': '{"name":"John","age":30}'}
+    
+    Differing items:
+    {'headers': None} != {'headers': 'Authorization: Bearer token123'}
+    {'method': 'GET'} != {'method': 'POST'}
+    {'body': None} != {'body': '{"name":"John","age":30}'}
+    
+    Full diff:
+      {
+    -     'body': '{"name":"John","age":30}',
+    -     'headers': 'Authorization: Bearer token123',
+    +     'body': None,
+    +     'headers': None,
+    -     'method': 'POST',
+    ?                ^^^
+    +     'method': 'GET',
+    ?                ^^
+      }
   '''
 # ---
 # name: test_assert_called_many_unmatched_requests_truncation
   '''
-  Mock was not called as expected.
-  Expected exactly 1 call(s), but got 0.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/specific
-  
-  Unmatched requests (8):
-    1. Request(method='GET', url='http://api.example.com/different/3', headers={'x-request-id': 'req-3'}, body=None)
-    2. Request(method='GET', url='http://api.example.com/different/4', headers={'x-request-id': 'req-4'}, body=None)
-    3. Request(method='GET', url='http://api.example.com/different/5', headers={'x-request-id': 'req-5'}, body=None)
-    4. Request(method='GET', url='http://api.example.com/different/6', headers={'x-request-id': 'req-6'}, body=None)
-    5. Request(method='GET', url='http://api.example.com/different/7', headers={'x-request-id': 'req-7'}, body=None)
-    ... and 3 more
+  Expected exactly 1 request(s) but received 0 to: "GET /specific". Diff with last unmatched request:
+  assert {'path': '/different/7'} == {'path': '/specific'}
+    
+    Differing items:
+    {'path': '/different/7'} != {'path': '/specific'}
+    
+    Full diff:
+      {
+    -     'path': '/specific',
+    +     'path': '/different/7',
+      }
   '''
 # ---
 # name: test_assert_called_max_count_failure
-  '''
-  Mock was not called as expected.
-  Expected at most 3 call(s), but got 5.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/test
-  
-  Matched requests (5):
-    1. Request(method='GET', url='http://api.example.com/test', headers={}, body=None)
-    2. Request(method='GET', url='http://api.example.com/test', headers={}, body=None)
-    3. Request(method='GET', url='http://api.example.com/test', headers={}, body=None)
-    ... and 2 more
-  '''
+  'Expected at most 3 request(s) but received 5 to: "GET /test"'
 # ---
 # name: test_assert_called_min_count_failure
   '''
-  Mock was not called as expected.
-  Expected at least 3 call(s), but got 1.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/endpoint
-    Query: filter=active
-  
-  Unmatched requests (1):
-    1. Request(method='GET', url='http://api.example.com/endpoint?filter=inactive', headers={}, body=None)
-  
-  Matched requests (1):
-    1. Request(method='GET', url='http://api.example.com/endpoint?filter=active', headers={}, body=None)
+  Expected at least 3 request(s) but received 1 to: "GET /endpoint". Diff with last unmatched request:
+  assert {'query': 'filter=inactive'} == {'query': 'filter=active'}
+    
+    Differing items:
+    {'query': 'filter=inactive'} != {'query': 'filter=active'}
+    
+    Full diff:
+      {
+    -     'query': 'filter=active',
+    +     'query': 'filter=inactive',
+    ?                      ++
+      }
   '''
 # ---
 # name: test_assert_called_min_max_range_failure
-  '''
-  Mock was not called as expected.
-  Expected at least 3 and at most 5 call(s), but got 1.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/test
-  
-  Matched requests (1):
-    1. Request(method='GET', url='http://api.example.com/test', headers={}, body=None)
-  '''
+  'Expected at least 3 and at most 5 request(s) but received 1 to: "GET /test"'
 # ---
 # name: test_assert_called_regex_matchers_display
   '''
-  Mock was not called as expected.
-  Expected exactly 1 call(s), but got 0.
-  
-  Mock configuration:
-    Method: PUT
-    Path: http://api\.example\.com/users/\d+ (regex)
-    Query: .*token=\w+.* (regex)
-    Headers: Authorization: Bearer [a-zA-Z0-9]{10,} (regex)
-    Body (text): .*"action":\s*"(create|update)".* (regex)
-  
-  Unmatched requests (1):
-    1. Request(method='PUT', url='http://api.example.com/users/abc', headers={'authorization': 'Bearer short'}, body=BodyBytes(len=20))
+  Expected exactly 1 request(s) but received 0 to: "PUT /users/\d+ (regex)". Diff with last unmatched request:
+  assert {'path': '/users/abc', 'query': None, 'headers': 'Authorization: Bearer short', 'body': '{"action": "delete"}'} == {'path': '/users/\\d+ (regex)', 'query': '.*token=\\w+.* (regex)', 'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)', 'body': '.*"action":\\s*"(create|update)".* (regex)'}
+    
+    Differing items:
+    {'query': None} != {'query': '.*token=\\w+.* (regex)'}
+    {'path': '/users/abc'} != {'path': '/users/\\d+ (regex)'}
+    {'headers': 'Authorization: Bearer short'} != {'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)'}
+    {'body': '{"action": "delete"}'} != {'body': '.*"action":\\s*"(create|update)".* (regex)'}
+    
+    Full diff:
+      {
+    -     'body': '.*"action":\\s*"(create|update)".* (regex)',
+    +     'body': '{"action": "delete"}',
+    -     'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)',
+    ?                                       ^^^^^^^^^^^^^^^^^^ ^^^^^
+    +     'headers': 'Authorization: Bearer short',
+    ?                                       ^^^ ^
+    -     'path': '/users/\\d+ (regex)',
+    -     'query': '.*token=\\w+.* (regex)',
+    +     'path': '/users/abc',
+    +     'query': None,
+      }
   '''
 # ---
 # name: test_assert_called_with_matched_and_unmatched_requests
   '''
-  Mock was not called as expected.
-  Expected exactly 5 call(s), but got 2.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/users
-    Query: active=true
-  
-  Unmatched requests (3):
-    1. Request(method='GET', url='http://api.example.com/users?active=false', headers={}, body=None)
-    2. Request(method='GET', url='http://api.example.com/users', headers={}, body=None)
-    3. Request(method='GET', url='http://api.example.com/posts?active=true', headers={}, body=None)
-  
-  Matched requests (2):
-    1. Request(method='GET', url='http://api.example.com/users?active=true&page=0', headers={}, body=None)
-    2. Request(method='GET', url='http://api.example.com/users?active=true&page=1', headers={}, body=None)
+  Expected exactly 5 request(s) but received 2 to: "GET /users". Diff with last unmatched request:
+  assert {'path': '/posts'} == {'path': '/users'}
+    
+    Differing items:
+    {'path': '/posts'} != {'path': '/users'}
+    
+    Full diff:
+      {
+    -     'path': '/users',
+    ?               ^ ^^
+    +     'path': '/posts',
+    ?               ^^ ^
+      }
   '''
 # ---
 # name: test_assert_called_zero_count_failure
+  'Expected exactly 0 request(s) but received 1 to: "GET /test"'
+# ---
+# name: test_dirty_equals_matcher_repr
   '''
-  Mock was not called as expected.
-  Expected exactly 0 call(s), but got 1.
-  
-  Mock configuration:
-    Method: GET
-    Path: http://api.example.com/test
-  
-  Matched requests (1):
-    1. Request(method='GET', url='http://api.example.com/test', headers={}, body=None)
+  Expected exactly 2 request(s) but received 1 to: "GET /test". Diff with last unmatched request:
+  assert {'query': 'values=admin'} == {'query': "IsPartialDict(values=IsInstance(<class 'list'>) & Contains('admin', 'user'))"}
+    
+    Differing items:
+    {'query': 'values=admin'} != {'query': "IsPartialDict(values=IsInstance(<class 'list'>) & Contains('admin', 'user'))"}
+    
+    Full diff:
+      {
+    +     'query': 'values=admin',
+    -     'query': "IsPartialDict(values=IsInstance(<class 'list'>) & Contains('admin', "
+    -     "'user'))",
+      }
   '''
 # ---

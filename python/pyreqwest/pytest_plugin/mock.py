@@ -7,6 +7,7 @@ import pytest
 from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
+from pyreqwest.pytest_plugin.internal.matcher import InternalMatcher
 from pyreqwest.pytest_plugin.types import MethodMatcher, UrlMatcher, BodyContentMatcher, CustomMatcher, CustomHandler, \
     Matcher, QueryMatcher, JsonMatcher
 from pyreqwest.request import Request, RequestBuilder
@@ -16,20 +17,16 @@ from pyreqwest.types import Middleware
 
 class Mock:
     def __init__(self, method: MethodMatcher | None = None, path: UrlMatcher | None = None) -> None:
-        self._method_matcher = method
-        self._path_matcher = path
-        self._query_matcher: QueryMatcher | None = None
-        self._header_matchers: dict[str, Matcher] = {}
-        self._body_matcher: (
-            tuple[BodyContentMatcher, Literal["content"]]
-            | tuple[JsonMatcher | Literal["json"]]
-            | None
-        ) = None
+        self._method_matcher = InternalMatcher(method) if method is not None else None
+        self._path_matcher = InternalMatcher(path) if path is not None else None
+        self._query_matcher: dict[str, InternalMatcher] | InternalMatcher | None = None
+        self._header_matchers: dict[str, InternalMatcher] = {}
+        self._body_matcher: tuple[InternalMatcher, Literal["content", "json"]] | None = None
         self._custom_matcher: CustomMatcher | None = None
         self._custom_handler: CustomHandler | None = None
 
         self._matched_requests: list[Request] = []
-        self._unmatched_requests_repr: list[str] = []
+        self._unmatched_requests_repr_parts: list[dict[str, str | None]] = []
 
         self._using_response_builder = False
         self._built_response: Response | None = None
@@ -47,11 +44,8 @@ class Mock:
             return
 
         # Generate and raise detailed error message
-        from pyreqwest.pytest_plugin.internal import format_assert_called_error
-        error_message = format_assert_called_error(
-            self, count=count, min_count=min_count, max_count=max_count
-        )
-        raise AssertionError(error_message)
+        from pyreqwest.pytest_plugin.internal.assert_message import assert_fail
+        assert_fail(self, count=count, min_count=min_count, max_count=max_count)
 
     def _assertion_passes(
         self, actual_count: int, count: int | None, min_count: int | None, max_count: int | None
@@ -80,25 +74,28 @@ class Mock:
         self._matched_requests.clear()
 
     def match_query(self, query: QueryMatcher) -> Self:
-        self._query_matcher = query
+        if isinstance(query, dict):
+            self._query_matcher = {k: InternalMatcher(v) for k, v in query.items()}
+        else:
+            self._query_matcher = InternalMatcher(query)
         return self
 
     def match_query_param(self, name: str, value: Matcher) -> Self:
         if not isinstance(self._query_matcher, dict):
             self._query_matcher = {}
-        self._query_matcher[name] = value
+        self._query_matcher[name] = InternalMatcher(value)
         return self
 
     def match_header(self, name: str, value: Matcher) -> Self:
-        self._header_matchers[name] = value
+        self._header_matchers[name] = InternalMatcher(value)
         return self
 
     def match_body(self, matcher: BodyContentMatcher) -> Self:
-        self._body_matcher = (matcher, "content")
+        self._body_matcher = (InternalMatcher(matcher), "content")
         return self
 
     def match_body_json(self, matcher: JsonMatcher) -> Self:
-        self._body_matcher = (matcher, "json")
+        self._body_matcher = (InternalMatcher(matcher), "json")
         return self
 
     def match_request(self, matcher: CustomMatcher) -> Self:
@@ -139,20 +136,22 @@ class Mock:
         return self
 
     async def _handle(self, request: Request) -> Response | None:
-        matched = (
-            self._matches_method(request)
-            and self._matches_path(request)
-            and self._match_query(request)
-            and self._match_headers(request)
-            and self._match_body(request)
-            and await self._matches_custom(request)
-        )
-        if matched:
+        matches = {
+            "method": self._matches_method(request),
+            "path": self._matches_path(request),
+            "query": self._match_query(request),
+            "headers": self._match_headers(request),
+            "body": self._match_body(request),
+            "custom": await self._matches_custom(request),
+            "handler": True,
+        }
+        if all(matches.values()):
             response = (
                 await self._custom_handler(request)
                 if self._custom_handler is not None
                 else await self._response()
             )
+            matches["handler"] = self._custom_handler is None or response is not None
         else:
             response = None
 
@@ -160,7 +159,11 @@ class Mock:
             self._matched_requests.append(request)
             return response
         else:
-            self._unmatched_requests_repr.append(request.repr_full())  # Memo the repr as we may consume the request
+            from pyreqwest.pytest_plugin.internal.assert_message import format_unmatched_request_parts
+            # Memo the reprs as we may consume the request
+            self._unmatched_requests_repr_parts.append(
+                format_unmatched_request_parts(request, unmatched={k for k, matched in matches.items() if not matched})
+            )
             return None
 
     @cached_property
@@ -175,21 +178,15 @@ class Mock:
         return self._built_response
 
     def _matches_method(self, request: Request) -> bool:
-        if self._method_matcher is None:
-            return True
-        elif isinstance(self._method_matcher, set):
-            return request.method in self._method_matcher
-        else:
-            return request.method == self._method_matcher
+        return self._method_matcher is None or self._method_matcher.matches(request.method)
 
     def _matches_path(self, request: Request) -> bool:
-        path = request.url.with_query_string(None)
-        return self._path_matcher is None or self._value_matches(path, self._path_matcher)
+        return self._path_matcher is None or self._path_matcher.matches(request.url.path)
 
     def _match_headers(self, request: Request) -> bool:
         for header_name, expected_value in self._header_matchers.items():
             actual_value = request.headers.get(header_name)
-            if actual_value is None or not self._value_matches(actual_value, expected_value):
+            if actual_value is None or not expected_value.matches(actual_value):
                 return False
         return True
 
@@ -208,13 +205,13 @@ class Mock:
         matcher, kind = self._body_matcher
         if kind == "json":
             try:
-                return json.loads(body_bytes) == matcher
+                return matcher.matches(json.loads(body_bytes))
             except json.JSONDecodeError:
                 return False
         elif kind == "content":
-            if isinstance(matcher, bytes):
-                return body_bytes == matcher
-            return self._value_matches(body_bytes.decode(), matcher)
+            if isinstance(matcher.matcher, bytes):
+                return matcher.matches(body_bytes)
+            return matcher.matches(body_bytes.decode())
         else:
             assert_never(kind)
 
@@ -228,19 +225,16 @@ class Mock:
         if isinstance(self._query_matcher, dict):
             for key, expected_value in self._query_matcher.items():
                 actual_value = query_dict.get(key)
-                if actual_value is None or not self._value_matches(actual_value, expected_value):
+                if actual_value is None or not expected_value.matches(actual_value):
                     return False
             return True
+        elif isinstance(self._query_matcher.matcher, str | Pattern):
+            return self._query_matcher.matches(query_str)
         else:
-            return self._value_matches(query_str, self._query_matcher)
+            return self._query_matcher.matches(query_dict)
 
     async def _matches_custom(self, request: Request) -> bool:
         return self._custom_matcher is None or await self._custom_matcher(request)
-
-    def _value_matches(self, value: Any, matcher: Matcher) -> bool:
-        if isinstance(matcher, Pattern):
-            return matcher.search(str(value)) is not None
-        return value == matcher
 
 
 class ClientMocker:

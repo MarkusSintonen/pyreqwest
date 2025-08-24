@@ -14,7 +14,7 @@ except ImportError:
     Matcher = str | Pattern[str]
     JsonMatcher = Any
 
-MethodMatcher = str | set[str]
+MethodMatcher = Matcher
 UrlMatcher = Matcher | Url
 QueryMatcher = dict[str, Matcher] | Matcher
 BodyContentMatcher = bytes | Matcher

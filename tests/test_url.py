@@ -161,6 +161,9 @@ def test_query_dict_multi_value():
     url = Url.parse_with_params("http://example.com", [("key1", "value1"), ("key1", "value2")])
     assert url.query_dict_multi_value == {"key1": ["value1", "value2"]}
 
+    url = Url.parse_with_params("http://example.com", [("key1", "value1"), ("key1", "value2"), ("key1", "value3")])
+    assert url.query_dict_multi_value == {"key1": ["value1", "value2", "value3"]}
+
     url2 = Url.parse_with_params("http://example.com", url.query_dict_multi_value)
     assert url2.query_dict_multi_value == url.query_dict_multi_value
 

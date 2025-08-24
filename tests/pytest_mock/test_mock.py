@@ -14,10 +14,9 @@ import_time_client = ClientBuilder().build()
 
 
 async def test_simple_get_mock(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://example.com/api").with_body_text("Hello World")
+    client_mocker.get("/api").with_body_text("Hello World")
 
-    client = ClientBuilder().build()
-    resp = await client.get("http://example.com/api").build_consumed().send()
+    resp = await ClientBuilder().build().get("http://example.com/api").build_consumed().send()
 
     assert resp.status == 200
     assert await resp.text() == "Hello World"
@@ -25,10 +24,10 @@ async def test_simple_get_mock(client_mocker: ClientMocker) -> None:
 
 
 async def test_method_specific_mocks(client_mocker: ClientMocker) -> None:
-    mock_get = client_mocker.get("http://api.example.com/users").with_body_json({"users": []})
-    mock_post = client_mocker.post("http://api.example.com/users").with_status(201).with_body_json({"id": 123})
-    mock_put = client_mocker.put("http://api.example.com/users/123").with_status(202)
-    mock_delete = client_mocker.delete("http://api.example.com/users/123").with_status(204)
+    mock_get = client_mocker.get("/users").with_body_json({"users": []})
+    mock_post = client_mocker.post("/users").with_status(201).with_body_json({"id": 123})
+    mock_put = client_mocker.put("/users/123").with_status(202)
+    mock_delete = client_mocker.delete("/users/123").with_status(204)
 
     client = ClientBuilder().build()
 
@@ -55,7 +54,7 @@ async def test_method_specific_mocks(client_mocker: ClientMocker) -> None:
 
 
 async def test_regex_path_matching(client_mocker: ClientMocker) -> None:
-    pattern = re.compile(r"http://api\.example\.com/users/\d+")
+    pattern = re.compile(r"/users/\d+")
     client_mocker.strict(True).get(pattern).with_body_json({"id": 456, "name": "Test User"})
 
     client = ClientBuilder().build()
@@ -71,11 +70,11 @@ async def test_regex_path_matching(client_mocker: ClientMocker) -> None:
 
 
 async def test_header_matching(client_mocker: ClientMocker) -> None:
-    client_mocker.post("http://api.example.com/data") \
+    client_mocker.post("/data") \
         .match_header("Authorization", "Bearer token123") \
         .with_status(200).with_body_text("Authorized")
 
-    client_mocker.post("http://api.example.com/data") \
+    client_mocker.post("/data") \
         .with_status(401).with_body_text("Unauthorized")
 
     client = ClientBuilder().build()
@@ -94,11 +93,11 @@ async def test_header_matching(client_mocker: ClientMocker) -> None:
 
 
 async def test_body_matching(client_mocker: ClientMocker) -> None:
-    client_mocker.post("http://api.example.com/echo") \
+    client_mocker.post("/echo") \
         .match_body('{"test": "data"}') \
         .with_body_text("JSON matched")
 
-    client_mocker.post("http://api.example.com/echo") \
+    client_mocker.post("/echo") \
         .match_body(b"binary data") \
         .with_body_text("Binary matched")
 
@@ -117,7 +116,7 @@ async def test_body_matching(client_mocker: ClientMocker) -> None:
 
 async def test_regex_body_matching(client_mocker: ClientMocker) -> None:
     pattern = re.compile(r'.*"action":\s*"create".*')
-    client_mocker.post("http://api.example.com/actions") \
+    client_mocker.post("/actions") \
         .match_body(pattern) \
         .with_status(201).with_body_text("Create action processed")
 
@@ -132,8 +131,8 @@ async def test_regex_body_matching(client_mocker: ClientMocker) -> None:
 
 
 async def test_request_capture(client_mocker: ClientMocker) -> None:
-    get_mock = client_mocker.get("http://api.example.com/test").with_body_text("response")
-    post_mock = client_mocker.post("http://api.example.com/test").with_body_text("posted")
+    get_mock = client_mocker.get("/test").with_body_text("response")
+    post_mock = client_mocker.post("/test").with_body_text("posted")
 
     client = ClientBuilder().build()
 
@@ -159,7 +158,7 @@ async def test_request_capture(client_mocker: ClientMocker) -> None:
 
 
 async def test_call_counting(client_mocker: ClientMocker) -> None:
-    mock = client_mocker.get("http://api.example.com/endpoint").with_body_text("response")
+    mock = client_mocker.get("/endpoint").with_body_text("response")
 
     client = ClientBuilder().build()
 
@@ -171,7 +170,7 @@ async def test_call_counting(client_mocker: ClientMocker) -> None:
 
 
 async def test_response_headers(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://api.example.com/test") \
+    client_mocker.get("/test") \
         .with_body_text("Hello") \
         .with_header("X-Custom-Header", "custom-value") \
         .with_header("x-rate-limit", "100") \
@@ -185,7 +184,7 @@ async def test_response_headers(client_mocker: ClientMocker) -> None:
 
 async def test_json_response(client_mocker: ClientMocker) -> None:
     test_data = {"users": [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}]}
-    client_mocker.get("http://api.example.com/users").with_body_json(test_data)
+    client_mocker.get("/users").with_body_json(test_data)
 
     client = ClientBuilder().build()
     resp = await client.get("http://api.example.com/users").build_consumed().send()
@@ -196,7 +195,7 @@ async def test_json_response(client_mocker: ClientMocker) -> None:
 
 async def test_bytes_response(client_mocker: ClientMocker) -> None:
     test_data = b"binary data content"
-    client_mocker.get("http://api.example.com/binary").with_body_bytes(test_data)
+    client_mocker.get("/binary").with_body_bytes(test_data)
 
     client = ClientBuilder().build()
     resp = await client.get("http://api.example.com/binary").build_consumed().send()
@@ -206,7 +205,7 @@ async def test_bytes_response(client_mocker: ClientMocker) -> None:
 
 async def test_strict_mode(client_mocker: ClientMocker) -> None:
     client_mocker.strict(True)
-    client_mocker.get("http://api.example.com/allowed").with_body_text("OK")
+    client_mocker.get("/allowed").with_body_text("OK")
 
     client = ClientBuilder().build()
 
@@ -218,7 +217,7 @@ async def test_strict_mode(client_mocker: ClientMocker) -> None:
 
 
 async def test_reset_mocks(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://api.example.com/test").with_body_text("response")
+    client_mocker.get("/test").with_body_text("response")
 
     client = ClientBuilder().build()
     await client.get("http://api.example.com/test").build_consumed().send()
@@ -234,9 +233,9 @@ async def test_reset_mocks(client_mocker: ClientMocker) -> None:
 
 async def test_multiple_rules_first_match_wins(client_mocker: ClientMocker) -> None:
     # More specific rule first
-    client_mocker.get("http://api.example.com/users/123").match_query({"param": "1"}).with_body_text("Specific user")
+    client_mocker.get("/users/123").match_query({"param": "1"}).with_body_text("Specific user")
     # More general rule second
-    client_mocker.get("http://api.example.com/users/123").with_body_text("General user")
+    client_mocker.get("/users/123").with_body_text("General user")
 
     client = ClientBuilder().build()
     resp = await client.get("http://api.example.com/users/123?param=1").build_consumed().send()
@@ -245,9 +244,9 @@ async def test_multiple_rules_first_match_wins(client_mocker: ClientMocker) -> N
     assert await resp.text() == "Specific user"
 
 
-async def test_method_set_matching(client_mocker: ClientMocker) -> None:
+async def test_method_pattern_matching(client_mocker: ClientMocker) -> None:
     client_mocker.strict(True)
-    client_mocker.mock({"GET", "POST"}, "http://api.example.com/data").with_body_json({"message": "success"})
+    client_mocker.mock(re.compile(r"GET|POST"), "/data").with_body_json({"message": "success"})
 
     client = ClientBuilder().build()
 
@@ -268,7 +267,7 @@ async def test_method_set_matching(client_mocker: ClientMocker) -> None:
 
 async def test_without_mocking_requests_pass_through(client_mocker: ClientMocker, echo_server) -> None:
     # Mock only specific requests, others should pass through to the real server
-    client_mocker.get("http://mocked.example.com/api").with_body_json({"mocked": True, "source": "mock"})
+    client_mocker.get("/api").with_body_json({"mocked": True, "source": "mock"})
 
     client = ClientBuilder().build()
 
@@ -296,7 +295,7 @@ async def test_without_mocking_requests_pass_through(client_mocker: ClientMocker
 
 
 async def test_regex_header_matching(client_mocker: ClientMocker) -> None:
-    client_mocker.post("http://api.service.com/secure") \
+    client_mocker.post("/secure") \
         .match_header("Authorization", re.compile(r"Bearer \w+")) \
         .with_body_json({"authenticated": True})
 
@@ -309,7 +308,7 @@ async def test_regex_header_matching(client_mocker: ClientMocker) -> None:
 
 
 async def test_mock_chaining_and_reset(client_mocker: ClientMocker) -> None:
-    mock = client_mocker.get("http://api.service.com/resource") \
+    client_mocker.get("/resource") \
         .with_status(200) \
         .with_body_json({"id": 1, "name": "Resource"}) \
         .with_header("X-Rate-Limit", "100") \
@@ -348,7 +347,7 @@ async def test_stream_match(client_mocker: ClientMocker, body_match: Any, matche
         yield b"part2"
 
     client_mocker.strict(True)
-    mock = client_mocker.post("http://api.example.com/stream") \
+    mock = client_mocker.post("/stream") \
         .match_body(body_match) \
         .with_body_text("Stream received")
 
@@ -370,7 +369,7 @@ async def test_stream_match(client_mocker: ClientMocker, body_match: Any, matche
 
 
 async def test_import_time_client_is_mocked(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://foo.invalid").with_body_text("Mocked response")
+    client_mocker.get("/").with_body_text("Mocked response")
 
     resp = await import_time_client.get("http://foo.invalid").build_consumed().send()
     assert resp.status == 200
@@ -401,12 +400,12 @@ async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
     async def has_user_agent(request):
         return "TestClient" in request.headers.get("User-Agent", "")
 
-    client_mocker.get("http://api.example.com/protected") \
+    client_mocker.get("/protected") \
         .match_header("Authorization", "Bearer valid-token") \
         .match_request(has_user_agent) \
         .with_body_text("All conditions matched")
 
-    client_mocker.get("http://api.example.com/protected").with_body_text("Fallback response")
+    client_mocker.get("/protected").with_body_text("Fallback response")
 
     client = ClientBuilder().build()
 
@@ -447,7 +446,7 @@ async def test_custom_handler_basic(client_mocker: ClientMocker) -> None:
         return None  # Don't handle this request
 
     client_mocker.mock().match_request_with_response(echo_handler)
-    client_mocker.get("http://api.example.com/test").with_body_text("Default response")
+    client_mocker.get("/test").with_body_text("Default response")
 
     client = ClientBuilder().build()
 
@@ -494,7 +493,7 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
         return None
 
     mock_cond = client_mocker.mock().match_request_with_response(conditional_handler)
-    mock_403 = client_mocker.post("http://api.example.com/actions").with_status(403).with_body_text("Forbidden")
+    mock_403 = client_mocker.post("/actions").with_status(403).with_body_text("Forbidden")
 
     client = ClientBuilder().build()
 
@@ -523,10 +522,10 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
 async def test_get_call_count_comprehensive(client_mocker: ClientMocker) -> None:
     """Comprehensive test for get_call_count method with various filters and scenarios."""
     # Setup multiple mock rules
-    users_get_mock = client_mocker.get("http://api.example.com/users").with_body_json({"users": []})
-    users_post_mock = client_mocker.post("http://api.example.com/users").with_status(201).with_body_json({"id": 1})
-    posts_get_mock = client_mocker.get("http://api.example.com/posts").with_body_json({"posts": []})
-    other_put_mock = client_mocker.put("http://other.com/data").with_status(200).with_body_text("updated")
+    users_get_mock = client_mocker.get("/users").with_body_json({"users": []})
+    users_post_mock = client_mocker.post("/users").with_status(201).with_body_json({"id": 1})
+    posts_get_mock = client_mocker.get("/posts").with_body_json({"posts": []})
+    other_put_mock = client_mocker.put("/data").with_status(200).with_body_text("updated")
 
     client = ClientBuilder().build()
 
@@ -586,7 +585,7 @@ async def test_get_call_count_with_custom_handlers(client_mocker: ClientMocker) 
         return None
 
     custom_mock = client_mocker.mock().match_request_with_response(custom_handler)
-    normal_mock = client_mocker.get("http://api.example.com/normal").with_body_text("Normal response")
+    normal_mock = client_mocker.get("/normal").with_body_text("Normal response")
 
     client = ClientBuilder().build()
 
@@ -614,8 +613,8 @@ async def test_get_call_count_with_custom_handlers(client_mocker: ClientMocker) 
 
 async def test_get_call_count_after_reset(client_mocker: ClientMocker) -> None:
     """Test that get_call_count returns 0 after reset."""
-    get_mock = client_mocker.get("http://api.example.com/test").with_body_text("test")
-    post_mock = client_mocker.post("http://api.example.com/test").with_body_text("posted")
+    get_mock = client_mocker.get("/test").with_body_text("test")
+    post_mock = client_mocker.post("/test").with_body_text("posted")
 
     client = ClientBuilder().build()
 
@@ -639,7 +638,7 @@ async def test_get_call_count_after_reset(client_mocker: ClientMocker) -> None:
 
 
 async def test_get_call_count_edge_cases(client_mocker: ClientMocker) -> None:
-    mock = client_mocker.strict(True).get("http://test.com").with_body_text("response")
+    mock = client_mocker.strict(True).get("/").with_body_text("response")
 
     client = ClientBuilder().build()
 
@@ -655,11 +654,11 @@ async def test_get_call_count_edge_cases(client_mocker: ClientMocker) -> None:
 
 async def test_query_matching_dict_string_values(client_mocker: ClientMocker) -> None:
     """Test query matching with dictionary matcher and string values."""
-    client_mocker.get("http://api.example.com/search") \
+    client_mocker.get("/search") \
         .match_query({"q": "python", "type": "repo"}) \
         .with_body_json({"results": ["pyreqwest"]})
 
-    client_mocker.get("http://api.example.com/search") \
+    client_mocker.get("/search") \
         .with_body_json({"results": []})
 
     client = ClientBuilder().build()
@@ -679,11 +678,11 @@ async def test_query_matching_dict_string_values(client_mocker: ClientMocker) ->
 
 async def test_query_matching_dict_regex_values(client_mocker: ClientMocker) -> None:
     """Test query matching with dictionary matcher and regex values."""
-    client_mocker.get("http://api.example.com/search") \
+    client_mocker.get("/search") \
         .match_query({"q": re.compile(r"py.*"), "limit": re.compile(r"\d+")}) \
         .with_body_json({"matched": True})
 
-    client_mocker.get("http://api.example.com/search") \
+    client_mocker.get("/search") \
         .with_body_json({"matched": False})
 
     client = ClientBuilder().build()
@@ -703,11 +702,11 @@ async def test_query_matching_dict_regex_values(client_mocker: ClientMocker) -> 
 
 async def test_query_matching_regex_pattern(client_mocker: ClientMocker) -> None:
     """Test query matching with regex pattern matcher."""
-    client_mocker.get("http://api.example.com/data") \
+    client_mocker.get("/data") \
         .match_query(re.compile(r".*token=\w+.*")) \
         .with_body_json({"authorized": True})
 
-    client_mocker.get("http://api.example.com/data") \
+    client_mocker.get("/data") \
         .with_body_json({"authorized": False})
 
     client = ClientBuilder().build()
@@ -726,11 +725,11 @@ async def test_query_matching_regex_pattern(client_mocker: ClientMocker) -> None
 
 
 async def test_query_matching_empty(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://api.example.com/endpoint") \
+    client_mocker.get("/endpoint") \
         .match_query("") \
         .with_body_json({"no_params": True})
 
-    client_mocker.get("http://api.example.com/endpoint") \
+    client_mocker.get("/endpoint") \
         .with_body_json({"has_params": True})
 
     client = ClientBuilder().build()
@@ -743,11 +742,11 @@ async def test_query_matching_empty(client_mocker: ClientMocker) -> None:
 
 
 async def test_query_matching_regex_empty_string(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://api.example.com/flexible") \
+    client_mocker.get("/flexible") \
         .match_query(re.compile(r"^$|.*debug=true.*")) \
         .with_body_json({"debug_or_empty": True})
 
-    client_mocker.get("http://api.example.com/flexible") \
+    client_mocker.get("/flexible") \
         .with_body_json({"other": True})
 
     client = ClientBuilder().build()
@@ -763,15 +762,15 @@ async def test_query_matching_regex_empty_string(client_mocker: ClientMocker) ->
 
 
 async def test_query_matching_multiple_values_same_key(client_mocker: ClientMocker) -> None:
-    client_mocker.get("http://api.example.com/multi") \
+    client_mocker.get("/multi") \
         .match_query({"tag": ["python", "web"]}) \
         .with_body_json({"match": 1})
 
-    client_mocker.get("http://api.example.com/multi") \
+    client_mocker.get("/multi") \
         .match_query({"tag": Contains("rust")}) \
         .with_body_json({"match": 2})
 
-    client_mocker.get("http://api.example.com/multi") \
+    client_mocker.get("/multi") \
         .with_body_json({"no_match": True})
 
     client = ClientBuilder().build()
@@ -788,7 +787,7 @@ async def test_query_matching_multiple_values_same_key(client_mocker: ClientMock
 
 async def test_query_matching_mixed_string_and_regex(client_mocker: ClientMocker) -> None:
     """Test query matching with mixed string and regex values in dict."""
-    client_mocker.get("http://api.example.com/mixed") \
+    client_mocker.get("/mixed") \
         .match_query({
             "exact": "value",
             "pattern": re.compile(r"test_\d+"),
@@ -805,7 +804,7 @@ async def test_query_matching_mixed_string_and_regex(client_mocker: ClientMocker
 
 async def test_query_matching_url_encoded_values(client_mocker: ClientMocker) -> None:
     """Test query matching with URL-encoded values."""
-    client_mocker.get("http://api.example.com/encoded") \
+    client_mocker.get("/encoded") \
         .match_query({"search": "hello world", "special": "a+b=c"}) \
         .with_body_json({"encoded_match": True})
 
@@ -818,11 +817,11 @@ async def test_query_matching_url_encoded_values(client_mocker: ClientMocker) ->
 
 async def test_query_matching_case_sensitivity(client_mocker: ClientMocker) -> None:
     """Test that query matching is case-sensitive."""
-    client_mocker.get("http://api.example.com/case") \
+    client_mocker.get("/case") \
         .match_query({"Key": "Value"}) \
         .with_body_json({"case_match": True})
 
-    client_mocker.get("http://api.example.com/case") \
+    client_mocker.get("/case") \
         .with_body_json({"no_match": True})
 
     client = ClientBuilder().build()
@@ -838,13 +837,13 @@ async def test_query_matching_case_sensitivity(client_mocker: ClientMocker) -> N
 
 async def test_query_matching_with_other_matchers(client_mocker: ClientMocker) -> None:
     """Test query matching combined with other matchers."""
-    client_mocker.post("http://api.example.com/combined") \
+    client_mocker.post("/combined") \
         .match_query({"action": "create"}) \
         .match_header("Content-Type", "application/json") \
         .match_body(re.compile(r'.*"name":\s*"test".*')) \
         .with_body_json({"combined_match": True})
 
-    client_mocker.post("http://api.example.com/combined") \
+    client_mocker.post("/combined") \
         .with_body_json({"partial_match": True})
 
     client = ClientBuilder().build()
@@ -866,7 +865,7 @@ async def test_query_matching_with_other_matchers(client_mocker: ClientMocker) -
 
 async def test_query_matching_request_capture(client_mocker: ClientMocker) -> None:
     """Test that requests with query parameters are properly captured."""
-    query_mock = client_mocker.get("http://api.example.com/capture") \
+    query_mock = client_mocker.get("/capture") \
         .match_query({"filter": "active"}) \
         .with_body_json({"captured": True})
 
@@ -888,7 +887,7 @@ async def test_query_matching_request_capture(client_mocker: ClientMocker) -> No
 
 
 async def test_json_body_matching_basic(client_mocker: ClientMocker) -> None:
-    client_mocker.strict(True).post("http://api.example.com/users") \
+    client_mocker.strict(True).post("/users") \
         .match_body_json({"name": "John", "age": 30}) \
         .with_status(201) \
         .with_body_json({"id": 123})
@@ -904,7 +903,7 @@ async def test_json_body_matching_basic(client_mocker: ClientMocker) -> None:
 
 
 async def test_json_body_matching_with_custom_equals(client_mocker: ClientMocker) -> None:
-    client_mocker.strict(True).post("http://api.example.com/partial") \
+    client_mocker.strict(True).post("/partial") \
         .match_body_json(IsPartialDict(name=IsStr, action="create")) \
         .with_body_text("Partial match successful")
 
@@ -921,7 +920,7 @@ async def test_json_body_matching_with_custom_equals(client_mocker: ClientMocker
 
 
 async def test_json_body_matching_invalid(client_mocker: ClientMocker) -> None:
-    client_mocker.strict(True).post("http://api.example.com/strict") \
+    client_mocker.strict(True).post("/strict") \
         .match_body_json({"required": "value"}) \
         .with_body_text("Matched")
 

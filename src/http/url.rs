@@ -142,11 +142,14 @@ impl Url {
             match dict.get_item(k)? {
                 None => dict.set_item(k, v)?,
                 Some(existing) => {
-                    if let Ok(existing) = existing.downcast_exact::<PyList>() {
-                        existing.append(v)?;
+                    match existing.downcast_into_exact::<PyList>() {
+                        Ok(existing) => existing.append(v)?,
+                        Err(err) => {
+                            let existing = err.into_inner();
+                            let existing = existing.downcast_exact::<PyString>()?;
+                            dict.set_item(k, PyList::new(py, vec![existing, v.bind(py)])?)?;
+                        }
                     }
-                    let existing = existing.downcast_exact::<PyString>()?;
-                    dict.set_item(k, PyList::new(py, vec![existing, v.bind(py)])?)?;
                 }
             }
         }
