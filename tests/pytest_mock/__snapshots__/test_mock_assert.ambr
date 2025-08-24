@@ -116,10 +116,10 @@
   assert {'path': '/users/abc', 'query': None, 'headers': 'Authorization: Bearer short', 'body': '{"action": "delete"}'} == {'path': '/users/\\d+ (regex)', 'query': '.*token=\\w+.* (regex)', 'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)', 'body': '.*"action":\\s*"(create|update)".* (regex)'}
     
     Differing items:
-    {'path': '/users/abc'} != {'path': '/users/\\d+ (regex)'}
     {'body': '{"action": "delete"}'} != {'body': '.*"action":\\s*"(create|update)".* (regex)'}
-    {'query': None} != {'query': '.*token=\\w+.* (regex)'}
     {'headers': 'Authorization: Bearer short'} != {'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)'}
+    {'path': '/users/abc'} != {'path': '/users/\\d+ (regex)'}
+    {'query': None} != {'query': '.*token=\\w+.* (regex)'}
     
     Full diff:
       {

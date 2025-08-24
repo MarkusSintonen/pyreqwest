@@ -47,7 +47,7 @@ async def test_assert_called_default_exactly_once_failure(client_mocker: ClientM
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called()
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_exact_count_success(client_mocker: ClientMocker, client: Client) -> None:
@@ -87,7 +87,7 @@ async def test_assert_called_exact_count_failure(client_mocker: ClientMocker, cl
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(count=3)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_min_count_success(client_mocker: ClientMocker, client: Client) -> None:
@@ -112,7 +112,7 @@ async def test_assert_called_min_count_failure(client_mocker: ClientMocker, clie
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(min_count=3)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_max_count_success(client_mocker: ClientMocker, client: Client) -> None:
@@ -133,7 +133,7 @@ async def test_assert_called_max_count_failure(client_mocker: ClientMocker, clie
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(max_count=3)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_min_max_range_success(client_mocker: ClientMocker, client: Client) -> None:
@@ -153,7 +153,7 @@ async def test_assert_called_min_max_range_failure(client_mocker: ClientMocker, 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(min_count=3, max_count=5)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_complex_mock_with_all_matchers(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
@@ -189,7 +189,7 @@ async def test_assert_called_complex_mock_with_all_matchers(client_mocker: Clien
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called()
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_custom_matcher_and_handler(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
@@ -223,7 +223,7 @@ async def test_assert_called_custom_matcher_and_handler(client_mocker: ClientMoc
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(count=3)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_with_matched_and_unmatched_requests(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
@@ -249,7 +249,7 @@ async def test_assert_called_with_matched_and_unmatched_requests(client_mocker: 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(count=5)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_many_unmatched_requests_truncation(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
@@ -265,7 +265,7 @@ async def test_assert_called_many_unmatched_requests_truncation(client_mocker: C
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called()
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_regex_matchers_display(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
@@ -290,7 +290,7 @@ async def test_assert_called_regex_matchers_display(client_mocker: ClientMocker,
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called()
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_assert_called_zero_count_success(client_mocker: ClientMocker, client: Client) -> None:
@@ -310,7 +310,7 @@ async def test_assert_called_zero_count_failure(client_mocker: ClientMocker, cli
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(count=0)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
 async def test_dirty_equals_matcher_repr(client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion) -> None:
@@ -329,8 +329,15 @@ async def test_dirty_equals_matcher_repr(client_mocker: ClientMocker, client: Cl
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(count=2)
 
-    assert _strip_ansi(str(exc_info.value)) == snapshot
+    assert _clean_snapshot(str(exc_info.value)) == snapshot
 
 
-def _strip_ansi(val: str) -> str:
-    return ANSI_REGEX.sub('', val)
+def _clean_snapshot(val: str) -> str:
+    res = ANSI_REGEX.sub('', val)  # Remove ANSI codes
+    if 'Differing items:' in res:
+        # Sort the "Differing items" section for consistent snapshots
+        lines = res.splitlines()
+        s = next(i for i, l in enumerate(lines) if 'Differing items:' in l)
+        e = next(i for i, l in enumerate(lines) if 'Full diff:' in l) - 1
+        res = "\n".join(lines[:s] + sorted(lines[s:e]) + lines[e:])
+    return res
