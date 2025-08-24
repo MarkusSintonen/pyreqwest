@@ -1,7 +1,7 @@
 use crate::client::Client;
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Runtime;
-use crate::http::HeaderMap;
+use crate::http::{HeaderMap, Url, UrlType};
 use crate::proxy::Proxy;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -22,6 +22,7 @@ pub struct ClientBuilder {
     error_for_status: bool,
     default_headers: Option<HeaderMap>,
     runtime: Option<Py<Runtime>>,
+    base_url: Option<Url>,
 }
 #[pymethods]
 impl ClientBuilder {
@@ -58,8 +59,15 @@ impl ClientBuilder {
                 .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
             self.error_for_status,
             self.default_headers.take(),
+            self.base_url.take(),
         );
         Ok(client)
+    }
+
+    fn base_url(mut slf: PyRefMut<Self>, base_url: UrlType) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.base_url = Some(base_url.into());
+        Ok(slf)
     }
 
     fn runtime(mut slf: PyRefMut<Self>, runtime: Py<Runtime>) -> PyResult<PyRefMut<Self>> {

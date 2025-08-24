@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Generator
 
 import pytest
 from dirty_equals import Contains, IsPartialDict, IsInstance
@@ -11,6 +12,17 @@ from pyreqwest.request import Request
 from pyreqwest.response import ResponseBuilder, Response
 
 ANSI_REGEX = re.compile(r'\x1B\[[0-9;]*[mK]')
+
+
+@pytest.fixture(autouse=True)
+def set_verbosity(request: pytest.FixtureRequest) -> Generator[None]:
+    # Set verbosity for mock assertion error snapshots
+    prev_verbosity = request.config.option.verbose
+    request.config.option.verbose = 2
+    try:
+        yield
+    finally:
+        request.config.option.verbose = prev_verbosity
 
 
 @pytest.fixture

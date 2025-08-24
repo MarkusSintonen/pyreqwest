@@ -119,6 +119,7 @@ def test_port_or_known_default():
 def test_path():
     assert Url("http://example.com/path/to/resource/").path == "/path/to/resource/"
     assert Url("http://example.com/path/to/resource").path == "/path/to/resource"
+    assert Url("http://example.com/pa th").path == "/pa%20th"
     assert Url("http://example.com/").path == "/"
     assert Url("http://example.com").path == "/"
     assert Url("data:text/plain,HelloWorld").path == "text/plain,HelloWorld"
@@ -129,6 +130,7 @@ def test_path_segments():
     assert Url("http://example.com/path/to/resource").path_segments == ["path", "to", "resource"]
     assert Url("http://example.com/path/").path_segments == ["path", ""]
     assert Url("http://example.com/path").path_segments == ["path"]
+    assert Url("http://example.com/pa th").path_segments == ["pa%20th"]
     assert Url("http://example.com/").path_segments == [""]
     assert Url("http://example.com").path_segments == [""]
     assert Url("data:text/plain,HelloWorld").path_segments is None

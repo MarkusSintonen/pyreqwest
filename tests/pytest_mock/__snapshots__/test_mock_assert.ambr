@@ -56,9 +56,9 @@
   assert {'method': 'GET', 'headers': None, 'body': None} == {'method': 'POST', 'headers': 'Authorization: Bearer token123', 'body': '{"name":"John","age":30}'}
     
     Differing items:
+    {'body': None} != {'body': '{"name":"John","age":30}'}
     {'headers': None} != {'headers': 'Authorization: Bearer token123'}
     {'method': 'GET'} != {'method': 'POST'}
-    {'body': None} != {'body': '{"name":"John","age":30}'}
     
     Full diff:
       {
@@ -116,10 +116,10 @@
   assert {'path': '/users/abc', 'query': None, 'headers': 'Authorization: Bearer short', 'body': '{"action": "delete"}'} == {'path': '/users/\\d+ (regex)', 'query': '.*token=\\w+.* (regex)', 'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)', 'body': '.*"action":\\s*"(create|update)".* (regex)'}
     
     Differing items:
-    {'query': None} != {'query': '.*token=\\w+.* (regex)'}
     {'path': '/users/abc'} != {'path': '/users/\\d+ (regex)'}
-    {'headers': 'Authorization: Bearer short'} != {'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)'}
     {'body': '{"action": "delete"}'} != {'body': '.*"action":\\s*"(create|update)".* (regex)'}
+    {'query': None} != {'query': '.*token=\\w+.* (regex)'}
+    {'headers': 'Authorization: Bearer short'} != {'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)'}
     
     Full diff:
       {

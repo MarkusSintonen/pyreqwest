@@ -36,7 +36,7 @@ impl Url {
         Ok(url)
     }
 
-    fn join(&self, input: &str) -> PyResult<Self> {
+    pub fn join(&self, input: &str) -> PyResult<Self> {
         let url = self.url.join(input).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Url::new(url))
     }
@@ -386,6 +386,11 @@ impl From<reqwest::Url> for Url {
 impl From<UrlType> for Url {
     fn from(value: UrlType) -> Self {
         Url::new(value.0)
+    }
+}
+impl Into<reqwest::Url> for Url {
+    fn into(self) -> reqwest::Url {
+        self.url
     }
 }
 

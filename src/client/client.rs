@@ -3,7 +3,7 @@ use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Handle;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{CloseError, PoolTimeoutError};
-use crate::http::{Extensions, UrlType};
+use crate::http::{Extensions, Url, UrlType};
 use crate::http::{HeaderMap, Method};
 use crate::middleware::Next;
 use crate::request::RequestBuilder;
@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 pub struct Client(Arc<ClientInner>);
 struct ClientInner {
     client: reqwest::Client,
+    base_url: Option<Url>,
     runtime: Handle,
     middlewares: Option<Vec<Py<PyAny>>>,
     total_timeout: Option<Duration>,
@@ -37,10 +38,15 @@ impl Drop for ClientInner {
 
 #[pymethods]
 impl Client {
-    fn request(&self, method: Method, url: UrlType) -> PyResult<RequestBuilder> {
+    fn request(&self, method: Method, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         let client = self.clone();
 
-        let request = client.0.client.request(method.0, url.0);
+        let url: reqwest::Url = match self.0.base_url.as_ref() {
+            Some(base_url) => base_url.join(url.extract()?)?.into(),
+            None => url.extract::<UrlType>()?.0,
+        };
+
+        let request = client.0.client.request(method.0, url);
         let mut builder = RequestBuilder::new(client, request, self.0.error_for_status);
         self.0
             .total_timeout
@@ -54,27 +60,27 @@ impl Client {
         Ok(builder)
     }
 
-    pub fn get(&self, url: UrlType) -> PyResult<RequestBuilder> {
+    pub fn get(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         self.request(http::Method::GET.into(), url)
     }
 
-    pub fn post(&self, url: UrlType) -> PyResult<RequestBuilder> {
+    pub fn post(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         self.request(http::Method::POST.into(), url)
     }
 
-    pub fn put(&self, url: UrlType) -> PyResult<RequestBuilder> {
+    pub fn put(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         self.request(http::Method::PUT.into(), url)
     }
 
-    pub fn patch(&self, url: UrlType) -> PyResult<RequestBuilder> {
+    pub fn patch(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         self.request(http::Method::PATCH.into(), url)
     }
 
-    pub fn delete(&self, url: UrlType) -> PyResult<RequestBuilder> {
+    pub fn delete(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         self.request(http::Method::DELETE.into(), url)
     }
 
-    pub fn head(&self, url: UrlType) -> PyResult<RequestBuilder> {
+    pub fn head(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
         self.request(http::Method::HEAD.into(), url)
     }
 
@@ -99,6 +105,7 @@ impl Client {
         connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
         default_headers: Option<HeaderMap>,
+        base_url: Option<Url>,
     ) -> Self {
         Client(Arc::new(ClientInner {
             client,
@@ -108,6 +115,7 @@ impl Client {
             connection_limiter,
             error_for_status,
             default_headers,
+            base_url,
             event_loop_cell: GILOnceCell::new(),
             close_cancellation: CancellationToken::new(),
         }))
