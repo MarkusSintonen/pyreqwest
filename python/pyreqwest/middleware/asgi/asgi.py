@@ -1,6 +1,6 @@
 """ASGI test client for pyreqwest."""
 import asyncio
-from typing import Any, Callable, Iterator, AsyncGenerator, AsyncIterator
+from typing import Any, Callable, Iterator, AsyncGenerator, AsyncIterator, Coroutine
 from urllib.parse import unquote
 
 from pyreqwest.client import Client
@@ -13,13 +13,19 @@ from pyreqwest.response import Response, ResponseBuilder
 class ASGITestMiddleware:
     """Test client that routes requests through an ASGI application."""
 
-    def __init__(self, app: Callable):
+    def __init__(
+        self,
+        app: Callable,
+        *,
+        scope_update: Callable[[dict[str, Any], Request], Coroutine[Any, Any, None]] | None = None,
+    ):
         """Initialize the ASGI test client.
 
         Args:
             app: ASGI application callable
         """
-        self.app = app
+        self._app = app
+        self._scope_update = scope_update
 
     async def __call__(self, client: Client, request: Request, next_handler: Next) -> Response:
         scope = await self._request_to_asgi_scope(request)
@@ -35,24 +41,27 @@ class ASGITestMiddleware:
         async def send(message):
             await send_queue.put(message)
 
-        await self.app(scope, receive, send)
+        await self._app(scope, receive, send)
 
         return await self._asgi_response_to_response(send_queue)
 
     async def _request_to_asgi_scope(self, request: Request) -> dict[str, Any]:
         url = request.url
-        return {
+        scope = {
             "type": "http",
             "asgi": {"version": "3.0"},
             "http_version": "1.1",
             "method": request.method.upper(),
             "scheme": url.scheme,
             "path": unquote(url.path),
+            "raw_path": url.path.encode(),
+            "root_path": "",
             "query_string": (url.query_string or "").encode(),
             "headers": [[name.lower().encode(), value.encode()] for name, value in request.headers.items()],
-            "server": ("testserver", 80 if url.scheme == "http" else 443),
-            "client": ("testclient", 12345),
         }
+        if self._scope_update is not None:
+            await self._scope_update(scope, request)
+        return scope
 
     async def _asgi_body_parts(self, request: Request) -> AsyncIterator[dict[str, Any]]:
         if request.body is None:

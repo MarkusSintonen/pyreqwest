@@ -1,47 +1,48 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Any
 
 import pytest
 from starlette.applications import Starlette
 from starlette.routing import Route
-from starlette.requests import Request
+from starlette.requests import Request as StarletteRequest
 from starlette.responses import JSONResponse, StreamingResponse
 
 from pyreqwest.client import ClientBuilder, Client
 from pyreqwest.middleware.asgi import ASGITestMiddleware
+from pyreqwest.request import Request
 
 
 @pytest.fixture
 def starlette_app():
-    async def root(request: Request):
+    async def root(request: StarletteRequest):
         return JSONResponse({"message": "Hello World"})
 
-    async def get_user(request: Request):
+    async def get_user(request: StarletteRequest):
         user_id = int(request.path_params["user_id"])
         return JSONResponse({"user_id": user_id, "name": f"User {user_id}"})
 
-    async def create_user(request: Request):
+    async def create_user(request: StarletteRequest):
         body = await request.json()
         return JSONResponse({"id": 123, "name": body["name"], "email": body["email"]})
 
-    async def update_user(request: Request):
+    async def update_user(request: StarletteRequest):
         user_id = int(request.path_params["user_id"])
         body = await request.json()
         return JSONResponse({"id": user_id, "name": body["name"], "updated": True})
 
-    async def delete_user(request: Request):
+    async def delete_user(request: StarletteRequest):
         user_id = int(request.path_params["user_id"])
         return JSONResponse({"deleted": True, "user_id": user_id})
 
-    async def get_headers(request: Request):
+    async def get_headers(request: StarletteRequest):
         return JSONResponse({"headers": dict(request.headers)})
 
-    async def get_query(request: Request):
+    async def get_query(request: StarletteRequest):
         return JSONResponse({"query": dict(request.query_params)})
 
-    async def error_endpoint(request: Request):
+    async def error_endpoint(request: StarletteRequest):
         return JSONResponse({"detail": "Not found"}, status_code=404)
 
-    async def streaming_endpoint(request: Request):
+    async def streaming_endpoint(request: StarletteRequest):
         received_chunks = []
         async for chunk in request.stream():
             if chunk:
@@ -165,3 +166,18 @@ async def test_streaming(asgi_client: Client):
         assert await response.next_chunk() == "echo_data_chunk_1_".encode()
         assert await response.next_chunk() == "echo_data_chunk_2_".encode()
         assert await response.next_chunk() is None
+
+
+async def test_scope_override(starlette_app: Starlette):
+    async def scope_update(scope: dict[str, Any], request: Request) -> None:
+        assert request.extensions["test"] == "something"
+        assert [b"x-test-header", b"test-value"] in scope["headers"]
+        scope["headers"].append([b"x-added-header", b"added-value"])
+
+    middleware = ASGITestMiddleware(starlette_app, scope_update=scope_update)
+    async with ClientBuilder().base_url("http://localhost").with_middleware(middleware).build() as client:
+        req = client.get("/headers").header("X-Test-Header", "test-value").build_consumed()
+        req.extensions["test"] = "something"
+        resp = await req.send()
+        assert resp.status == 200
+        assert await resp.json() ==  {'headers': {'x-added-header': 'added-value', 'x-test-header': 'test-value'}}
