@@ -1,56 +1,62 @@
 from typing import AsyncGenerator
 
 import pytest
-from fastapi import FastAPI, Request, HTTPException
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from pyreqwest.client import ClientBuilder, Client
 from pyreqwest.middleware.asgi import ASGITestMiddleware
 
 
 @pytest.fixture
-def fastapi_app():
-    app = FastAPI()
+def starlette_app():
+    async def root(request: Request):
+        return JSONResponse({"message": "Hello World"})
 
-    @app.get("/")
-    async def root():
-        return {"message": "Hello World"}
+    async def get_user(request: Request):
+        user_id = int(request.path_params["user_id"])
+        return JSONResponse({"user_id": user_id, "name": f"User {user_id}"})
 
-    @app.get("/users/{user_id}")
-    async def get_user(user_id: int):
-        return {"user_id": user_id, "name": f"User {user_id}"}
-
-    @app.post("/users")
     async def create_user(request: Request):
         body = await request.json()
-        return {"id": 123, "name": body["name"], "email": body["email"]}
+        return JSONResponse({"id": 123, "name": body["name"], "email": body["email"]})
 
-    @app.put("/users/{user_id}")
-    async def update_user(user_id: int, request: Request):
+    async def update_user(request: Request):
+        user_id = int(request.path_params["user_id"])
         body = await request.json()
-        return {"id": user_id, "name": body["name"], "updated": True}
+        return JSONResponse({"id": user_id, "name": body["name"], "updated": True})
 
-    @app.delete("/users/{user_id}")
-    async def delete_user(user_id: int):
-        return {"deleted": True, "user_id": user_id}
+    async def delete_user(request: Request):
+        user_id = int(request.path_params["user_id"])
+        return JSONResponse({"deleted": True, "user_id": user_id})
 
-    @app.get("/headers")
     async def get_headers(request: Request):
-        return {"headers": dict(request.headers)}
+        return JSONResponse({"headers": dict(request.headers)})
 
-    @app.get("/query")
     async def get_query(request: Request):
-        return {"query": dict(request.query_params)}
+        return JSONResponse({"query": dict(request.query_params)})
 
-    @app.get("/error")
-    async def error_endpoint():
-        raise HTTPException(status_code=404, detail="Not found")
+    async def error_endpoint(request: Request):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
 
-    return app
+    routes = [
+        Route("/", root, methods=["GET"]),
+        Route("/users/{user_id:int}", get_user, methods=["GET"]),
+        Route("/users", create_user, methods=["POST"]),
+        Route("/users/{user_id:int}", update_user, methods=["PUT"]),
+        Route("/users/{user_id:int}", delete_user, methods=["DELETE"]),
+        Route("/headers", get_headers, methods=["GET"]),
+        Route("/query", get_query, methods=["GET"]),
+        Route("/error", error_endpoint, methods=["GET"]),
+    ]
+    return Starlette(routes=routes)
 
 
 @pytest.fixture
-async def asgi_client(fastapi_app: FastAPI) -> AsyncGenerator[Client]:
-    middleware = ASGITestMiddleware(fastapi_app)
+async def asgi_client(starlette_app: Starlette) -> AsyncGenerator[Client]:
+    middleware = ASGITestMiddleware(starlette_app)
     async with ClientBuilder().base_url("http://localhost").with_middleware(middleware).build() as client:
         yield client
 
