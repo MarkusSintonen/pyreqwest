@@ -14,31 +14,21 @@ from pyreqwest.request import Request
 
 @pytest.fixture
 def starlette_app():
-    async def root(request: StarletteRequest):
+    async def root_endpoint(request: StarletteRequest):
         return JSONResponse({"message": "Hello World"})
 
-    async def get_user(request: StarletteRequest):
-        user_id = int(request.path_params["user_id"])
-        return JSONResponse({"user_id": user_id, "name": f"User {user_id}"})
+    async def get_param(request: StarletteRequest):
+        return JSONResponse({"param": request.path_params["param"]})
 
-    async def create_user(request: StarletteRequest):
-        body = await request.json()
-        return JSONResponse({"id": 123, "name": body["name"], "email": body["email"]})
-
-    async def update_user(request: StarletteRequest):
-        user_id = int(request.path_params["user_id"])
-        body = await request.json()
-        return JSONResponse({"id": user_id, "name": body["name"], "updated": True})
-
-    async def delete_user(request: StarletteRequest):
-        user_id = int(request.path_params["user_id"])
-        return JSONResponse({"deleted": True, "user_id": user_id})
-
-    async def get_headers(request: StarletteRequest):
-        return JSONResponse({"headers": dict(request.headers)})
-
-    async def get_query(request: StarletteRequest):
-        return JSONResponse({"query": dict(request.query_params)})
+    async def echo_endpoint(request: StarletteRequest):
+        resp: dict[str, Any] = {"method": request.method}
+        if headers := [*request.headers.items()]:
+            resp["headers"] = headers
+        if query_string := request.scope["query_string"].decode():
+            resp["query_string"] = query_string
+        if body := (await request.body()).decode():
+            resp["body"] = body
+        return JSONResponse(resp)
 
     async def error_endpoint(request: StarletteRequest):
         return JSONResponse({"detail": "Not found"}, status_code=404)
@@ -56,13 +46,9 @@ def starlette_app():
         return StreamingResponse(generate_response(), media_type="text/plain")
 
     routes = [
-        Route("/", root, methods=["GET"]),
-        Route("/users/{user_id:int}", get_user, methods=["GET"]),
-        Route("/users", create_user, methods=["POST"]),
-        Route("/users/{user_id:int}", update_user, methods=["PUT"]),
-        Route("/users/{user_id:int}", delete_user, methods=["DELETE"]),
-        Route("/headers", get_headers, methods=["GET"]),
-        Route("/query", get_query, methods=["GET"]),
+        Route("/", root_endpoint, methods=["GET"]),
+        Route("/param/{param:int}", get_param, methods=["GET"]),
+        Route("/echo", echo_endpoint, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/error", error_endpoint, methods=["GET"]),
         Route("/stream", streaming_endpoint, methods=["POST"]),
     ]
@@ -85,65 +71,51 @@ async def test_get_root(asgi_client: Client):
 
 
 async def test_get_with_path_params(asgi_client: Client):
-    response = await asgi_client.get("/users/42").build_consumed().send()
+    response = await asgi_client.get("/param/42").build_consumed().send()
     assert response.status == 200
     data = await response.json()
-    assert data == {"user_id": 42, "name": "User 42"}
+    assert data == {"param": 42}
 
 
 async def test_post_json(asgi_client: Client):
     request_data = {"name": "John Doe", "email": "john@example.com"}
-    response = await (asgi_client.post("/users")
+    response = await (asgi_client.post("/echo")
                      .body_json(request_data)
                      .build_consumed()
                      .send())
     assert response.status == 200
-    data = await response.json()
-    assert data == {"id": 123, "name": "John Doe", "email": "john@example.com"}
+    assert await response.json() == {'body': '{"email":"john@example.com","name":"John Doe"}', 'headers': [['content-type', 'application/json']], 'method': 'POST'}
 
 
 async def test_put_json(asgi_client: Client):
-    request_data = {"name": "Jane Doe"}
-    response = await (asgi_client.put("/users/456")
-                     .body_json(request_data)
+    response = await (asgi_client.put("/echo")
+                     .body_json({"name": "Jane Doe"})
                      .build_consumed()
                      .send())
     assert response.status == 200
-    data = await response.json()
-    assert data == {"id": 456, "name": "Jane Doe", "updated": True}
-    await asgi_client.close()
-
-
-async def test_delete(asgi_client: Client):
-    response = await asgi_client.delete("/users/789").build_consumed().send()
-    assert response.status == 200
-    data = await response.json()
-    assert data == {"deleted": True, "user_id": 789}
+    assert await response.json() == {'body': '{"name":"Jane Doe"}', 'headers': [['content-type', 'application/json']], 'method': 'PUT'}
 
 
 async def test_headers(asgi_client: Client):
-    response = await (asgi_client.get("/headers")
-                     .header("X-Test-Header", "test-value")
-                     .header("User-Agent", "pyreqwest-test")
+    response = await (asgi_client.get("/echo")
+                     .header("X-Header-1", "value1")
+                     .header("X-Header-2", "value2")
+                     .header("X-Header-2", "value3")
                      .build_consumed()
                      .send())
     assert response.status == 200
-    data = await response.json()
-    headers = data["headers"]
-    assert headers["x-test-header"] == "test-value"
-    assert headers["user-agent"] == "pyreqwest-test"
+    assert (await response.json())["headers"] ==  [
+        ['x-header-1', 'value1'], ['x-header-2', 'value2'], ['x-header-2', 'value3']
+    ]
 
 
 async def test_query_parameters(asgi_client: Client):
-    response = await (asgi_client.get("/query")
-                     .query({"name": "test", "page": "2"})
+    response = await (asgi_client.get("/echo")
+                     .query([("k1", "v1"), ("k2", "v2"), ("k1", "v3")])
                      .build_consumed()
                      .send())
     assert response.status == 200
-    data = await response.json()
-    query = data["query"]
-    assert query["name"] == "test"
-    assert query["page"] == "2"
+    assert (await response.json())["query_string"] == "k1=v1&k2=v2&k1=v3"
 
 
 async def test_error_response(asgi_client: Client):
@@ -178,11 +150,11 @@ async def test_scope_override(starlette_app: Starlette):
 
     middleware = ASGITestMiddleware(starlette_app, scope_update=scope_update)
     async with ClientBuilder().base_url("http://localhost").with_middleware(middleware).build() as client:
-        req = client.get("/headers").header("X-Test-Header", "test-value").build_consumed()
+        req = client.get("/echo").header("X-Test-Header", "test-value").build_consumed()
         req.extensions["test"] = "something"
         resp = await req.send()
         assert resp.status == 200
-        assert await resp.json() ==  {'headers': {'x-added-header': 'added-value', 'x-test-header': 'test-value'}}
+        assert (await resp.json())["headers"] == [['x-test-header', 'test-value'], ['x-added-header', 'added-value']]
 
 
 async def test_lifespan_events():
