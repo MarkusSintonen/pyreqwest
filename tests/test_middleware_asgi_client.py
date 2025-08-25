@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Any
 
 import pytest
@@ -71,8 +72,9 @@ def starlette_app():
 @pytest.fixture
 async def asgi_client(starlette_app: Starlette) -> AsyncGenerator[Client]:
     middleware = ASGITestMiddleware(starlette_app)
-    async with ClientBuilder().base_url("http://localhost").with_middleware(middleware).build() as client:
-        yield client
+    async with middleware:
+        async with ClientBuilder().base_url("http://localhost").with_middleware(middleware).build() as client:
+            yield client
 
 
 async def test_get_root(asgi_client: Client):
@@ -181,3 +183,67 @@ async def test_scope_override(starlette_app: Starlette):
         resp = await req.send()
         assert resp.status == 200
         assert await resp.json() ==  {'headers': {'x-added-header': 'added-value', 'x-test-header': 'test-value'}}
+
+
+async def test_lifespan_events():
+    startup_called = False
+    shutdown_called = False
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncGenerator[dict[str, Any]]:
+        nonlocal startup_called, shutdown_called
+        startup_called = True
+        yield {"my_state": "some state"}
+        shutdown_called = True
+
+    async def root(request: StarletteRequest):
+        return JSONResponse({"server_state": request.state.my_state})
+
+    middleware = ASGITestMiddleware(Starlette(lifespan=lifespan, routes=[Route("/", root, methods=["GET"])]))
+
+    assert not startup_called
+    assert not shutdown_called
+
+    async with middleware:
+        assert startup_called
+        assert not shutdown_called
+
+        async with ClientBuilder().with_middleware(middleware).build() as client:
+            response = await client.get("http://localhost/").build_consumed().send()
+            assert response.status == 200
+            assert await response.json() == {"server_state": "some state"}
+
+    assert startup_called
+    assert shutdown_called
+
+
+async def test_lifespan_failure__startup():
+    @asynccontextmanager
+    async def failing_lifespan(app: Starlette) -> AsyncGenerator[dict[str, Any]]:
+        raise RuntimeError("Lifespan failure")
+        yield
+
+    middleware = ASGITestMiddleware(Starlette(lifespan=failing_lifespan))
+
+    with pytest.raises(RuntimeError, match="Lifespan failure"):
+        await middleware.__aenter__()
+
+    with pytest.raises(RuntimeError, match="Lifespan failure"):
+        await middleware.__aenter__()
+
+
+async def test_lifespan_failure__shutdown():
+    @asynccontextmanager
+    async def failing_lifespan(app: Starlette) -> AsyncGenerator[dict[str, Any]]:
+        yield
+        raise RuntimeError("Lifespan failure")
+
+    middleware = ASGITestMiddleware(Starlette(lifespan=failing_lifespan))
+
+    await middleware.__aenter__()
+    with pytest.raises(RuntimeError, match="Lifespan failure"):
+        await middleware.__aexit__(None, None, None)
+
+    await middleware.__aenter__()
+    with pytest.raises(RuntimeError, match="Lifespan failure"):
+        await middleware.__aexit__(None, None, None)
