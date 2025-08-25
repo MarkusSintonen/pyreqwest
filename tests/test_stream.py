@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 from datetime import timedelta
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Generator
 
 import pytest
 from orjson import orjson
@@ -31,13 +31,13 @@ async def read_chunks(resp: Response):
 async def test_body_stream__initial_read_size(
     client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, read: str, yield_empty: bool
 ):
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[bytes]:
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
             if yield_empty and i == 2:
                 yield b""  # Empty is skipped
             else:
-                yield f"part {i}".encode("utf-8")
+                yield f"part {i}".encode()
 
     req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
     if initial_read_size is not None:
@@ -64,10 +64,10 @@ async def test_body_stream__initial_read_size(
 
 @pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
 async def test_body_stream__consumed(client: Client, echo_body_parts_server: EchoBodyPartsServer, read: str):
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[bytes]:
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
-            yield f"part {i}".encode("utf-8")
+            yield f"part {i}".encode()
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
     if read == "chunks":
@@ -83,10 +83,10 @@ async def test_body_stream__consumed(client: Client, echo_body_parts_server: Ech
 
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
 async def test_body_stream__yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_type: type):
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[bytes | bytearray | memoryview]:
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
-            yield yield_type(f"part {i}".encode("utf-8"))
+            yield yield_type(f"part {i}".encode())
 
     async with client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed() as resp:
         assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
@@ -94,14 +94,14 @@ async def test_body_stream__yield_type(client: Client, echo_body_parts_server: E
 
 @pytest.mark.parametrize("yield_val", ["bad", [b"a"], None])
 async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_val: Any):
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[Any]:
         yield yield_val
 
     req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
 
     with pytest.raises(TypeError, match="a bytes-like object is required"):
         async with req as _:
-            assert False
+            pytest.fail("Should have raised")
 
 
 @pytest.mark.parametrize("initial_read_size", [None, 0, 5, 999999])
@@ -109,7 +109,7 @@ async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_serve
 async def test_body_stream__timeout(
     client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, sleep_kind: str
 ):
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[bytes]:
         await asyncio.sleep(0)  # Simulate some work
         yield orjson.dumps({"sleep": 0.0})
         if sleep_kind == "server":
@@ -130,7 +130,7 @@ async def test_body_stream__timeout(
         error = ConnectTimeoutError if sleep_kind == "stream" else ReadTimeoutError
         with pytest.raises(error):
             async with req as _:
-                assert False
+                pytest.fail("Should have raised")
     else:
         async with req as resp:
             assert (await resp.next_chunk()) == orjson.dumps({"sleep": 0.0})
@@ -145,7 +145,7 @@ async def test_body_stream__gen_error(
 ):
     class MyError(Exception): ...
 
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[bytes]:
         await asyncio.sleep(0)  # Simulate some work
         if partial_body:
             yield b"part 0"
@@ -157,7 +157,7 @@ async def test_body_stream__gen_error(
 
     with pytest.raises(MyError, match="Test error") as e:
         async with req as _:
-            assert False
+            pytest.fail("Should have raised")
 
     tb_names = [tb.name for tb in traceback.extract_tb(e.value.__traceback__)]
     assert "test_body_stream__gen_error" in tb_names
@@ -165,10 +165,10 @@ async def test_body_stream__gen_error(
 
 
 async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: EchoBodyPartsServer):
-    def gen():
+    def gen() -> Generator[int]:
         yield 1
 
-    async def async_gen():
+    async def async_gen() -> AsyncGenerator[int]:
         yield 1
 
     cases = [gen(), gen, async_gen, b"123", [b"123"]]
@@ -197,7 +197,7 @@ async def test_body_consumed(client: Client, echo_server: EchoServer):
 
 
 async def test_body_consumed__already_started(client: Client, echo_body_parts_server: EchoBodyPartsServer):
-    async def stream_gen():
+    async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"part 0"
         yield b"part 1"
 
@@ -217,10 +217,10 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
 
 
 async def test_body_response_empty(client: Client, echo_body_parts_server: EchoBodyPartsServer):
-    async def yield_empty():
+    async def yield_empty() -> AsyncGenerator[bytes]:
         yield b""
 
-    async def no_yield():
+    async def no_yield() -> AsyncGenerator[bytes]:
         if False:
             yield b""
 

@@ -22,6 +22,7 @@ dev = [
     "orjson==3.10.18",
     "requests-toolbelt==1.0.0",
     "syrupy==4.9.1",
+    "ruff==0.12.10",
     # Compatibility with other libraries
     "dirty-equals==0.9.0",
     "yarl==1.20.1",
@@ -43,3 +44,13 @@ build-backend = "maturin"
 asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "session"
 asyncio_default_fixture_loop_scope = "session"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["ALL"]
+[tool.ruff.lint.per-file-ignores]
+"./tests/*" = ["D", "B011", "S101", "S105", "ANN201", "ANN401", "PT018", "SIM202", "PLR2004", "EM101", "TRY003", "FBT001"]
