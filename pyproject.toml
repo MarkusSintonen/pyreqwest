@@ -52,9 +52,10 @@ indent-width = 4
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["FBT003", "TC003"]
+ignore = ["FBT", "TC003", "PYI021", "ANN401", "PLC0414", "S101"]
 
 [tool.ruff.lint.per-file-ignores]
+"./python/pyreqwest/pytest_plugin/*" = ["SLF001"]
 "./tests/*" = [
     "D",
     "B011",
@@ -69,8 +70,6 @@ ignore = ["FBT003", "TC003"]
     "EM101",
     "TRY003",
     "TRY002",
-    "FBT001",
-    "FBT002",
     "C414",
     "C901",
 ]

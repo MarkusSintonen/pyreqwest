@@ -337,6 +337,7 @@ class ClientMocker:
 
 @pytest.fixture
 def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
+    """Fixture that provides a ClientMocker for mocking HTTP requests in tests."""
     mocker = ClientMocker()
 
     orig_build_consumed = RequestBuilder.build_consumed

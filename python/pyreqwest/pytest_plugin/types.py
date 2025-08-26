@@ -1,3 +1,5 @@
+"""Types used in the pytest plugin."""
+
 from collections.abc import Awaitable, Callable
 from re import Pattern
 from typing import Any
