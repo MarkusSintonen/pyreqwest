@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from re import Pattern
 from typing import Any
 
-
 try:
     from dirty_equals import DirtyEquals as _DirtyEqualsBase
 except ImportError:

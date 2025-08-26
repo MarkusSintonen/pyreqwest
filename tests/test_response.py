@@ -1,14 +1,13 @@
 import json
-from collections.abc import MutableMapping
-from typing import AsyncGenerator
-
-import pytest
-import trustme
+from collections.abc import AsyncGenerator, MutableMapping
 
 import pyreqwest.exceptions
+import pytest
+import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import StatusError
 from pyreqwest.http import HeaderMap
+
 from .servers.server import Server
 
 
@@ -36,20 +35,24 @@ async def test_status(client: Client, echo_server: Server) -> None:
 
 
 async def test_headers(client: Client, echo_server: Server) -> None:
-    req = client.get(echo_server.url).query(
-        [("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")]
-    ).build_consumed()
+    req = (
+        client.get(echo_server.url)
+        .query(
+            [("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")],
+        )
+        .build_consumed()
+    )
     resp = await req.send()
 
-    assert type(resp.headers) == HeaderMap and isinstance(resp.headers, MutableMapping)
+    assert type(resp.headers) is HeaderMap and isinstance(resp.headers, MutableMapping)
 
-    assert resp.headers.getall("X-Test1") == ['Value1', 'Value2'] and resp.headers["x-test1"] == "Value1"
+    assert resp.headers.getall("X-Test1") == ["Value1", "Value2"] and resp.headers["x-test1"] == "Value1"
     assert resp.headers.getall("X-Test2") == ["Value3"] and resp.headers["x-test2"] == "Value3"
 
     resp.headers["X-Test2"] = "Value4"
     assert resp.headers["X-Test2"] == "Value4" and resp.headers["x-test2"] == "Value4"
 
-    assert resp.headers.popall("x-test1") == ['Value1', 'Value2']
+    assert resp.headers.popall("x-test1") == ["Value1", "Value2"]
     assert "X-Test1" not in resp.headers and "x-test1" not in resp.headers
 
 
@@ -91,7 +94,7 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
     if kind == "chunk":
         assert (await resp.next_chunk()) == b'{"foo": "bar", "test": "value"'
-        assert (await resp.next_chunk()) == b", \"baz\": 123}"
+        assert (await resp.next_chunk()) == b', "baz": 123}'
         assert (await resp.next_chunk()) is None
         with pytest.raises(RuntimeError, match="Response body already consumed"):
             await resp.bytes()
@@ -127,6 +130,7 @@ MULTILINE_EMOJI = """[
     "a"
 """
 
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -137,7 +141,7 @@ MULTILINE_EMOJI = """[
         pytest.param(b'["\xe6\x9d\xb1\xe4\xba\xac", "a" ', id="two-byte-bytes"),
         pytest.param(MULTILINE_EMOJI, id="four-byte-multiline"),
         pytest.param('["tab	character	in	string	"]', id="tabs"),
-    ]
+    ],
 )
 async def test_bad_json(client: Client, echo_body_parts_server: Server, body: str | bytes) -> None:
     body_bytes = body if isinstance(body, bytes) else body.encode("utf8")
@@ -154,28 +158,41 @@ async def test_bad_json(client: Client, echo_body_parts_server: Server, body: st
     with pytest.raises(json.JSONDecodeError) as std_err:
         json.loads(body)
 
-    last_line = body_str.split('\n')[e.value.lineno - 1]
+    last_line = body_str.split("\n")[e.value.lineno - 1]
     # Position is given as byte based to avoid calculating position based on UTF8 chars
-    assert body_bytes[:e.value.pos].decode("utf8") == body_str[:std_err.value.pos]
-    assert last_line.encode("utf8")[:e.value.colno - 1].decode("utf8") == last_line[:std_err.value.colno - 1]
+    assert body_bytes[: e.value.pos].decode("utf8") == body_str[: std_err.value.pos]
+    assert last_line.encode("utf8")[: e.value.colno - 1].decode("utf8") == last_line[: std_err.value.colno - 1]
     assert e.value.lineno == std_err.value.lineno
 
 
-@pytest.mark.parametrize(("body", "charset", "expect"), [
-    pytest.param(b"ascii text", "ascii", "ascii text", id="ascii"),
-    pytest.param("ascii bäd".encode("utf8"), "ascii", "ascii bÃ¤d", id="ascii_bad"),
-    pytest.param("utf-8 text 😊".encode("utf8"), "utf-8", "utf-8 text 😊", id="utf8"),
-    pytest.param(b'utf-8 bad \xe2\x82', "utf-8", "utf-8 bad �", id="utf8_bad"),
-    pytest.param("utf-8 text 😊".encode("utf8"), None, "utf-8 text 😊", id="utf8_default"),
-])
+@pytest.mark.parametrize(
+    ("body", "charset", "expect"),
+    [
+        pytest.param(b"ascii text", "ascii", "ascii text", id="ascii"),
+        pytest.param("ascii bäd".encode(), "ascii", "ascii bÃ¤d", id="ascii_bad"),
+        pytest.param("utf-8 text 😊".encode(), "utf-8", "utf-8 text 😊", id="utf8"),
+        pytest.param(b"utf-8 bad \xe2\x82", "utf-8", "utf-8 bad �", id="utf8_bad"),
+        pytest.param("utf-8 text 😊".encode(), None, "utf-8 text 😊", id="utf8_default"),
+    ],
+)
 async def test_text(
-    client: Client, echo_body_parts_server: Server, body: bytes, charset: str | None, expect: str
+    client: Client,
+    echo_body_parts_server: Server,
+    body: bytes,
+    charset: str | None,
+    expect: str,
 ) -> None:
     async def resp_body() -> AsyncGenerator[bytes]:
         yield body
 
     content_type = f"text/plain; charset={charset}" if charset else "text/plain"
-    resp = await client.post(echo_body_parts_server.url).body_stream(resp_body()).query({"content_type": content_type}).build_consumed().send()
+    resp = (
+        await client.post(echo_body_parts_server.url)
+        .body_stream(resp_body())
+        .query({"content_type": content_type})
+        .build_consumed()
+        .send()
+    )
     mime = resp.content_type_mime()
     assert mime and mime.get_param("charset") == charset
     assert await resp.text() == expect
@@ -183,11 +200,17 @@ async def test_text(
 
 async def test_mime(client: Client, echo_body_parts_server: Server) -> None:
     async def resp_body() -> AsyncGenerator[bytes]:
-        yield b'test'
+        yield b"test"
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(resp_body()).query(
-        {"content_type": "text/plain;charset=ascii"}
-    ).build_consumed().send()
+    resp = (
+        await client.post(echo_body_parts_server.url)
+        .body_stream(resp_body())
+        .query(
+            {"content_type": "text/plain;charset=ascii"},
+        )
+        .build_consumed()
+        .send()
+    )
 
     mime = resp.content_type_mime()
     assert mime and mime.type_ == "text" and mime.subtype == "plain" and mime.get_param("charset") == "ascii"

@@ -1,18 +1,25 @@
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
-from typing import Mapping
 
 import pytest
 import trustme
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
-
 from pyreqwest.client import ClientBuilder, Runtime
-from pyreqwest.exceptions import StatusError, PoolTimeoutError, ConnectTimeoutError, ReadTimeoutError, CloseError, \
-    BuilderError, ConnectError
-from pyreqwest.http import Url, HeaderMap
-from .servers.server import find_free_port
+from pyreqwest.exceptions import (
+    BuilderError,
+    CloseError,
+    ConnectError,
+    ConnectTimeoutError,
+    PoolTimeoutError,
+    ReadTimeoutError,
+    StatusError,
+)
+from pyreqwest.http import HeaderMap, Url
+
 from .servers.echo_server import EchoServer
+from .servers.server import find_free_port
 
 
 @pytest.mark.parametrize("value", [True, False])
@@ -65,13 +72,13 @@ async def test_timeout(echo_server: EchoServer, value: float | None, sleep_kind:
             await req.send()
 
 
-async def test_no_connection(echo_server: EchoServer):
+async def test_no_connection():
     port = find_free_port()
     async with ClientBuilder().error_for_status(True).build() as client:
         req = client.get(Url(f"http://localhost:{port}")).build_consumed()
         with pytest.raises(ConnectError) as e:
             await req.send()
-        assert {'message': 'tcp connect error'} in e.value.details["causes"]
+        assert {"message": "tcp connect error"} in e.value.details["causes"]
 
 
 async def test_user_agent(echo_server: EchoServer):
@@ -87,11 +94,11 @@ async def test_user_agent(echo_server: EchoServer):
 async def test_default_headers__good(echo_server: EchoServer, value: Mapping[str, str]):
     async with ClientBuilder().default_headers(value).error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build_consumed().send()).json()
-        for name, value in value.items():
-            assert [name.lower(), value] in res["headers"]
+        for name, v in value.items():
+            assert [name.lower(), v] in res["headers"]
 
 
-async def test_default_headers__bad(echo_server: EchoServer):
+async def test_default_headers__bad():
     with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'PyTuple'"):
         ClientBuilder().default_headers(["foo"])
     with pytest.raises(TypeError, match="argument 'headers': 'int' object cannot be converted to 'PyString'"):
@@ -107,7 +114,7 @@ async def test_default_headers__bad(echo_server: EchoServer):
 async def test_response_compression(echo_server: EchoServer):
     async with ClientBuilder().error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build_consumed().send()).json()
-        assert ['accept-encoding', 'gzip, br, zstd, deflate'] in res["headers"]
+        assert ["accept-encoding", "gzip, br, zstd, deflate"] in res["headers"]
         url = echo_server.url.with_query({"compress": "gzip"})
         resp = await client.get(url).build_consumed().send()
         assert resp.headers["x-content-encoding"] == "gzip"
@@ -115,7 +122,7 @@ async def test_response_compression(echo_server: EchoServer):
 
     async with ClientBuilder().gzip(False).error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build_consumed().send()).json()
-        assert ['accept-encoding', 'br, zstd, deflate'] in res["headers"]
+        assert ["accept-encoding", "br, zstd, deflate"] in res["headers"]
 
 
 @pytest.mark.parametrize("str_url", [False, True])
@@ -123,18 +130,18 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
     url = str(echo_server.url) if str_url else echo_server.url
     async with ClientBuilder().error_for_status(True).build() as client:
         async with client.get(url).build_streamed() as response:
-            assert (await response.json())['method'] == 'GET'
-            assert (await response.json())['scheme'] == 'http'
+            assert (await response.json())["method"] == "GET"
+            assert (await response.json())["scheme"] == "http"
         async with client.post(url).build_streamed() as response:
-            assert (await response.json())['method'] == 'POST'
+            assert (await response.json())["method"] == "POST"
         async with client.put(url).build_streamed() as response:
-            assert (await response.json())['method'] == 'PUT'
+            assert (await response.json())["method"] == "PUT"
         async with client.patch(url).build_streamed() as response:
-            assert (await response.json())['method'] == 'PATCH'
+            assert (await response.json())["method"] == "PATCH"
         async with client.delete(url).build_streamed() as response:
-            assert (await response.json())['method'] == 'DELETE'
+            assert (await response.json())["method"] == "DELETE"
         async with client.request("QUERY", url).build_streamed() as response:
-            assert (await response.json())['method'] == 'QUERY'
+            assert (await response.json())["method"] == "QUERY"
 
 
 async def test_use_after_close(echo_server: EchoServer):
@@ -161,7 +168,7 @@ async def test_close_in_request(echo_server: EchoServer):
             await task
 
 
-async def test_builder_use_after_build(echo_server: EchoServer):
+async def test_builder_use_after_build():
     builder = ClientBuilder()
     client = builder.build()
     with pytest.raises(RuntimeError, match="Client was already built"):
@@ -176,7 +183,7 @@ async def test_https_only(echo_server: EchoServer):
         req = client.get(echo_server.url).build_consumed()
         with pytest.raises(BuilderError, match="builder error") as e:
             await req.send()
-        assert {'message': 'URL scheme is not allowed'} in e.value.details["causes"]
+        assert {"message": "URL scheme is not allowed"} in e.value.details["causes"]
 
 
 async def test_https(https_echo_server: EchoServer, cert_authority: trustme.CA):
@@ -184,29 +191,29 @@ async def test_https(https_echo_server: EchoServer, cert_authority: trustme.CA):
     builder = ClientBuilder().add_root_certificate_pem(cert_pem).https_only(True).error_for_status(True)
     async with builder.build() as client:
         resp = await client.get(https_echo_server.url).build_consumed().send()
-        assert (await resp.json())['scheme'] == 'https'
+        assert (await resp.json())["scheme"] == "https"
 
     cert_der = x509.load_pem_x509_certificate(cert_pem).public_bytes(serialization.Encoding.DER)
     builder = ClientBuilder().add_root_certificate_der(cert_der).https_only(True).error_for_status(True)
     async with builder.build() as client:
         resp = await client.get(https_echo_server.url).build_consumed().send()
-        assert (await resp.json())['scheme'] == 'https'
+        assert (await resp.json())["scheme"] == "https"
 
 
-async def test_https__no_trust(https_echo_server: EchoServer, cert_authority: trustme.CA):
+async def test_https__no_trust(https_echo_server: EchoServer):
     builder = ClientBuilder().https_only(True).error_for_status(True)
     async with builder.build() as client:
         req = client.get(https_echo_server.url).build_consumed()
         with pytest.raises(ConnectError) as e:
             await req.send()
-        assert {'message': 'invalid peer certificate: UnknownIssuer'} in e.value.details["causes"]
+        assert {"message": "invalid peer certificate: UnknownIssuer"} in e.value.details["causes"]
 
 
-async def test_https__accept_invalid_certs(https_echo_server: EchoServer, cert_authority: trustme.CA):
+async def test_https__accept_invalid_certs(https_echo_server: EchoServer):
     builder = ClientBuilder().danger_accept_invalid_certs(True).https_only(True).error_for_status(True)
     async with builder.build() as client:
         resp = await client.get(https_echo_server.url).build_consumed().send()
-        assert (await resp.json())['scheme'] == 'https'
+        assert (await resp.json())["scheme"] == "https"
 
 
 async def test_different_runtimes(echo_server: EchoServer):

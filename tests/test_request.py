@@ -1,15 +1,16 @@
 import asyncio
 import copy
 import time
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 import trustme
-from syrupy import SnapshotAssertion
-
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.http import Body, HeaderMap
+from pyreqwest.request import StreamRequest
 from pyreqwest.types import Stream
+from syrupy import SnapshotAssertion
+
 from .servers.server import Server
 
 
@@ -25,7 +26,7 @@ async def test_method(client: Client, echo_server: Server) -> None:
     assert req.method == "GET"
     req.method = "POST"
     resp = await req.send()
-    assert (await resp.json())['method'] == 'POST'
+    assert (await resp.json())["method"] == "POST"
 
 
 async def test_url(client: Client, echo_server: Server) -> None:
@@ -47,8 +48,9 @@ async def test_headers(client: Client, echo_server: Server) -> None:
     assert "X-Test1" not in req.headers and "x-test1" not in req.headers
 
     resp = await req.send()
-    assert sorted([(k, v) for k, v in (await resp.json())['headers'] if k.startswith("x-")]) == [
-        ('x-test2', 'Value2'), ('x-test3', 'Value3')
+    assert sorted([(k, v) for k, v in (await resp.json())["headers"] if k.startswith("x-")]) == [
+        ("x-test2", "Value2"),
+        ("x-test3", "Value3"),
     ]
 
 
@@ -57,9 +59,8 @@ async def test_body__content(client: Client, echo_server: Server, kind: str) -> 
     def body() -> Body:
         if kind == "bytes":
             return Body.from_bytes(b"test1")
-        else:
-            assert kind == "text"
-            return Body.from_text("test1")
+        assert kind == "text"
+        return Body.from_text("test1")
 
     req = client.post(echo_server.url).build_consumed()
     assert req.body is None
@@ -79,7 +80,9 @@ async def test_body__content(client: Client, echo_server: Server, kind: str) -> 
 
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
 async def test_body__stream_fn(
-    client: Client, echo_server: Server, yield_type: type[bytes] | type[bytearray] | type[memoryview]
+    client: Client,
+    echo_server: Server,
+    yield_type: type[bytes] | type[bytearray] | type[memoryview],
 ) -> None:
     async def stream_gen() -> Stream:
         yield yield_type(b"test1")
@@ -110,6 +113,7 @@ async def test_body__stream_class(client: Client, echo_server: Server) -> None:
             async def gen() -> AsyncGenerator[bytes]:
                 yield b"test1"
                 yield b"test2"
+
             return gen()
 
     stream = StreamGen()
@@ -171,7 +175,7 @@ async def test_copy(client: Client, echo_server: Server, call: str, build: str) 
         assert call == "__copy__"
         req2 = copy.copy(req1)
 
-    assert req1.method == req2.method =="GET"
+    assert req1.method == req2.method == "GET"
     assert req1.url == req2.url
     assert req1.headers["x-test1"] == req2.headers["x-test1"] == "Val1"
     assert req1.body and req2.body and req1.body.copy_bytes() == req2.body.copy_bytes() == b"test1"
@@ -182,9 +186,8 @@ async def test_copy(client: Client, echo_server: Server, call: str, build: str) 
         assert (await resp1.json()) == (await resp2.json())
     else:
         assert build == "streamed"
-        async with req1 as resp1:
-            async with req2 as resp2:
-                assert (await resp1.json()) == (await resp2.json())
+        async with req1 as resp1, req2 as resp2:
+            assert (await resp1.json()) == (await resp2.json())
 
 
 async def test_duplicate_send_fails(client: Client, echo_server: Server) -> None:
@@ -200,13 +203,13 @@ async def test_duplicate_context_manager_fails(client: Client, echo_server: Serv
         pass
     with pytest.raises(RuntimeError, match="Request was already sent"):
         async with req as _:
-            assert False
+            pytest.fail("Should not get here")
 
     req = client.get(echo_server.url).build_streamed()
     async with req as _:
         with pytest.raises(RuntimeError, match="Request was already sent"):
             async with req as _:
-                assert False
+                pytest.fail("Should not get here")
 
 
 async def test_cancel(client: Client, echo_server: Server) -> None:
@@ -235,9 +238,9 @@ async def test_cancel_stream_request(client: Client, echo_body_parts_server: Ser
 
     request = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
 
-    async def run_request(req) -> None:
+    async def run_request(req: StreamRequest) -> None:
         async with req as _:
-            assert False
+            pytest.fail("Request should have been cancelled")
 
     task = asyncio.create_task(run_request(request))
     start = time.time()
@@ -252,6 +255,7 @@ class StreamRepr:
     def __aiter__(self) -> AsyncGenerator[bytes]:
         async def gen() -> AsyncGenerator[bytes]:
             yield b"test"
+
         return gen()
 
     def __repr__(self) -> str:

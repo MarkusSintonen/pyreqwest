@@ -1,9 +1,8 @@
+from collections.abc import Sequence
 from copy import copy
-from typing import Sequence
 
 import pytest
 from dirty_equals import Contains
-
 from pyreqwest.http import Mime
 
 
@@ -85,7 +84,8 @@ def test_hash():
 
 
 @pytest.mark.parametrize(
-    "mime_str", ["application/json", "application/json; charset=utf-8", "application/json;charset=utf-8"]
+    "mime_str",
+    ["application/json", "application/json; charset=utf-8", "application/json;charset=utf-8"],
 )
 def test_sequence(mime_str: str):
     mime = Mime.parse(mime_str)

@@ -1,4 +1,5 @@
-from typing import AsyncIterable, Sequence, Mapping, Any, Protocol
+from collections.abc import AsyncIterable, Mapping, Sequence
+from typing import Any, Protocol
 
 from pyreqwest.client import Client
 from pyreqwest.http import Url

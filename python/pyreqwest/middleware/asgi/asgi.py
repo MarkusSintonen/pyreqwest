@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import AsyncIterator, Callable, Coroutine
 from datetime import timedelta
-from typing import Any, Callable, AsyncIterator, Coroutine
+from typing import Any
 from urllib.parse import unquote
 
 from pyreqwest.client import Client
@@ -26,6 +27,7 @@ class ASGITestMiddleware:
             app: ASGI application callable
             timeout: Timeout for ASGI operations (default: 5 seconds)
             scope_update: Optional coroutine to modify the ASGI scope per request
+
         """
         self._app = app
         self._scope_update = scope_update
@@ -141,9 +143,11 @@ class ASGITestMiddleware:
                     break
 
         if len(body_parts) > 1:
+
             async def body_stream() -> AsyncIterator[bytes]:
                 for part in body_parts:
                     yield part
+
             response_builder.body(Body.from_stream(body_stream()))
 
         elif len(body_parts) == 1:

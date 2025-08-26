@@ -1,15 +1,16 @@
 import asyncio
 import traceback
+from collections.abc import AsyncGenerator, Generator
 from datetime import timedelta
-from typing import AsyncGenerator, Any, Generator
+from typing import Any
 
 import pytest
 from orjson import orjson
-
-from pyreqwest.client import ClientBuilder, Client
-from pyreqwest.exceptions import ReadTimeoutError, ConnectTimeoutError
+from pyreqwest.client import Client, ClientBuilder
+from pyreqwest.exceptions import ConnectTimeoutError, ReadTimeoutError
 from pyreqwest.request import StreamRequest
 from pyreqwest.response import Response
+
 from .servers.echo_body_parts_server import EchoBodyPartsServer
 from .servers.echo_server import EchoServer
 
@@ -29,7 +30,11 @@ async def read_chunks(resp: Response):
 @pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
 @pytest.mark.parametrize("yield_empty", [False, True])
 async def test_body_stream__initial_read_size(
-    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, read: str, yield_empty: bool
+    client: Client,
+    echo_body_parts_server: EchoBodyPartsServer,
+    initial_read_size: int | None,
+    read: str,
+    yield_empty: bool,
 ):
     async def stream_gen() -> AsyncGenerator[bytes]:
         for i in range(5):
@@ -107,7 +112,10 @@ async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_serve
 @pytest.mark.parametrize("initial_read_size", [None, 0, 5, 999999])
 @pytest.mark.parametrize("sleep_kind", ["server", "stream"])
 async def test_body_stream__timeout(
-    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, sleep_kind: str
+    client: Client,
+    echo_body_parts_server: EchoBodyPartsServer,
+    initial_read_size: int | None,
+    sleep_kind: str,
 ):
     async def stream_gen() -> AsyncGenerator[bytes]:
         await asyncio.sleep(0)  # Simulate some work
@@ -120,7 +128,12 @@ async def test_body_stream__timeout(
             await asyncio.sleep(0.1)
             yield orjson.dumps({"sleep": 0.0})
 
-    req = client.post(echo_body_parts_server.url).timeout(timedelta(seconds=0.05)).body_stream(stream_gen()).build_streamed()
+    req = (
+        client.post(echo_body_parts_server.url)
+        .timeout(timedelta(seconds=0.05))
+        .body_stream(stream_gen())
+        .build_streamed()
+    )
     if initial_read_size is not None:
         req.initial_read_size = initial_read_size
 
@@ -141,7 +154,10 @@ async def test_body_stream__timeout(
 @pytest.mark.parametrize("initial_read_size", [None, 0, 5, 999999])
 @pytest.mark.parametrize("partial_body", [False, True])
 async def test_body_stream__gen_error(
-    client: Client, echo_body_parts_server: EchoBodyPartsServer, initial_read_size: int | None, partial_body: bool
+    client: Client,
+    echo_body_parts_server: EchoBodyPartsServer,
+    initial_read_size: int | None,
+    partial_body: bool,
 ):
     class MyError(Exception): ...
 

@@ -1,13 +1,13 @@
 import asyncio
 import socket
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterable, Awaitable, Callable
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
-from typing import Protocol, Any, Callable, Awaitable, AsyncIterable
+from typing import Any, Protocol
 
 from granian.constants import Interfaces
 from granian.server.embed import Server as GranianServer
-
 from pyreqwest.http import Url
 
 
@@ -16,7 +16,7 @@ class ASGIApp(Protocol):
         self,
         scope: dict[str, Any],
         receive: Callable[[], Awaitable[dict[str, Any]]],
-        send: Callable[[dict[str, Any]], Awaitable[None]]
+        send: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None: ...
 
 
@@ -28,8 +28,8 @@ class Server(GranianServer, ABC):
         ssl_key_password: str | None = None,
         ssl_ca: Path | None = None,
         ssl_client_verify: bool = False,
-    ):
-        self.proto = 'https' if ssl_key else 'http'
+    ) -> None:
+        self.proto = "https" if ssl_key else "http"
         super().__init__(
             self.app,
             port=find_free_port(),
@@ -65,7 +65,7 @@ class Server(GranianServer, ABC):
 
 def find_free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         return s.getsockname()[1]
 
@@ -75,6 +75,6 @@ async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> Async
     while more_body:
         async with asyncio.timeout(5.0):
             message = await receive()
-        if message.get('body', None):
-            yield message['body']
-        more_body = message.get('more_body', False)
+        if message.get("body", None):
+            yield message["body"]
+        more_body = message.get("more_body", False)

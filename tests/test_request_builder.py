@@ -1,13 +1,14 @@
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from datetime import timedelta
-from typing import AsyncGenerator, Mapping, Sequence, Any
+from typing import Any
 
 import pytest
 import trustme
-
-from pyreqwest.client import ClientBuilder, Client
-from pyreqwest.exceptions import StatusError, BuilderError, ConnectTimeoutError
+from pyreqwest.client import Client, ClientBuilder
+from pyreqwest.exceptions import BuilderError, ConnectTimeoutError, StatusError
 from pyreqwest.http import HeaderMap
-from pyreqwest.request import StreamRequest
+from pyreqwest.request import RequestBuilder, StreamRequest
+
 from .servers.server import Server
 
 
@@ -149,7 +150,7 @@ async def test_version(client: Client, echo_server: Server, https_echo_server: S
     assert (await resp.json())["http_version"] == "2"
 
 
-async def test_form(client: Client, echo_server):
+async def test_form(client: Client, echo_server: Server):
     async def send(arg: Sequence[tuple[str, str]] | Mapping[str, str]) -> str:
         resp = await client.get(echo_server.url).form(arg).build_consumed().send()
         return "".join((await resp.json())["body_parts"])
@@ -168,13 +169,12 @@ async def test_form(client: Client, echo_server):
 
 
 @pytest.mark.parametrize("case", ["query", "form"])
-async def test_form_query_invalid(client: Client, echo_server, case: str):
-    def build(v: Any):
+async def test_form_query_invalid(client: Client, echo_server: Server, case: str):
+    def build(v: Any) -> RequestBuilder:
         if case == "query":
             return client.get(echo_server.url).query(v)
-        else:
-            assert case == "form"
-            return client.get(echo_server.url).form(v)
+        assert case == "form"
+        return client.get(echo_server.url).form(v)
 
     with pytest.raises(TypeError, match="object cannot be converted"):
         build("invalid")
@@ -186,7 +186,7 @@ async def test_form_query_invalid(client: Client, echo_server, case: str):
         build([(1, "b")])
     with pytest.raises(BuilderError, match="Failed to build request") as e:
         build([("foo", {"a": "b"})]).build_consumed()
-    assert {'message': 'unsupported value'} in e.value.details["causes"]
+    assert {"message": "unsupported value"} in e.value.details["causes"]
 
 
 async def test_form_fails_with_body_set(client: Client, echo_server: Server):

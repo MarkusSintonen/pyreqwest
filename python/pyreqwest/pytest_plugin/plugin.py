@@ -9,5 +9,5 @@ def pytest_configure(config):
     """Configure the pytest plugin."""
     config.addinivalue_line(
         "markers",
-        "pyreqwest: mark test to use PyReqwest HTTP client mocking"
+        "pyreqwest: mark test to use PyReqwest HTTP client mocking",
     )

@@ -1,13 +1,14 @@
+from collections.abc import Awaitable, Callable
 from re import Pattern
-from typing import Callable, Awaitable, Any
+from typing import Any
 
 from pyreqwest.http import Url
 from pyreqwest.request import Request
 from pyreqwest.response import Response
 
-
 try:
     from dirty_equals import DirtyEquals as _DirtyEquals
+
     Matcher = _DirtyEquals[Any] | str | Pattern[str]
     JsonMatcher = _DirtyEquals[Any] | Any
 except ImportError:

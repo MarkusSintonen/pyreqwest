@@ -12,7 +12,7 @@ def assert_fail(
     *,
     count: int | None = None,
     min_count: int | None = None,
-    max_count: int | None = None
+    max_count: int | None = None,
 ) -> None:
     msg = _format_counts_assert_message(mock, count, min_count, max_count)
 
@@ -30,7 +30,7 @@ def _format_counts_assert_message(
     mock: Mock,
     count: int | None = None,
     min_count: int | None = None,
-    max_count: int | None = None
+    max_count: int | None = None,
 ) -> str:
     if count is not None:
         expected_desc = f"exactly {count}"
@@ -42,10 +42,12 @@ def _format_counts_assert_message(
             expectations.append(f"at most {max_count}")
         expected_desc = " and ".join(expectations)
 
-    method_path = " ".join([
-        mock._method_matcher.matcher_repr if mock._method_matcher is not None else "*",
-        mock._path_matcher.matcher_repr if mock._path_matcher is not None else "*"
-    ])
+    method_path = " ".join(
+        [
+            mock._method_matcher.matcher_repr if mock._method_matcher is not None else "*",
+            mock._path_matcher.matcher_repr if mock._path_matcher is not None else "*",
+        ],
+    )
     return f'Expected {expected_desc} request(s) but received {len(mock._matched_requests)} to: "{method_path}"'
 
 
@@ -68,7 +70,7 @@ def format_unmatched_request_parts(request: Request, unmatched: set[str]) -> dic
 
     if request.body:
         if (bytes_body := request.body.copy_bytes()) is not None:
-            req_parts["body"] = bytes_body.to_bytes().decode('utf8', errors='replace')
+            req_parts["body"] = bytes_body.to_bytes().decode("utf8", errors="replace")
         elif (stream_body := request.body.get_stream()) is not None:
             req_parts["body"] = repr(stream_body)
         else:
@@ -99,20 +101,19 @@ def _format_mock_matchers_parts(mock: Mock, unmatched: set[str] | None) -> dict[
 def _format_query_matcher(query_matcher: dict[str, InternalMatcher] | InternalMatcher) -> str:
     if isinstance(query_matcher, dict):
         query_parts = [f"{k}={v.matcher_repr}" for k, v in query_matcher.items()]
-        return ', '.join(query_parts)
-    else:
-        return query_matcher.matcher_repr
+        return ", ".join(query_parts)
+    return query_matcher.matcher_repr
 
 
 def _format_header_matchers(header_matchers: dict[str, InternalMatcher]) -> str:
     header_parts = [f"{name.title()}: {value.matcher_repr}" for name, value in header_matchers.items()]
-    return ', '.join(header_parts)
+    return ", ".join(header_parts)
 
 
 def _format_body_matcher(matcher: InternalMatcher, kind: Literal["content", "json"]) -> str:
     if kind == "json":
         try:
-            return json.dumps(matcher.matcher, separators=(',', ':'))
+            return json.dumps(matcher.matcher, separators=(",", ":"))
         except (TypeError, ValueError):
             return matcher.matcher_repr
     elif kind == "content":

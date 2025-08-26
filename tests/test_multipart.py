@@ -1,13 +1,14 @@
 import tempfile
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import AsyncGenerator, Any
+from typing import Any
 
 import pytest
-from requests_toolbelt import MultipartDecoder
-
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import BuilderError
 from pyreqwest.multipart import Form, Part
+from requests_toolbelt import MultipartDecoder
+
 from .servers.server import Server
 
 
@@ -32,42 +33,38 @@ async def test_multipart_text_fields(client: Client, echo_server: Server):
     decoder = decode_multipart(response_data)
     assert len(decoder.parts) == 2
 
-    name_part = next(p for p in decoder.parts if b'name="name"' in p.headers[b'content-disposition'])
-    email_part = next(p for p in decoder.parts if b'name="email"' in p.headers[b'content-disposition'])
+    name_part = next(p for p in decoder.parts if b'name="name"' in p.headers[b"content-disposition"])
+    email_part = next(p for p in decoder.parts if b'name="email"' in p.headers[b"content-disposition"])
 
-    assert name_part.content == b'John'
-    assert email_part.content == b'john@example.com'
-    assert ['content-type', f'multipart/form-data; boundary={boundary}'] in response_data["headers"]
+    assert name_part.content == b"John"
+    assert email_part.content == b"john@example.com"
+    assert ["content-type", f"multipart/form-data; boundary={boundary}"] in response_data["headers"]
 
 
 async def test_multipart_with_custom_part(client: Client, echo_server: Server):
-    custom_part = (Part.from_text("Custom content")
-                  .mime_str("text/plain")
-                  .file_name("custom.txt"))
+    custom_part = Part.from_text("Custom content").mime_str("text/plain").file_name("custom.txt")
 
-    form = (Form()
-            .text("description", "File upload test")
-            .part("file", custom_part))
-    
+    form = Form().text("description", "File upload test").part("file", custom_part)
+
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
 
     assert len(decoder.parts) == 2
 
-    desc_part = next(p for p in decoder.parts if b'name="description"' in p.headers[b'content-disposition'])
-    file_part = next(p for p in decoder.parts if b'name="file"' in p.headers[b'content-disposition'])
+    desc_part = next(p for p in decoder.parts if b'name="description"' in p.headers[b"content-disposition"])
+    file_part = next(p for p in decoder.parts if b'name="file"' in p.headers[b"content-disposition"])
 
-    assert desc_part.content == b'File upload test'
-    assert file_part.content == b'Custom content'
-    assert b'filename="custom.txt"' in file_part.headers[b'content-disposition']
-    assert file_part.headers[b'content-type'] == b'text/plain'
+    assert desc_part.content == b"File upload test"
+    assert file_part.content == b"Custom content"
+    assert b'filename="custom.txt"' in file_part.headers[b"content-disposition"]
+    assert file_part.headers[b"content-type"] == b"text/plain"
 
 
 async def test_multipart_with_file_upload(client: Client, echo_server: Server):
     test_content = "This is test file content\nWith multiple lines"
-    
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tmp:
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
         tmp.write(test_content)
         tmp_path = Path(tmp.name)
 
@@ -81,12 +78,12 @@ async def test_multipart_with_file_upload(client: Client, echo_server: Server):
 
         assert len(decoder.parts) == 2
 
-        title_part = next(p for p in decoder.parts if b'name="title"' in p.headers[b'content-disposition'])
-        doc_part = next(p for p in decoder.parts if b'name="document"' in p.headers[b'content-disposition'])
+        title_part = next(p for p in decoder.parts if b'name="title"' in p.headers[b"content-disposition"])
+        doc_part = next(p for p in decoder.parts if b'name="document"' in p.headers[b"content-disposition"])
 
-        assert title_part.content == b'File Upload Test'
-        assert doc_part.content.decode('utf-8') == test_content
-        assert tmp_path.name.encode() in doc_part.headers[b'content-disposition']
+        assert title_part.content == b"File Upload Test"
+        assert doc_part.content.decode("utf-8") == test_content
+        assert tmp_path.name.encode() in doc_part.headers[b"content-disposition"]
 
     finally:
         tmp_path.unlink()
@@ -95,7 +92,7 @@ async def test_multipart_with_file_upload(client: Client, echo_server: Server):
 async def test_multipart_with_part_file(client: Client, echo_server: Server):
     test_content = "Part file content with special chars: àáâãäåæç"
 
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
         tmp.write(test_content)
         tmp_path = Path(tmp.name)
 
@@ -103,9 +100,7 @@ async def test_multipart_with_part_file(client: Client, echo_server: Server):
         file_part = await Part.from_file(tmp_path)
         file_part = file_part.mime_str("text/plain; charset=utf-8")
 
-        form = (Form()
-                .text("description", "Using Part.file")
-                .part("attachment", file_part))
+        form = Form().text("description", "Using Part.file").part("attachment", file_part)
 
         resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
         response_data = await resp.json()
@@ -113,13 +108,13 @@ async def test_multipart_with_part_file(client: Client, echo_server: Server):
 
         assert len(decoder.parts) == 2
 
-        desc_part = next(p for p in decoder.parts if b'name="description"' in p.headers[b'content-disposition'])
-        file_part = next(p for p in decoder.parts if b'name="attachment"' in p.headers[b'content-disposition'])
+        desc_part = next(p for p in decoder.parts if b'name="description"' in p.headers[b"content-disposition"])
+        file_part = next(p for p in decoder.parts if b'name="attachment"' in p.headers[b"content-disposition"])
 
-        assert desc_part.content == b'Using Part.file'
-        assert file_part.content.decode('utf-8') == test_content
-        assert tmp_path.name.encode() in file_part.headers[b'content-disposition']
-        assert file_part.headers[b'content-type'] == b'text/plain; charset=utf-8'
+        assert desc_part.content == b"Using Part.file"
+        assert file_part.content.decode("utf-8") == test_content
+        assert tmp_path.name.encode() in file_part.headers[b"content-disposition"]
+        assert file_part.headers[b"content-type"] == b"text/plain; charset=utf-8"
     finally:
         tmp_path.unlink()
 
@@ -129,10 +124,8 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server):
         yield b"First chunk"
         yield b" Second chunk"
 
-    stream_part = (Part.from_stream(data_stream())
-                  .mime_str("application/octet-stream")
-                  .file_name("streamed_data.bin"))
-    
+    stream_part = Part.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
+
     form = Form().text("type", "streaming").part("data", stream_part)
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
@@ -141,13 +134,13 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server):
 
     assert len(decoder.parts) == 2
 
-    type_part = next(p for p in decoder.parts if b'name="type"' in p.headers[b'content-disposition'])
-    data_part = next(p for p in decoder.parts if b'name="data"' in p.headers[b'content-disposition'])
+    type_part = next(p for p in decoder.parts if b'name="type"' in p.headers[b"content-disposition"])
+    data_part = next(p for p in decoder.parts if b'name="data"' in p.headers[b"content-disposition"])
 
-    assert type_part.content == b'streaming'
-    assert data_part.content == b'First chunk Second chunk'
-    assert b'filename="streamed_data.bin"' in data_part.headers[b'content-disposition']
-    assert data_part.headers[b'content-type'] == b'application/octet-stream'
+    assert type_part.content == b"streaming"
+    assert data_part.content == b"First chunk Second chunk"
+    assert b'filename="streamed_data.bin"' in data_part.headers[b"content-disposition"]
+    assert data_part.headers[b"content-type"] == b"application/octet-stream"
 
 
 async def test_multipart_with_bytes_part(client: Client, echo_server: Server):
@@ -161,12 +154,12 @@ async def test_multipart_with_bytes_part(client: Client, echo_server: Server):
 
     assert len(decoder.parts) == 2
 
-    type_part = next(p for p in decoder.parts if b'name="type"' in p.headers[b'content-disposition'])
-    data_part = next(p for p in decoder.parts if b'name="data"' in p.headers[b'content-disposition'])
+    type_part = next(p for p in decoder.parts if b'name="type"' in p.headers[b"content-disposition"])
+    data_part = next(p for p in decoder.parts if b'name="data"' in p.headers[b"content-disposition"])
 
-    assert type_part.content == b'binary'
+    assert type_part.content == b"binary"
     assert data_part.content == binary_data
-    assert data_part.headers[b'content-type'] == b'application/octet-stream'
+    assert data_part.headers[b"content-type"] == b"application/octet-stream"
 
 
 async def test_multipart_with_headers(client: Client, echo_server: Server):
@@ -181,19 +174,19 @@ async def test_multipart_with_headers(client: Client, echo_server: Server):
     assert len(decoder.parts) == 1
 
     custom_part = decoder.parts[0]
-    assert custom_part.content == b'content with headers'
-    assert b'name="custom"' in custom_part.headers[b'content-disposition']
-    assert custom_part.headers[b'x-custom-header'] == b'custom-value'
-    assert custom_part.headers[b'x-test'] == b'test'
+    assert custom_part.content == b"content with headers"
+    assert b'name="custom"' in custom_part.headers[b"content-disposition"]
+    assert custom_part.headers[b"x-custom-header"] == b"custom-value"
+    assert custom_part.headers[b"x-test"] == b"test"
 
 
 async def test_multipart_encoding_options(client: Client, echo_server: Server):
     special_value = "test/path?query=value&other=data"
-    
+
     form1 = Form().text("data", special_value).percent_encode_path_segment()
     form2 = Form().text("data", special_value).percent_encode_attr_chars()
     form3 = Form().text("data", special_value).percent_encode_noop()
-    
+
     resp1 = await client.post(echo_server.url).multipart(form1).build_consumed().send()
     resp2 = await client.post(echo_server.url).multipart(form2).build_consumed().send()
     resp3 = await client.post(echo_server.url).multipart(form3).build_consumed().send()
@@ -206,13 +199,13 @@ async def test_multipart_encoding_options(client: Client, echo_server: Server):
     assert len(decoder2.parts) == 1
     assert len(decoder3.parts) == 1
 
-    assert b'name="data"' in decoder1.parts[0].headers[b'content-disposition']
-    assert b'name="data"' in decoder2.parts[0].headers[b'content-disposition']
-    assert b'name="data"' in decoder3.parts[0].headers[b'content-disposition']
+    assert b'name="data"' in decoder1.parts[0].headers[b"content-disposition"]
+    assert b'name="data"' in decoder2.parts[0].headers[b"content-disposition"]
+    assert b'name="data"' in decoder3.parts[0].headers[b"content-disposition"]
 
-    assert decoder1.parts[0].content == special_value.encode('utf-8')
-    assert decoder2.parts[0].content == special_value.encode('utf-8')
-    assert decoder3.parts[0].content == special_value.encode('utf-8')
+    assert decoder1.parts[0].content == special_value.encode("utf-8")
+    assert decoder2.parts[0].content == special_value.encode("utf-8")
+    assert decoder3.parts[0].content == special_value.encode("utf-8")
 
 
 async def test_multipart_empty_form(client: Client, echo_server: Server):
@@ -222,7 +215,7 @@ async def test_multipart_empty_form(client: Client, echo_server: Server):
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
 
-    assert ['content-type', f'multipart/form-data; boundary={boundary}'] in response_data["headers"]
+    assert ["content-type", f"multipart/form-data; boundary={boundary}"] in response_data["headers"]
     assert response_data["body_parts"] == []
 
 
@@ -235,18 +228,18 @@ async def test_multipart_multiple_values_same_name(client: Client, echo_server: 
 
     assert len(decoder.parts) == 3
 
-    tag_parts = [p for p in decoder.parts if b'name="tags"' in p.headers[b'content-disposition']]
+    tag_parts = [p for p in decoder.parts if b'name="tags"' in p.headers[b"content-disposition"]]
     assert len(tag_parts) == 3
 
-    assert [part.content.decode('utf-8') for part in tag_parts] == ['python', 'async', 'http']
+    assert [part.content.decode("utf-8") for part in tag_parts] == ["python", "async", "http"]
 
 
 async def test_multipart_with_body_conflict(client: Client, echo_server: Server):
     form = Form().text("test", "value")
-    
+
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
         client.post(echo_server.url).multipart(form).body_text("conflict").build_consumed()
-    
+
     form2 = Form().text("test", "value")
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
         client.post(echo_server.url).body_text("conflict").multipart(form2).build_consumed()

@@ -4,7 +4,6 @@ from copy import copy
 import pytest
 import yarl
 from dirty_equals import Contains
-
 from pyreqwest.http import Url
 
 

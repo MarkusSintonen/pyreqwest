@@ -1,6 +1,8 @@
 import json
+from collections.abc import Callable
 from functools import cached_property
-from typing import Pattern, Self, Any, Literal, assert_never
+from re import Pattern
+from typing import Any, Literal, Self, assert_never
 
 import pytest
 
@@ -8,8 +10,16 @@ from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
 from pyreqwest.pytest_plugin.internal.matcher import InternalMatcher
-from pyreqwest.pytest_plugin.types import MethodMatcher, UrlMatcher, BodyContentMatcher, CustomMatcher, CustomHandler, \
-    Matcher, QueryMatcher, JsonMatcher
+from pyreqwest.pytest_plugin.types import (
+    BodyContentMatcher,
+    CustomHandler,
+    CustomMatcher,
+    JsonMatcher,
+    Matcher,
+    MethodMatcher,
+    QueryMatcher,
+    UrlMatcher,
+)
 from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
 from pyreqwest.types import Middleware
@@ -32,7 +42,11 @@ class Mock:
         self._built_response: Response | None = None
 
     def assert_called(
-        self, *, count: int | None = None, min_count: int | None = None, max_count: int | None = None
+        self,
+        *,
+        count: int | None = None,
+        min_count: int | None = None,
+        max_count: int | None = None,
     ) -> None:
         """Assert that this mock was called the expected number of times. By default, exactly once."""
         if count is None and min_count is None and max_count is None:
@@ -45,10 +59,15 @@ class Mock:
 
         # Generate and raise detailed error message
         from pyreqwest.pytest_plugin.internal.assert_message import assert_fail
+
         assert_fail(self, count=count, min_count=min_count, max_count=max_count)
 
     def _assertion_passes(
-        self, actual_count: int, count: int | None, min_count: int | None, max_count: int | None
+        self,
+        actual_count: int,
+        count: int | None,
+        min_count: int | None,
+        max_count: int | None,
     ) -> bool:
         """Check if the mock call count matches the expected criteria."""
         # Exact count check takes precedence
@@ -147,9 +166,7 @@ class Mock:
         }
         if all(matches.values()):
             response = (
-                await self._custom_handler(request)
-                if self._custom_handler is not None
-                else await self._response()
+                await self._custom_handler(request) if self._custom_handler is not None else await self._response()
             )
             matches["handler"] = self._custom_handler is None or response is not None
         else:
@@ -158,13 +175,13 @@ class Mock:
         if response is not None:
             self._matched_requests.append(request)
             return response
-        else:
-            from pyreqwest.pytest_plugin.internal.assert_message import format_unmatched_request_parts
-            # Memo the reprs as we may consume the request
-            self._unmatched_requests_repr_parts.append(
-                format_unmatched_request_parts(request, unmatched={k for k, matched in matches.items() if not matched})
-            )
-            return None
+        from pyreqwest.pytest_plugin.internal.assert_message import format_unmatched_request_parts
+
+        # Memo the reprs as we may consume the request
+        self._unmatched_requests_repr_parts.append(
+            format_unmatched_request_parts(request, unmatched={k for k, matched in matches.items() if not matched}),
+        )
+        return None
 
     @cached_property
     def _response_builder(self) -> ResponseBuilder:
@@ -228,10 +245,9 @@ class Mock:
                 if actual_value is None or not expected_value.matches(actual_value):
                     return False
             return True
-        elif isinstance(self._query_matcher.matcher, str | Pattern):
+        if isinstance(self._query_matcher.matcher, str | Pattern):
             return self._query_matcher.matches(query_str)
-        else:
-            return self._query_matcher.matches(query_dict)
+        return self._query_matcher.matches(query_dict)
 
     async def _matches_custom(self, request: Request) -> bool:
         return self._custom_matcher is None or await self._custom_matcher(request)
@@ -312,10 +328,9 @@ class ClientMocker:
 
             # No rule matched
             if self._strict:
-                raise AssertionError(f"No mock rule matched request: {request.method} {request.url}")
-            else:
-                # Let the request proceed normally
-                return await next_handler.run(request)
+                msg = f"No mock rule matched request: {request.method} {request.url}"
+                raise AssertionError(msg)
+            return await next_handler.run(request)  # Proceed normally
 
         return mock_middleware
 
@@ -327,7 +342,7 @@ def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
     orig_build_consumed = RequestBuilder.build_consumed
     orig_build_streamed = RequestBuilder.build_streamed
 
-    def build_patch(self: RequestBuilder, orig) -> Request:
+    def build_patch(self: RequestBuilder, orig: Callable) -> Request:
         request = orig(self)
         assert request._interceptor is None
         request._interceptor = mocker._create_middleware()

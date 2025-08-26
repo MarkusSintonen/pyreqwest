@@ -1,12 +1,11 @@
 import re
-from collections.abc import MutableMapping, Mapping, ItemsView, KeysView, ValuesView
+from collections.abc import Callable, ItemsView, KeysView, Mapping, MutableMapping, ValuesView
 from copy import copy
-from typing import Callable, Any
+from typing import Any
 
 import pytest
-from dirty_equals import IsPartialDict, Contains
+from dirty_equals import Contains, IsPartialDict
 from multidict import CIMultiDict
-
 from pyreqwest.http import HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView
 
 
@@ -15,12 +14,13 @@ def test_init__empty():
 
 
 @pytest.mark.parametrize(
-    "pairs", [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]]
+    "pairs",
+    [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]],
 )
 @pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
 def test_init__args(pairs: list[tuple[str, str]], kind: Callable[[list], Any]):
     headers = HeaderMap(kind(pairs))
-    if kind == dict:
+    if kind is dict:
         assert len(headers) == len(dict(pairs))
         assert headers == dict(pairs)
     else:
@@ -96,12 +96,13 @@ def test_delitem():
 
 
 @pytest.mark.parametrize(
-    "pairs", [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]]
+    "pairs",
+    [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]],
 )
 def test_iter(pairs: list[tuple[str, str]]):
     headers = HeaderMap(pairs)
     assert sorted(list(iter(headers))) == sorted([k for k, _ in pairs])
-    assert {**headers} == {k: v for k, v in reversed(pairs)} # In HeaderMap first one wins
+    assert {**headers} == dict(reversed(pairs))  # In HeaderMap first one wins
 
 
 def test_bool():
@@ -111,7 +112,8 @@ def test_bool():
 
 
 @pytest.mark.parametrize(
-    "pairs", [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]]
+    "pairs",
+    [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]],
 )
 def test_len(pairs: list[tuple[str, str]]):
     headers = HeaderMap(pairs)
@@ -303,7 +305,7 @@ def test_popitem():
     popped.append(headers.popitem())
     assert len(headers) == 0
     assert [kv for kv in popped if kv[0] == "a"] == [("a", "v1"), ("a", "v3")]
-    assert sorted(popped) == [("a", "v1"), ("a", "v3"), ("b", "v2")] # sorted as "b" is allowed to change order
+    assert sorted(popped) == [("a", "v1"), ("a", "v3"), ("b", "v2")]  # sorted as "b" is allowed to change order
 
     with pytest.raises(KeyError, match="HeaderMap is empty"):
         headers.popitem()
@@ -312,7 +314,8 @@ def test_popitem():
 
 
 @pytest.mark.parametrize(
-    "pairs", [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]]
+    "pairs",
+    [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]],
 )
 def test_clear(pairs: list[tuple[str, str]]):
     headers = HeaderMap(pairs)
@@ -492,7 +495,7 @@ def test_popall():
 
 def test_dict_multi_value():
     headers = HeaderMap()
-    assert type(headers.dict_multi_value()) == dict
+    assert type(headers.dict_multi_value()) is dict
     assert headers.dict_multi_value() == {}
 
     headers = HeaderMap([("a", "v1")])
@@ -544,26 +547,26 @@ def test_abc():
     items = headers.items()
     keys = headers.keys()
     values = headers.values()
-    assert type(headers) == HeaderMap
+    assert type(headers) is HeaderMap
     assert isinstance(headers, MutableMapping) and isinstance(headers, Mapping)
     assert not isinstance(headers, dict)
 
     assert issubclass(HeaderMap, MutableMapping) and issubclass(HeaderMap, Mapping)
     assert not issubclass(HeaderMap, dict)
 
-    assert type(items) == HeaderMapItemsView
+    assert type(items) is HeaderMapItemsView
     assert isinstance(items, ItemsView)
-    assert not isinstance(items, type(dict().items()))
-    assert type(keys) == HeaderMapKeysView
+    assert not isinstance(items, type({}.items()))
+    assert type(keys) is HeaderMapKeysView
     assert isinstance(keys, KeysView)
-    assert not isinstance(keys, type(dict().keys()))
-    assert type(values) == HeaderMapValuesView
+    assert not isinstance(keys, type({}.keys()))
+    assert type(values) is HeaderMapValuesView
     assert isinstance(values, ValuesView)
-    assert not isinstance(values, type(dict().values()))
+    assert not isinstance(values, type({}.values()))
 
     assert issubclass(HeaderMapItemsView, ItemsView)
-    assert not issubclass(HeaderMapItemsView, type(dict().items()))
+    assert not issubclass(HeaderMapItemsView, type({}.items()))
     assert issubclass(HeaderMapKeysView, KeysView)
-    assert not issubclass(HeaderMapKeysView, type(dict().keys()))
+    assert not issubclass(HeaderMapKeysView, type({}.keys()))
     assert issubclass(HeaderMapValuesView, ValuesView)
-    assert not issubclass(HeaderMapValuesView, type(dict().values()))
+    assert not issubclass(HeaderMapValuesView, type({}.values()))
