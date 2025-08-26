@@ -85,9 +85,9 @@ impl ClientBuilder {
         Ok(slf)
     }
 
-    fn max_connections(mut slf: PyRefMut<Self>, max: Option<usize>) -> PyResult<PyRefMut<Self>> {
+    fn max_connections(mut slf: PyRefMut<Self>, max_connections: Option<usize>) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
-        slf.max_connections = max;
+        slf.max_connections = max_connections;
         Ok(slf)
     }
 
@@ -127,8 +127,8 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.deflate(enable)))
     }
 
-    fn max_redirects(slf: PyRefMut<Self>, max: usize) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.redirect(redirect::Policy::limited(max))))
+    fn max_redirects(slf: PyRefMut<Self>, max_redirects: usize) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.redirect(redirect::Policy::limited(max_redirects))))
     }
 
     fn referer(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
@@ -167,8 +167,8 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.pool_idle_timeout(timeout)))
     }
 
-    fn pool_max_idle_per_host(slf: PyRefMut<Self>, max: usize) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.pool_max_idle_per_host(max)))
+    fn pool_max_idle_per_host(slf: PyRefMut<Self>, max_idle: usize) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.pool_max_idle_per_host(max_idle)))
     }
 
     fn http1_title_case_headers(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
