@@ -55,7 +55,8 @@ select = ["ALL"]
 ignore = ["FBT", "TC003", "PYI021", "ANN401", "PLC0414", "S101"]
 
 [tool.ruff.lint.per-file-ignores]
-"./python/pyreqwest/pytest_plugin/*" = ["SLF001"]
+"./python/pyreqwest/pytest_plugin/*" = ["SLF001", "PLC0415"]
+"./python/pyreqwest/pytest_plugin/internal/*" = ["D"]
 "./tests/*" = [
     "D",
     "B011",

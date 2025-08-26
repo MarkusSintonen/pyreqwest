@@ -1,3 +1,5 @@
+"""Module providing HTTP request mocking capabilities for pyreqwest clients in tests."""
+
 import json
 from collections.abc import Callable
 from functools import cached_property
@@ -26,7 +28,10 @@ from pyreqwest.types import Middleware
 
 
 class Mock:
+    """Class representing a single mock rule."""
+
     def __init__(self, method: MethodMatcher | None = None, path: UrlMatcher | None = None) -> None:
+        """Do not use directly. Instead, use ClientMocker.mock()."""
         self._method_matcher = InternalMatcher(method) if method is not None else None
         self._path_matcher = InternalMatcher(path) if path is not None else None
         self._query_matcher: dict[str, InternalMatcher] | InternalMatcher | None = None
@@ -52,47 +57,42 @@ class Mock:
         if count is None and min_count is None and max_count is None:
             count = 1
 
-        actual_count = len(self._matched_requests)
-
-        if self._assertion_passes(actual_count, count, min_count, max_count):
+        if self._assertion_passes(count, min_count, max_count):
             return
 
-        # Generate and raise detailed error message
         from pyreqwest.pytest_plugin.internal.assert_message import assert_fail
 
         assert_fail(self, count=count, min_count=min_count, max_count=max_count)
 
     def _assertion_passes(
         self,
-        actual_count: int,
         count: int | None,
         min_count: int | None,
         max_count: int | None,
     ) -> bool:
-        """Check if the mock call count matches the expected criteria."""
-        # Exact count check takes precedence
+        actual_count = len(self._matched_requests)
         if count is not None:
             return actual_count == count
 
-        # Range check (both min and max can be specified independently)
         min_satisfied = min_count is None or actual_count >= min_count
         max_satisfied = max_count is None or actual_count <= max_count
 
         return min_satisfied and max_satisfied
 
     def get_requests(self) -> list[Request]:
-        """Get all captured requests by this mock"""
+        """Get all captured requests by this mock."""
         return [*self._matched_requests]
 
     def get_call_count(self) -> int:
-        """Get the total number of calls to this mock"""
+        """Get the total number of calls to this mock."""
         return len(self._matched_requests)
 
     def reset_requests(self) -> None:
-        """Reset all captured requests for this mock"""
+        """Reset all captured requests for this mock."""
         self._matched_requests.clear()
 
     def match_query(self, query: QueryMatcher) -> Self:
+        """Set a matcher to match the entire query string or specific query parameters."""
         if isinstance(query, dict):
             self._query_matcher = {k: InternalMatcher(v) for k, v in query.items()}
         else:
@@ -100,57 +100,70 @@ class Mock:
         return self
 
     def match_query_param(self, name: str, value: Matcher) -> Self:
+        """Set a matcher to match a specific query parameter."""
         if not isinstance(self._query_matcher, dict):
             self._query_matcher = {}
         self._query_matcher[name] = InternalMatcher(value)
         return self
 
     def match_header(self, name: str, value: Matcher) -> Self:
+        """Set a matcher to match a specific request header."""
         self._header_matchers[name] = InternalMatcher(value)
         return self
 
     def match_body(self, matcher: BodyContentMatcher) -> Self:
+        """Set a matcher to match request bodies as raw content (text or bytes)."""
         self._body_matcher = (InternalMatcher(matcher), "content")
         return self
 
     def match_body_json(self, matcher: JsonMatcher) -> Self:
+        """Set a matcher to match JSON request bodies."""
         self._body_matcher = (InternalMatcher(matcher), "json")
         return self
 
     def match_request(self, matcher: CustomMatcher) -> Self:
+        """Set a custom matcher to match requests."""
         self._custom_matcher = matcher
         return self
 
     def match_request_with_response(self, handler: CustomHandler) -> Self:
+        """Set a custom handler to generate the response for matched requests."""
         assert not self._using_response_builder, "Cannot use response builder and custom handler together"
         self._custom_handler = handler
         return self
 
     def with_status(self, status: int) -> Self:
+        """Set the mocked response status code."""
         self._response_builder.status(status)
         return self
 
     def with_header(self, name: str, value: str) -> Self:
+        """Add a header to the mocked response."""
         self._response_builder.header(name, value)
         return self
 
     def with_body(self, body: Body) -> Self:
+        """Set the mocked response body to the given Body."""
         self._response_builder.body(body)
         return self
 
     def with_body_bytes(self, body: bytes | bytearray | memoryview) -> Self:
+        """Set the mocked response body to the given bytes."""
         self._response_builder.body_bytes(body)
         return self
 
     def with_body_text(self, body: str) -> Self:
+        """Set the mocked response body to the given text."""
         self._response_builder.body_text(body)
         return self
 
     def with_body_json(self, json: Any) -> Self:
+        """Set the mocked response body to the given JSON-serializable object."""
         self._response_builder.body_json(json)
         return self
 
     def with_version(self, version: str) -> Self:
+        """Set the mocked response HTTP version."""
         self._response_builder.version(version)
         return self
 
@@ -175,6 +188,7 @@ class Mock:
         if response is not None:
             self._matched_requests.append(request)
             return response
+
         from pyreqwest.pytest_plugin.internal.assert_message import format_unmatched_request_parts
 
         # Memo the reprs as we may consume the request
@@ -257,6 +271,7 @@ class ClientMocker:
     """Main class for mocking HTTP requests."""
 
     def __init__(self) -> None:
+        """Initialize the ClientMocker."""
         self._mocks: list[Mock] = []
         self._strict = False
 
@@ -300,19 +315,19 @@ class ClientMocker:
         return self
 
     def get_requests(self) -> list[Request]:
-        """Get all captured requests in all mocks"""
+        """Get all captured requests in all mocks."""
         return [request for mock in self._mocks for request in mock.get_requests()]
 
     def get_call_count(self) -> int:
-        """Get the total number of calls in all mocks"""
+        """Get the total number of calls in all mocks."""
         return sum(mock.get_call_count() for mock in self._mocks)
 
     def clear(self) -> None:
-        """Remove all mocks"""
+        """Remove all mocks."""
         self._mocks.clear()
 
     def reset_requests(self) -> None:
-        """Reset all captured requests in all mocks"""
+        """Reset all captured requests in all mocks."""
         for mock in self._mocks:
             mock.reset_requests()
 
