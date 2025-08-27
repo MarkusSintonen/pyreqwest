@@ -172,7 +172,8 @@ async def test_call_counting(client_mocker: ClientMocker) -> None:
 
 async def test_response_headers(client_mocker: ClientMocker) -> None:
     client_mocker.get("/test").with_body_text("Hello").with_header("X-Custom-Header", "custom-value").with_header(
-        "x-rate-limit", "100",
+        "x-rate-limit",
+        "100",
     )
     client = ClientBuilder().build()
     resp = await client.get("http://api.example.com/test").build_consumed().send()
@@ -303,7 +304,8 @@ async def test_regex_header_matching(client_mocker: ClientMocker) -> None:
 
 async def test_mock_chaining_and_reset(client_mocker: ClientMocker) -> None:
     client_mocker.get("/resource").with_status(200).with_body_json({"id": 1, "name": "Resource"}).with_header(
-        "X-Rate-Limit", "100",
+        "X-Rate-Limit",
+        "100",
     ).with_header("X-Remaining", "99")
 
     client = ClientBuilder().build()
@@ -773,7 +775,8 @@ async def test_query_matching_case_sensitivity(client_mocker: ClientMocker) -> N
 
 async def test_query_matching_with_other_matchers(client_mocker: ClientMocker) -> None:
     client_mocker.post("/combined").match_query({"action": "create"}).match_header(
-        "Content-Type", "application/json",
+        "Content-Type",
+        "application/json",
     ).match_body(re.compile(r'.*"name":\s*"test".*')).with_body_json({"combined_match": True})
 
     client_mocker.post("/combined").with_body_json({"partial_match": True})

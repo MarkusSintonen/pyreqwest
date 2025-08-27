@@ -52,7 +52,18 @@ indent-width = 4
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["FBT", "TC003", "PYI021", "ANN401", "PLC0414", "S101", "PT018", "D203", "D213"]
+ignore = [
+    "FBT",
+    "TC003",
+    "PYI021",
+    "ANN401",
+    "PLC0414",
+    "S101",
+    "PT018",
+    "D203",
+    "D213",
+    "COM812",  # Formatter conflict
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

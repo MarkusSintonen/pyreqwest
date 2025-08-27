@@ -41,6 +41,7 @@ class ASGITestMiddleware:
 
     async def __aenter__(self) -> None:
         """Start up the ASGI application."""
+
         async def wrapped_lifespan() -> None:
             await self._app(
                 {"type": "lifespan", "asgi": {"version": "3.0"}, "state": self._state},

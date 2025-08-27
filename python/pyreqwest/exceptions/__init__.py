@@ -6,14 +6,19 @@ from typing import Any, Generic, TypedDict, TypeVar
 
 class Cause(TypedDict):
     """A cause of an error."""
+
     message: str
+
 
 class CauseErrorDetails(TypedDict):
     """Details for errors that may have causes."""
+
     causes: list[Cause] | None
+
 
 class StatusErrorDetails(TypedDict):
     """Details for errors that have an associated HTTP status code."""
+
     status: int
 
 
@@ -28,6 +33,7 @@ class PyreqwestError(Exception):
         assert isinstance(message, str)
         Exception.__init__(self, message, *args)
         self.message = message
+
 
 class DetailedPyreqwestError(PyreqwestError, Generic[T]):
     """Base class for all pyreqwest errors with details.
@@ -48,11 +54,13 @@ class RequestError(DetailedPyreqwestError[T], Generic[T]):
     Details may be available in `details`.
     """
 
+
 class StatusError(RequestError[StatusErrorDetails]):
     """Error due to HTTP 4xx or 5xx status code. Raised when `error_for_status` is enabled.
 
     The status code is available in `details["status"]`.
     """
+
 
 class RedirectError(RequestError[CauseErrorDetails]):
     """Error due to too many redirects. Raised when `max_redirects` is exceeded.
@@ -67,11 +75,13 @@ class BodyError(RequestError[CauseErrorDetails]):
     Cause details may be available in `details["causes"]`.
     """
 
+
 class DecodeError(BodyError):
     """Error while decoding the response body.
 
     Cause details may be available in `details["causes"]`.
     """
+
 
 class JSONDecodeError(DecodeError, JSONDecodeError_):
     """Error while decoding the response body as JSON.
@@ -94,12 +104,14 @@ class TransportError(RequestError[CauseErrorDetails]):
     Cause details may be available in `details["causes"]`.
     """
 
+
 class RequestTimeoutError(TransportError, TimeoutError):
     """Error due to a timeout.
 
     This indicates that the timeout configured for the request was reached.
     Cause details may be available in `details["causes"]`.
     """
+
 
 class NetworkError(TransportError):
     """Error due to a network failure.
@@ -115,16 +127,21 @@ class ConnectTimeoutError(RequestTimeoutError):
     Cause details may be available in `details["causes"]`.
     """
 
+
 class ReadTimeoutError(RequestTimeoutError):
     """Timeout while reading body.
 
     Cause details may be available in `details["causes"]`.
     """
+
+
 class WriteTimeoutError(RequestTimeoutError):
     """Timeout while sending body.
 
     Cause details may be available in `details["causes"]`.
     """
+
+
 class PoolTimeoutError(RequestTimeoutError):
     """Timeout while acquiring a connection from the pool.
 
@@ -137,11 +154,15 @@ class ConnectError(NetworkError):
 
     Cause details may be available in `details["causes"]`.
     """
+
+
 class ReadError(NetworkError):
     """Network error while reading body.
 
     Cause details may be available in `details["causes"]`.
     """
+
+
 class WriteError(NetworkError):
     """Network error while sending body.
 
@@ -154,6 +175,7 @@ class ClientClosedError(RequestError[CauseErrorDetails]):
 
     Cause details may be available in `details["causes"]`.
     """
+
 
 class BuilderError(DetailedPyreqwestError[CauseErrorDetails], ValueError):
     """Error while building a request.

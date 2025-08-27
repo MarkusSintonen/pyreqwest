@@ -38,7 +38,7 @@ async def test_assert_called_default_exactly_once_success(client_mocker: ClientM
 
 
 async def test_assert_called_default_exactly_once_failure(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
     client_mocker.get("/different").with_body_text("different response")
@@ -61,7 +61,7 @@ async def test_assert_called_exact_count_success(client_mocker: ClientMocker, cl
 
 
 async def test_assert_called_exact_count_failure(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = (
         client_mocker.post("/users")
@@ -111,7 +111,7 @@ async def test_assert_called_min_count_success(client_mocker: ClientMocker, clie
 
 
 async def test_assert_called_min_count_failure(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/endpoint").match_query({"filter": "active"}).with_body_json({"data": []})
 
@@ -136,7 +136,7 @@ async def test_assert_called_max_count_success(client_mocker: ClientMocker, clie
 
 
 async def test_assert_called_max_count_failure(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
 
@@ -159,7 +159,7 @@ async def test_assert_called_min_max_range_success(client_mocker: ClientMocker, 
 
 
 async def test_assert_called_min_max_range_failure(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
 
@@ -172,7 +172,7 @@ async def test_assert_called_min_max_range_failure(
 
 
 async def test_assert_called_complex_mock_with_all_matchers(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = (
         client_mocker.post("/complex")
@@ -227,7 +227,7 @@ async def test_assert_called_complex_mock_with_all_matchers(
 
 
 async def test_assert_called_custom_matcher_and_handler(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     async def is_admin_request(request: Request) -> bool:
         if request.body is None or (body_bytes := request.body.copy_bytes()) is None:
@@ -269,7 +269,7 @@ async def test_assert_called_custom_matcher_and_handler(
 
 
 async def test_assert_called_with_matched_and_unmatched_requests(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/users").match_query({"active": "true"}).with_body_json({"users": []})
 
@@ -295,7 +295,7 @@ async def test_assert_called_with_matched_and_unmatched_requests(
 
 
 async def test_assert_called_many_unmatched_requests_truncation(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/specific").with_body_text("response")
 
@@ -316,7 +316,7 @@ async def test_assert_called_many_unmatched_requests_truncation(
 
 
 async def test_assert_called_regex_matchers_display(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     path_pattern = re.compile(r"/users/\d+")
     query_pattern = re.compile(r".*token=\w+.*")
@@ -357,7 +357,7 @@ async def test_assert_called_zero_count_success(client_mocker: ClientMocker, cli
 
 
 async def test_assert_called_zero_count_failure(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
 
@@ -370,7 +370,7 @@ async def test_assert_called_zero_count_failure(
 
 
 async def test_dirty_equals_matcher_repr(
-    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion,
+    client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = client_mocker.get("/test").match_query(
         IsPartialDict({"values": IsInstance(list) & Contains("admin", "user")}),
