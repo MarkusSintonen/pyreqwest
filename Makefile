@@ -25,6 +25,7 @@ format:
 	uv run ruff format $(PYTHON_DIRS)
 	uv run ruff check --fix $(PYTHON_DIRS)
 	cargo fmt
+	cargo clippy --fix
 
 .PHONY: type-check
 type-check:
