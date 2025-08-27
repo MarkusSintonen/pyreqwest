@@ -2,7 +2,7 @@ use crate::asyncio::get_running_loop;
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Handle;
 use crate::exceptions::utils::map_send_error;
-use crate::exceptions::{CloseError, PoolTimeoutError};
+use crate::exceptions::{ClientClosedError, PoolTimeoutError};
 use crate::http::{Extensions, Url, UrlType};
 use crate::http::{HeaderMap, Method};
 use crate::middleware::Next;
@@ -151,7 +151,7 @@ impl Client {
 
         tokio::select! {
             res = fut => res?,
-            _ = close_handle.cancelled() => Err(CloseError::from_causes("Client was closed", vec![]),)
+            _ = close_handle.cancelled() => Err(ClientClosedError::from_causes("Client was closed", vec![]),)
         }
     }
 

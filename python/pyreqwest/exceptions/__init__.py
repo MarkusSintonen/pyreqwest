@@ -1,51 +1,171 @@
-from json import JSONDecodeError as JSONDecodeError_
-from typing import TypedDict, Generic, TypeVar, Any
+"""pyreqwest exceptions."""
 
-Cause = TypedDict("Cause", {"message": str})
-CauseErrorDetails = TypedDict("CauseErrorDetails", {"causes": list[Cause] | None})
-StatusErrorDetails = TypedDict("StatusErrorDetails", {"status": int})
+from json import JSONDecodeError as JSONDecodeError_
+from typing import Any, Generic, TypedDict, TypeVar
+
+
+class Cause(TypedDict):
+    """A cause of an error."""
+    message: str
+
+class CauseErrorDetails(TypedDict):
+    """Details for errors that may have causes."""
+    causes: list[Cause] | None
+
+class StatusErrorDetails(TypedDict):
+    """Details for errors that have an associated HTTP status code."""
+    status: int
+
+
 T = TypeVar("T", bound=CauseErrorDetails | StatusErrorDetails)
 
 
-class HTTPError(Exception):
+class PyreqwestError(Exception):
+    """Base class for all pyreqwest errors."""
+
     def __init__(self, message: str, *args: Any) -> None:
+        """Internally initialized."""
         assert isinstance(message, str)
-        super().__init__(message, *args)
+        Exception.__init__(self, message, *args)
         self.message = message
 
-class DetailedHTTPError(HTTPError, Generic[T]):
+class DetailedPyreqwestError(PyreqwestError, Generic[T]):
+    """Base class for all pyreqwest errors with details.
+
+    Details may be available in `details`.
+    """
+
     def __init__(self, message: str, details: T | None = None) -> None:
+        """Internally initialized."""
         assert isinstance(details, dict | None)
-        super().__init__(message, details)
+        PyreqwestError.__init__(self, message, details)
         self.details = details
 
-class RequestError(DetailedHTTPError[T], Generic[T]): ...
 
-class StatusError(RequestError[StatusErrorDetails]): ...
-class RedirectError(RequestError[CauseErrorDetails]): ...
-class RequestPanicError(RequestError[CauseErrorDetails]): ...
-class BodyError(RequestError[CauseErrorDetails]): ...
-class TransportError(RequestError[CauseErrorDetails]): ...
+class RequestError(DetailedPyreqwestError[T], Generic[T]):
+    """Error while processing a request.
 
-class DecodeError(BodyError): ...
+    Details may be available in `details`.
+    """
 
-class RequestTimeoutError(TransportError, TimeoutError): ...
-class NetworkError(TransportError): ...
+class StatusError(RequestError[StatusErrorDetails]):
+    """Error due to HTTP 4xx or 5xx status code. Raised when `error_for_status` is enabled.
 
-class ConnectTimeoutError(RequestTimeoutError): ...
-class ReadTimeoutError(RequestTimeoutError): ...
-class WriteTimeoutError(RequestTimeoutError): ...
-class PoolTimeoutError(RequestTimeoutError): ...
+    The status code is available in `details["status"]`.
+    """
 
-class ConnectError(NetworkError): ...
-class ReadError(NetworkError): ...
-class WriteError(NetworkError): ...
-class CloseError(NetworkError): ...
+class RedirectError(RequestError[CauseErrorDetails]):
+    """Error due to too many redirects. Raised when `max_redirects` is exceeded.
 
-class BuilderError(DetailedHTTPError[CauseErrorDetails], ValueError): ...
+    Cause details may be available in `details["causes"]`.
+    """
 
-class JSONDecodeError(HTTPError, JSONDecodeError_):
+
+class BodyError(RequestError[CauseErrorDetails]):
+    """Error while processing the request or response body.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+class DecodeError(BodyError):
+    """Error while decoding the response body.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+class JSONDecodeError(DecodeError, JSONDecodeError_):
+    """Error while decoding the response body as JSON.
+
+    This corresponds to Python's built-in `json.JSONDecodeError`. With the difference that `pos` and `colno` are byte
+    offsets instead of UTF8 char offsets. This difference is for efficient error case (avoiding UTF8 conversions).
+    """
+
     def __init__(self, message: str, details: dict[str, Any]) -> None:
+        """Internally initialized."""
         assert isinstance(details, dict)
         assert isinstance(details["doc"], str) and isinstance(details["pos"], int)
-        super().__init__(message, details["doc"], details["pos"])
+        JSONDecodeError_.__init__(self, message, details["doc"], details["pos"])
+        DecodeError.__init__(self, message, {"causes": details["causes"]})
+
+
+class TransportError(RequestError[CauseErrorDetails]):
+    """Error while processing the transport layer.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+class RequestTimeoutError(TransportError, TimeoutError):
+    """Error due to a timeout.
+
+    This indicates that the timeout configured for the request was reached.
+    Cause details may be available in `details["causes"]`.
+    """
+
+class NetworkError(TransportError):
+    """Error due to a network failure.
+
+    This indicates that the request could not be completed due to a network failure.
+    Cause details may be available in `details["causes"]`.
+    """
+
+
+class ConnectTimeoutError(RequestTimeoutError):
+    """Timeout while connecting.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+class ReadTimeoutError(RequestTimeoutError):
+    """Timeout while reading body.
+
+    Cause details may be available in `details["causes"]`.
+    """
+class WriteTimeoutError(RequestTimeoutError):
+    """Timeout while sending body.
+
+    Cause details may be available in `details["causes"]`.
+    """
+class PoolTimeoutError(RequestTimeoutError):
+    """Timeout while acquiring a connection from the pool.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+
+class ConnectError(NetworkError):
+    """Network error while connecting.
+
+    Cause details may be available in `details["causes"]`.
+    """
+class ReadError(NetworkError):
+    """Network error while reading body.
+
+    Cause details may be available in `details["causes"]`.
+    """
+class WriteError(NetworkError):
+    """Network error while sending body.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+
+class ClientClosedError(RequestError[CauseErrorDetails]):
+    """Error due to user closing the client while request was being processed.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+class BuilderError(DetailedPyreqwestError[CauseErrorDetails], ValueError):
+    """Error while building a request.
+
+    Cause details may be available in `details["causes"]`.
+    """
+
+
+class RequestPanicError(RequestError[CauseErrorDetails]):
+    """Error due to a panic in the request processing.
+
+    This indicates a bug in pyreqwest or one of its dependencies.
+    Also, might be raised due to incorrect Proxy.custom implementation (limitation in reqwest error handling).
+    Cause details may be available in `details["causes"]`.
+    """

@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives import serialization
 from pyreqwest.client import ClientBuilder, Runtime
 from pyreqwest.exceptions import (
     BuilderError,
-    CloseError,
+    ClientClosedError,
     ConnectError,
     ConnectTimeoutError,
     PoolTimeoutError,
@@ -147,12 +147,12 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
 async def test_use_after_close(echo_server: EchoServer):
     async with ClientBuilder().error_for_status(True).build() as client:
         assert (await client.get(echo_server.url).build_consumed().send()).status == 200
-    with pytest.raises(CloseError, match="Client was closed"):
+    with pytest.raises(ClientClosedError, match="Client was closed"):
         await client.get(echo_server.url).build_consumed().send()
 
     client = ClientBuilder().error_for_status(True).build()
     await client.close()
-    with pytest.raises(CloseError, match="Client was closed"):
+    with pytest.raises(ClientClosedError, match="Client was closed"):
         await client.get(echo_server.url).build_consumed().send()
 
 
@@ -164,7 +164,7 @@ async def test_close_in_request(echo_server: EchoServer):
         task = asyncio.create_task(req.send())
         await asyncio.sleep(0.05)
         await client.close()
-        with pytest.raises(CloseError, match="Client was closed"):
+        with pytest.raises(ClientClosedError, match="Client was closed"):
             await task
 
 
@@ -228,10 +228,10 @@ async def test_different_runtimes(echo_server: EchoServer):
 
     await rt1.close()
 
-    with pytest.raises(CloseError, match="Runtime was closed"):
+    with pytest.raises(ClientClosedError, match="Runtime was closed"):
         await client1.get(echo_server.url).build_consumed().send()
     await client2.get(echo_server.url).build_consumed().send()
 
     del rt2
-    with pytest.raises(CloseError, match="Runtime was closed"):
+    with pytest.raises(ClientClosedError, match="Runtime was closed"):
         await client2.get(echo_server.url).build_consumed().send()

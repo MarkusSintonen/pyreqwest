@@ -52,7 +52,10 @@ indent-width = 4
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["FBT", "TC003", "PYI021", "ANN401", "PLC0414", "S101"]
+ignore = ["FBT", "TC003", "PYI021", "ANN401", "PLC0414", "S101", "PT018", "D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "./python/pyreqwest/pytest_plugin/*" = ["SLF001", "PLC0415"]

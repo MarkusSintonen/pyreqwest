@@ -141,16 +141,14 @@ impl Url {
         for (k, v) in self.query_pairs_vec(py) {
             match dict.get_item(k)? {
                 None => dict.set_item(k, v)?,
-                Some(existing) => {
-                    match existing.downcast_into_exact::<PyList>() {
-                        Ok(existing) => existing.append(v)?,
-                        Err(err) => {
-                            let existing = err.into_inner();
-                            let existing = existing.downcast_exact::<PyString>()?;
-                            dict.set_item(k, PyList::new(py, vec![existing, v.bind(py)])?)?;
-                        }
+                Some(existing) => match existing.downcast_into_exact::<PyList>() {
+                    Ok(existing) => existing.append(v)?,
+                    Err(err) => {
+                        let existing = err.into_inner();
+                        let existing = existing.downcast_exact::<PyString>()?;
+                        dict.set_item(k, PyList::new(py, vec![existing, v.bind(py)])?)?;
                     }
-                }
+                },
             }
         }
         Ok(dict)

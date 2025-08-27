@@ -1,11 +1,10 @@
 import json
 from collections.abc import AsyncGenerator, MutableMapping
 
-import pyreqwest.exceptions
 import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.exceptions import StatusError
+from pyreqwest.exceptions import StatusError, DecodeError, JSONDecodeError
 from pyreqwest.http import HeaderMap
 
 from .servers.server import Server
@@ -151,9 +150,10 @@ async def test_bad_json(client: Client, echo_body_parts_server: Server, body: st
         yield body_bytes
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
-    with pytest.raises(pyreqwest.exceptions.JSONDecodeError) as e:
+    with pytest.raises(JSONDecodeError) as e:
         await resp.json()
     assert isinstance(e.value, json.JSONDecodeError)
+    assert isinstance(e.value, DecodeError)
 
     with pytest.raises(json.JSONDecodeError) as std_err:
         json.loads(body)
@@ -163,6 +163,8 @@ async def test_bad_json(client: Client, echo_body_parts_server: Server, body: st
     assert body_bytes[: e.value.pos].decode("utf8") == body_str[: std_err.value.pos]
     assert last_line.encode("utf8")[: e.value.colno - 1].decode("utf8") == last_line[: std_err.value.colno - 1]
     assert e.value.lineno == std_err.value.lineno
+
+    assert e.value.details == {"causes": None}
 
 
 @pytest.mark.parametrize(

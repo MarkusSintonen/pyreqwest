@@ -48,18 +48,16 @@ macro_rules! define_exception {
     }
 }
 
-define_exception!(HTTPError);
-
 define_exception!(RequestError);
 
 define_exception!(StatusError);
 define_exception!(RedirectError);
-define_exception!(RequestPanicError);
+
 define_exception!(BodyError);
-define_exception!(TransportError);
-
 define_exception!(DecodeError);
+define_exception!(JSONDecodeError);
 
+define_exception!(TransportError);
 define_exception!(RequestTimeoutError);
 define_exception!(NetworkError);
 
@@ -71,10 +69,10 @@ define_exception!(PoolTimeoutError);
 define_exception!(ConnectError);
 define_exception!(ReadError);
 define_exception!(WriteError);
-define_exception!(CloseError);
 
+define_exception!(ClientClosedError);
 define_exception!(BuilderError);
-define_exception!(JSONDecodeError);
+define_exception!(RequestPanicError);
 
 fn details_from_err(err: &(dyn Error + 'static)) -> JsonValue {
     details_from_causes(error_causes_iter(err))

@@ -1,4 +1,4 @@
-use crate::exceptions::{CloseError, RequestPanicError};
+use crate::exceptions::{ClientClosedError, RequestPanicError};
 use futures_util::FutureExt;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
@@ -25,7 +25,7 @@ impl Handle {
         tokio::select! {
             res = join_handle => res.map_err(|e| match e.try_into_panic() {
                 Ok(panic_payload) => RequestPanicError::from_panic_payload("Request panicked", panic_payload),
-                Err(e) => CloseError::from_err("Runtime was closed", &e),
+                Err(e) => ClientClosedError::from_err("Runtime was closed", &e),
             }),
             _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
         }

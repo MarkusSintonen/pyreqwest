@@ -264,7 +264,7 @@ impl Response {
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
         let text = self.text().await?;
-        let details = json!({"pos": Self::json_error_pos(&text, &e), "doc": text});
+        let details = json!({"pos": Self::json_error_pos(&text, &e), "doc": text, "causes": serde_json::Value::Null});
         Ok(JSONDecodeError::from_custom(&e.to_string(), details))
     }
 
