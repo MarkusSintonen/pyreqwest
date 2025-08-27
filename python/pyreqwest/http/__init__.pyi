@@ -1,10 +1,12 @@
+"""Types for pyreqwest.http module."""
+
 from collections.abc import ItemsView, Iterator, KeysView, MutableMapping, Sequence, ValuesView
 from typing import Any, Self, TypeVar, overload
 
-from ..bytes import Bytes
-from ..types import HeadersType, QueryParams, Stream
+from pyreqwest.bytes import Bytes
+from pyreqwest.types import HeadersType, QueryParams, Stream
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 class Body:
     @staticmethod
@@ -137,7 +139,7 @@ class HeaderMap(MutableMapping[str, str]):
     @overload
     def popall(self, key: str) -> list[str]: ...
     @overload
-    def popall(self, key: str, /, default: T) -> list[str] | T: ...
+    def popall(self, key: str, /, default: _T) -> list[str] | _T: ...
     def dict_multi_value(self) -> dict[str, str | list[str]]: ...
     def copy(self) -> Self: ...
     def __copy__(self) -> Self: ...
