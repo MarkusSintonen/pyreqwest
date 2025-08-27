@@ -203,7 +203,7 @@ async def test_lifespan_failure__startup():
 async def test_lifespan_failure__shutdown():
     @asynccontextmanager
     async def failing_lifespan(_app: Starlette) -> AsyncGenerator[dict[str, Any]]:
-        yield
+        yield {}
         raise RuntimeError("Lifespan failure")
 
     middleware = ASGITestMiddleware(Starlette(lifespan=failing_lifespan))

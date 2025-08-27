@@ -67,10 +67,10 @@ async def test_multiple(echo_server: Server, reverse: bool) -> None:
     if reverse:
         middlewares.reverse()
 
-    client = ClientBuilder().error_for_status(True)
+    builder = ClientBuilder().error_for_status(True)
     for middleware in middlewares:
-        client = client.with_middleware(middleware)
-    client = client.build()
+        builder = builder.with_middleware(middleware)
+    client = builder.build()
 
     resp = await client.get(echo_server.url).build_consumed().send()
 
@@ -135,7 +135,7 @@ async def test_bad_middleware(echo_server: Server) -> None:
     async def wrong_args(_client: Client, _request: Request) -> Response:
         pytest.fail("Should not be called")
 
-    req = build_client(wrong_args).get("http://foo.invalid").build_consumed()
+    req = build_client(wrong_args).get("http://foo.invalid").build_consumed()  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="takes 2 positional arguments but 3 were given"):
         await req.send()
 
@@ -144,11 +144,11 @@ async def test_bad_middleware(echo_server: Server) -> None:
     def not_async(_client: Client, _request: Request, _next_handler: Next) -> Response:
         return dummy_resp
 
-    req = build_client(not_async).get("http://foo.invalid").build_consumed()
+    req = build_client(not_async).get("http://foo.invalid").build_consumed()  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="a coroutine was expected"):
         await req.send()
 
-    async def none_return(_client: Client, request: Request, next_handler: Next) -> Response:
+    async def none_return(_client: Client, request: Request, next_handler: Next) -> Response:  # type: ignore[return]
         await next_handler.run(request)
 
     req = build_client(none_return).get(echo_server.url).build_consumed()
@@ -183,8 +183,8 @@ async def test_modify_body(echo_server: EchoServer) -> None:
     async def modify_body(_client: Client, request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         bytes_ = request.body.copy_bytes()
-        assert bytes_ is not None and bytes_ == b"test"
-        request.body = Body.from_bytes(bytes_ + b" modified")
+        assert bytes_ is not None and bytes_.to_bytes() == b"test"
+        request.body = Body.from_bytes(bytes_.to_bytes() + b" modified")
         return await next_handler.run(request)
 
     resp = await build_client(modify_body).post(echo_server.url).body_bytes(b"test").build_consumed().send()
@@ -197,7 +197,7 @@ async def test_stream_to_body_bytes(echo_server: EchoServer) -> None:
         stream = request.body.get_stream()
         assert stream is not None
 
-        body_parts = [part.decode() async for part in stream]
+        body_parts = [bytes(part).decode() async for part in stream]
 
         request.body = Body.from_bytes("---".join(body_parts).encode())
         return await next_handler.run(request)
@@ -218,7 +218,7 @@ async def test_stream_modify_body(echo_server: EchoServer) -> None:
 
         async def stream_gen2() -> AsyncGenerator[bytes]:
             async for part in stream:
-                yield (part.decode() + " modified").encode()
+                yield (bytes(part).decode() + " modified").encode()
 
         request.body = Body.from_stream(stream_gen2())
         return await next_handler.run(request)
@@ -242,7 +242,7 @@ async def test_stream_context_var(echo_server: EchoServer) -> None:
         async def stream_gen2() -> AsyncGenerator[bytes]:
             assert ctx_var.get() == "val1"
             async for part in stream:
-                yield (part.decode() + " modified").encode()
+                yield (bytes(part).decode() + " modified").encode()
 
         request.body = Body.from_stream(stream_gen2())
         return await next_handler.run(request)

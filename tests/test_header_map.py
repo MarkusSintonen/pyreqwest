@@ -18,7 +18,7 @@ def test_init__empty():
     [[], [("a", "v1")], [("a", "v1"), ("b", "v2")], [("a", "v1"), ("b", "v2"), ("a", "v3")]],
 )
 @pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
-def test_init__args(pairs: list[tuple[str, str]], kind: Callable[[list], Any]):
+def test_init__args(pairs: list[tuple[str, str]], kind: Callable[[list[Any]], Any]):
     headers = HeaderMap(kind(pairs))
     if kind is dict:
         assert len(headers) == len(dict(pairs))
@@ -30,13 +30,13 @@ def test_init__args(pairs: list[tuple[str, str]], kind: Callable[[list], Any]):
 
 def test_init__bad():
     with pytest.raises(TypeError, match="'str' object cannot be converted"):
-        HeaderMap("invalid")
+        HeaderMap("invalid")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="'int' object cannot be converted to 'Mapping'"):
-        HeaderMap(1)
+        HeaderMap(1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="'str' object cannot be converted"):
-        HeaderMap(["a"])
+        HeaderMap(["a"])  # type: ignore[list-item]
     with pytest.raises(TypeError, match="'int' object cannot be converted to 'PyString'"):
-        HeaderMap({"a": 1})
+        HeaderMap({"a": 1})  # type: ignore[dict-item]
     with pytest.raises(ValueError, match="failed to parse header value"):
         HeaderMap({"a": "a\n"})
     with pytest.raises(ValueError, match="invalid HTTP header name"):
@@ -146,7 +146,12 @@ def test_items():
     assert ("b", "v1") not in items
     assert ("d", "v1") not in items
 
-    assert sorted(reversed(items)) == [("a", "v1"), ("a", "v3"), ("b", "v2"), ("c", "v4")]  # Ill-defined
+    assert sorted(reversed(items)) == [  # type: ignore[call-overload]
+        ("a", "v1"),
+        ("a", "v3"),
+        ("b", "v2"),
+        ("c", "v4"),
+    ]
 
     assert items == [("a", "v1"), ("a", "v3"), ("b", "v2"), ("c", "v4")]
     assert items == [("c", "v4"), ("a", "v1"), ("a", "v3"), ("b", "v2")]
@@ -173,7 +178,7 @@ def test_keys():
     assert "b" in keys
     assert "d" not in keys
 
-    assert sorted(reversed(keys)) == ["a", "a", "b", "c"]  # Ill-defined
+    assert sorted(reversed(keys)) == ["a", "a", "b", "c"]  # type: ignore[call-overload]
 
     assert keys == ["a", "a", "b", "c"]
     assert keys == ["a", "a", "c", "b"]
@@ -199,7 +204,7 @@ def test_values():
     assert "v2" in values
     assert "v5" not in values
 
-    assert sorted(reversed(values)) == ["v1", "v2", "v3", "v4"]  # Ill-defined
+    assert sorted(reversed(values)) == ["v1", "v2", "v3", "v4"]  # type: ignore[call-overload]
 
     assert str(HeaderMap([("a", "v1")]).values()) == "['v1']"
     assert repr(HeaderMap([("a", "v1")]).values()) == "HeaderMapValuesView(['v1'])"
@@ -330,7 +335,7 @@ def test_clear(pairs: list[tuple[str, str]]):
 
 
 @pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
-def test_update(kind: Callable[[list], Any]):
+def test_update(kind: Callable[[list[Any]], Any]):
     headers = HeaderMap([("a", "v1"), ("b", "v2"), ("a", "v3")])
     assert len(headers) == 3
 
@@ -366,7 +371,7 @@ def test_setdefault():
     assert headers["c"] == "v4"
 
     with pytest.raises(TypeError, match="missing 1 required positional argument: 'default'"):
-        headers.setdefault("a")
+        headers.setdefault("a")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="invalid HTTP header name"):
         headers.setdefault("a\n", "v5")
     with pytest.raises(ValueError, match="failed to parse header value"):
@@ -403,7 +408,7 @@ def test_insert():
 
 
 @pytest.mark.parametrize("sensitive_arg", [{}, {"is_sensitive": True}, {"is_sensitive": False}])
-def test_insert__sensitive(sensitive_arg: dict):
+def test_insert__sensitive(sensitive_arg: dict[str, bool]):
     headers = HeaderMap([("a", "v1")])
     headers.insert("a", "v2", **sensitive_arg)
     assert [*headers.items()] == [("a", "v2")]
@@ -438,7 +443,7 @@ def test_append():
 
 
 @pytest.mark.parametrize("sensitive_arg", [{}, {"is_sensitive": True}, {"is_sensitive": False}])
-def test_append__sensitive(sensitive_arg: dict):
+def test_append__sensitive(sensitive_arg: dict[str, bool]):
     headers = HeaderMap([("a", "v1")])
     headers.append("a", "v2", **sensitive_arg)
     assert [*headers.items()] == [("a", "v1"), ("a", "v2")]
@@ -452,7 +457,7 @@ def test_append__sensitive(sensitive_arg: dict):
 
 
 @pytest.mark.parametrize("kind", [list, tuple, dict, CIMultiDict, HeaderMap])
-def test_extend(kind: Callable[[list], Any]):
+def test_extend(kind: Callable[[list[Any]], Any]):
     headers = HeaderMap([("a", "v1"), ("b", "v2")])
     assert len(headers) == 2
 

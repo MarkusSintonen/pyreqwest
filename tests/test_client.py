@@ -31,6 +31,7 @@ async def test_error_for_status(echo_server: EchoServer, value: bool):
         if value:
             with pytest.raises(StatusError) as e:
                 await req.send()
+            assert e.value.details
             assert e.value.details["status"] == 400
         else:
             assert (await req.send()).status == 400
@@ -78,7 +79,7 @@ async def test_no_connection():
         req = client.get(Url(f"http://localhost:{port}")).build_consumed()
         with pytest.raises(ConnectError) as e:
             await req.send()
-        assert {"message": "tcp connect error"} in e.value.details["causes"]
+        assert e.value.details and {"message": "tcp connect error"} in (e.value.details["causes"] or [])
 
 
 async def test_user_agent(echo_server: EchoServer):
@@ -100,11 +101,11 @@ async def test_default_headers__good(echo_server: EchoServer, value: Mapping[str
 
 async def test_default_headers__bad():
     with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'PyTuple'"):
-        ClientBuilder().default_headers(["foo"])
+        ClientBuilder().default_headers(["foo"])  # type: ignore[list-item]
     with pytest.raises(TypeError, match="argument 'headers': 'int' object cannot be converted to 'PyString'"):
-        ClientBuilder().default_headers({"X-Test": 123})
+        ClientBuilder().default_headers({"X-Test": 123})  # type: ignore[dict-item]
     with pytest.raises(TypeError, match="argument 'headers': 'str' object cannot be converted to 'PyTuple'"):
-        ClientBuilder().default_headers("bad")
+        ClientBuilder().default_headers("bad")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="invalid HTTP header name"):
         ClientBuilder().default_headers({"X-Test\n": "foo"})
     with pytest.raises(ValueError, match="failed to parse header value"):
@@ -183,7 +184,7 @@ async def test_https_only(echo_server: EchoServer):
         req = client.get(echo_server.url).build_consumed()
         with pytest.raises(BuilderError, match="builder error") as e:
             await req.send()
-        assert {"message": "URL scheme is not allowed"} in e.value.details["causes"]
+        assert e.value.details and {"message": "URL scheme is not allowed"} in (e.value.details["causes"] or [])
 
 
 async def test_https(https_echo_server: EchoServer, cert_authority: trustme.CA):
@@ -206,7 +207,8 @@ async def test_https__no_trust(https_echo_server: EchoServer):
         req = client.get(https_echo_server.url).build_consumed()
         with pytest.raises(ConnectError) as e:
             await req.send()
-        assert {"message": "invalid peer certificate: UnknownIssuer"} in e.value.details["causes"]
+        assert e.value.details
+        assert {"message": "invalid peer certificate: UnknownIssuer"} in (e.value.details["causes"] or [])
 
 
 async def test_https__accept_invalid_certs(https_echo_server: EchoServer):

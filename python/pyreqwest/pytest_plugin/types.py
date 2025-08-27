@@ -14,12 +14,12 @@ try:
     Matcher = _DirtyEquals[Any] | str | Pattern[str]
     JsonMatcher = _DirtyEquals[Any] | Any
 except ImportError:
-    Matcher = str | Pattern[str]
-    JsonMatcher = Any
+    Matcher = str | Pattern[str]  # type: ignore[misc]
+    JsonMatcher = Any  # type: ignore[assignment,misc]
 
 MethodMatcher = Matcher
 UrlMatcher = Matcher | Url
-QueryMatcher = dict[str, Matcher] | Matcher
+QueryMatcher = dict[str, Matcher | list[str]] | Matcher
 BodyContentMatcher = bytes | Matcher
 CustomMatcher = Callable[[Request], Awaitable[bool]]
 CustomHandler = Callable[[Request], Awaitable[Response | None]]

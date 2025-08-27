@@ -7,9 +7,9 @@ import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.http import Body, HeaderMap
-from pyreqwest.request import StreamRequest
+from pyreqwest.request import ConsumedRequest, Request, StreamRequest
 from pyreqwest.types import Stream
-from syrupy import SnapshotAssertion
+from syrupy import SnapshotAssertion  # type: ignore[attr-defined]
 
 from .servers.server import Server
 
@@ -164,7 +164,7 @@ async def test_extensions(client: Client, echo_server: Server) -> None:
 async def test_copy(client: Client, echo_server: Server, call: str, build: str) -> None:
     builder = client.get(echo_server.url).body_text("test1").header("X-Test1", "Val1")
     if build == "consumed":
-        req1 = builder.build_consumed()
+        req1: Request = builder.build_consumed()
     else:
         assert build == "streamed"
         req1 = builder.build_streamed()
@@ -181,11 +181,13 @@ async def test_copy(client: Client, echo_server: Server, call: str, build: str) 
     assert req1.body and req2.body and req1.body.copy_bytes() == req2.body.copy_bytes() == b"test1"
 
     if build == "consumed":
+        assert isinstance(req1, ConsumedRequest) and isinstance(req2, ConsumedRequest)
         resp1 = await req1.send()
         resp2 = await req2.send()
         assert (await resp1.json()) == (await resp2.json())
     else:
         assert build == "streamed"
+        assert isinstance(req1, StreamRequest) and isinstance(req2, StreamRequest)
         async with req1 as resp1, req2 as resp2:
             assert (await resp1.json()) == (await resp2.json())
 

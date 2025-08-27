@@ -1,11 +1,11 @@
 import asyncio
 import traceback
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, AsyncIterator, Generator
 from datetime import timedelta
 from typing import Any
 
+import orjson
 import pytest
-from orjson import orjson
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import ConnectTimeoutError, ReadTimeoutError
 from pyreqwest.request import StreamRequest
@@ -88,7 +88,7 @@ async def test_body_stream__consumed(client: Client, echo_body_parts_server: Ech
 
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
 async def test_body_stream__yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_type: type):
-    async def stream_gen() -> AsyncGenerator[bytes | bytearray | memoryview]:
+    async def stream_gen() -> AsyncIterator[Any]:
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
             yield yield_type(f"part {i}".encode())
@@ -191,7 +191,7 @@ async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: 
     for case in cases:
         req = client.post(echo_body_parts_server.url)
         with pytest.raises(TypeError, match="object is not an async iterable"):
-            req.body_stream(case)
+            req.body_stream(case)  # type: ignore[arg-type]
 
 
 async def test_body_consumed(client: Client, echo_server: EchoServer):

@@ -358,10 +358,10 @@ def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
     orig_build_consumed = RequestBuilder.build_consumed
     orig_build_streamed = RequestBuilder.build_streamed
 
-    def build_patch(self: RequestBuilder, orig: Callable) -> Request:
+    def build_patch(self: RequestBuilder, orig: Callable[[RequestBuilder], Request]) -> Request:
         request = orig(self)
-        assert request._interceptor is None
-        request._interceptor = mocker._create_middleware()
+        assert request._interceptor is None  # type: ignore[attr-defined]
+        request._interceptor = mocker._create_middleware()  # type: ignore[attr-defined]
         return request
 
     monkeypatch.setattr(RequestBuilder, "build_consumed", lambda slf: build_patch(slf, orig_build_consumed))

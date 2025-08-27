@@ -59,7 +59,7 @@ class Server(GranianServer, ABC):
         try:
             yield self
         finally:
-            self.stop()
+            self.stop()  # type: ignore[no-untyped-call]
             await task
 
 
@@ -67,7 +67,7 @@ def find_free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
         s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
 async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> AsyncIterable[bytes]:

@@ -76,7 +76,7 @@ def format_unmatched_request_parts(request: Request, unmatched: set[str]) -> dic
         else:
             req_parts["body"] = repr(request.body)
 
-    parts = {
+    parts: dict[str, str | None] = {
         "custom": f"No match with request {req_parts}",
         "handler": f"No match with request {req_parts}",
     }
@@ -85,8 +85,8 @@ def format_unmatched_request_parts(request: Request, unmatched: set[str]) -> dic
     return {k: v for k, v in parts.items() if k in unmatched}
 
 
-def _format_mock_matchers_parts(mock: Mock, unmatched: set[str] | None) -> dict[str, str]:
-    parts: dict[str, str] = {
+def _format_mock_matchers_parts(mock: Mock, unmatched: set[str] | None) -> dict[str, str | None]:
+    parts: dict[str, str | None] = {
         "method": mock._method_matcher.matcher_repr if mock._method_matcher is not None else None,
         "path": mock._path_matcher.matcher_repr if mock._path_matcher is not None else None,
         "query": _format_query_matcher(mock._query_matcher) if mock._query_matcher is not None else None,

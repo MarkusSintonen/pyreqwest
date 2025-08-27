@@ -27,7 +27,7 @@ async def test_status(client: Client, echo_server: Server) -> None:
     assert resp.status == 404
     with pytest.raises(StatusError, match="HTTP status client error") as e:
         resp.error_for_status()
-    assert e.value.details["status"] == 404
+    assert e.value.details and e.value.details["status"] == 404
 
     with pytest.raises(ValueError, match="invalid status code"):
         resp.status = 9999
@@ -234,4 +234,4 @@ async def test_error_for_status(echo_server: Server) -> None:
         resp = await client.get(echo_server.url).query([("status", 404)]).build_consumed().send()
         with pytest.raises(StatusError, match="HTTP status client error") as e:
             resp.error_for_status()
-        assert e.value.details["status"] == 404
+        assert e.value.details and e.value.details["status"] == 404

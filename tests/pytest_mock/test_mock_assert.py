@@ -8,7 +8,7 @@ from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
-from syrupy import SnapshotAssertion
+from syrupy import SnapshotAssertion  # type: ignore[attr-defined]
 
 ANSI_REGEX = re.compile(r"\x1B\[[0-9;]*[mK]")
 
@@ -232,7 +232,8 @@ async def test_assert_called_custom_matcher_and_handler(
     async def is_admin_request(request: Request) -> bool:
         if request.body is None or (body_bytes := request.body.copy_bytes()) is None:
             return False
-        return json.loads(body_bytes.to_bytes()).get("role") == "admin"
+        body = json.loads(body_bytes.to_bytes())
+        return isinstance(body, dict) and body.get("role") == "admin"
 
     async def admin_handler(_request: Request) -> Response:
         return (

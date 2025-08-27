@@ -40,7 +40,7 @@ async def test_error_for_status(echo_server: Server, value: bool):
         if value:
             with pytest.raises(StatusError) as e:
                 await req.send()
-            assert e.value.details["status"] == 400
+            assert e.value.details and e.value.details["status"] == 400
         else:
             assert (await req.send()).status == 400
 
@@ -120,15 +120,15 @@ async def test_timeout(client: Client, echo_server: Server, server_sleep: float 
         assert await req.send()
 
     with pytest.raises(TypeError, match="object cannot be converted"):
-        client.get(echo_server.url).timeout(1)
+        client.get(echo_server.url).timeout(1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="object cannot be converted"):
-        client.get(echo_server.url).timeout(1.0)
+        client.get(echo_server.url).timeout(1.0)  # type: ignore[arg-type]
 
 
 async def test_query(client: Client, echo_server: Server):
     async def send(arg: Sequence[tuple[str, str]] | Mapping[str, str]) -> list[list[str]]:
         resp = await client.get(echo_server.url).query(arg).build_consumed().send()
-        return (await resp.json())["query"]
+        return (await resp.json())["query"]  # type: ignore[no-any-return]
 
     for arg_type in [list, tuple, dict]:
         assert (await send(arg_type([]))) == []
@@ -186,7 +186,7 @@ async def test_form_query_invalid(client: Client, echo_server: Server, case: str
         build([(1, "b")])
     with pytest.raises(BuilderError, match="Failed to build request") as e:
         build([("foo", {"a": "b"})]).build_consumed()
-    assert {"message": "unsupported value"} in e.value.details["causes"]
+    assert e.value.details and {"message": "unsupported value"} in e.value.details["causes"]
 
 
 async def test_form_fails_with_body_set(client: Client, echo_server: Server):
@@ -207,6 +207,6 @@ async def test_extensions(client: Client, echo_server: Server):
     assert resp.extensions == {}
 
     with pytest.raises(TypeError, match="object cannot be converted"):
-        client.get(echo_server.url).extensions(1)
+        client.get(echo_server.url).extensions(1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="'int' object cannot be converted to 'PyString'"):
-        client.get(echo_server.url).extensions([(1, "b")])
+        client.get(echo_server.url).extensions([(1, "b")])  # type: ignore[list-item]

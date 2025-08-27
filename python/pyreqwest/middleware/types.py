@@ -1,30 +1,26 @@
 """Middleware types and interfaces."""
 
-from typing import Protocol
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from pyreqwest.client import Client
 from pyreqwest.middleware import Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response
 
+Middleware = Callable[[Client, Request, Next], Coroutine[Any, Any, Response]]
+"""Middleware handler which is called with a request before sending it.
 
-class Middleware(Protocol):
-    """Middleware interface for processing HTTP requests and responses."""
+Call `await Next.run(Request)` to continue processing the request.
+Alternatively, you can return a custom response via `Next.response_builder` You can also use `Client`
+to send additional request(s).
+If you need to forward data down the middleware stack, you can use Request.extensions.
 
-    async def __call__(self, client: Client, request: Request, next_handler: Next) -> Response:
-        """Invoked with a request before sending it.
+Args:
+    Client: HTTP client instance
+    Request: HTTP request to process
+    Next: Next middleware in the chain to call
 
-        Call `await next_handler.run(request)` to continue processing the request.
-        Alternatively, you can return a custom response via `next_handler.response_builder` You can also use `client`
-        to send additional request(s).
-        If you need to forward data down the middleware stack, you can use request.extensions.
-
-        Args:
-            client: HTTP client instance
-            request: HTTP request to process
-            next_handler: Next middleware in the chain to call
-
-        Returns:
-            HTTP response from the next middleware or a custom response.
-        """
-        ...
+Returns:
+    HTTP response from the next middleware or a custom response.
+"""

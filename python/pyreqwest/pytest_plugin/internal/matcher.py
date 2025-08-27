@@ -5,7 +5,7 @@ from typing import Any
 try:
     from dirty_equals import DirtyEquals as _DirtyEqualsBase
 except ImportError:
-    _DirtyEqualsBase = None
+    _DirtyEqualsBase = None  # type: ignore[assignment,misc]
 
 
 @dataclass
@@ -16,7 +16,7 @@ class InternalMatcher:
     def matches(self, value: Any) -> bool:
         if isinstance(self.matcher, Pattern):
             return self.matcher.search(str(value)) is not None
-        return value == self.matcher
+        return bool(value == self.matcher)
 
     def __post_init__(self) -> None:
         if _DirtyEqualsBase is not None and isinstance(self.matcher, _DirtyEqualsBase):

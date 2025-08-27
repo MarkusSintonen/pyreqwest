@@ -4,7 +4,7 @@ from json import JSONDecodeError
 from typing import Any
 from urllib.parse import parse_qsl
 
-from orjson import orjson
+import orjson
 
 from .server import Server, receive_all
 

@@ -23,6 +23,7 @@ dev = [
     "requests-toolbelt==1.0.0",
     "syrupy==4.9.1",
     "ruff==0.12.10",
+    "mypy==1.17.1",
     # Compatibility with other libraries
     "dirty-equals==0.9.0",
     "yarl==1.20.1",
@@ -88,3 +89,10 @@ convention = "google"
     "C414",
     "C901",
 ]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disable_error_code = "no-untyped-def"

@@ -1,9 +1,9 @@
 """ASGI middleware."""
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, MutableMapping
 from datetime import timedelta
-from typing import Any
+from typing import Any, Self
 from urllib.parse import unquote
 
 from pyreqwest.client import Client
@@ -12,13 +12,19 @@ from pyreqwest.middleware import Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
 
+Scope = MutableMapping[str, Any]
+Message = MutableMapping[str, Any]
+Receive = Callable[[], Awaitable[Message]]
+Send = Callable[[Message], Awaitable[None]]
+ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+
 
 class ASGITestMiddleware:
     """Test client that routes requests into an ASGI application."""
 
     def __init__(
         self,
-        app: Callable,
+        app: ASGIApp,
         *,
         timeout: timedelta | None = None,
         scope_update: Callable[[dict[str, Any], Request], Coroutine[Any, Any, None]] | None = None,
@@ -34,12 +40,12 @@ class ASGITestMiddleware:
         self._app = app
         self._scope_update = scope_update
         self._timeout = timeout or timedelta(seconds=5)
-        self._lifespan_input_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-        self._lifespan_output_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._lifespan_input_queue: asyncio.Queue[MutableMapping[str, Any]] = asyncio.Queue()
+        self._lifespan_output_queue: asyncio.Queue[MutableMapping[str, Any]] = asyncio.Queue()
         self._lifespan_task: asyncio.Task[None] | None = None
-        self._state = {}
+        self._state: dict[str, Any] = {}
 
-    async def __aenter__(self) -> None:
+    async def __aenter__(self) -> Self:
         """Start up the ASGI application."""
 
         async def wrapped_lifespan() -> None:
@@ -75,14 +81,14 @@ class ASGITestMiddleware:
         scope = await self._request_to_asgi_scope(request)
         body_parts = self._asgi_body_parts(request)
 
-        send_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        send_queue: asyncio.Queue[MutableMapping[str, Any]] = asyncio.Queue()
 
         async def receive() -> dict[str, Any]:
             if part := await anext(body_parts, None):
                 return part
             return {"type": "http.disconnect"}
 
-        async def send(message: dict[str, Any]) -> None:
+        async def send(message: MutableMapping[str, Any]) -> None:
             await send_queue.put(message)
 
         await self._app(scope, receive, send)
@@ -128,7 +134,7 @@ class ASGITestMiddleware:
         assert body_buf is not None, "Unknown body type"
         yield {"type": "http.request", "body": body_buf.to_bytes(), "more_body": False}
 
-    async def _asgi_response_to_response(self, send_queue: asyncio.Queue[dict[str, Any]]) -> Response:
+    async def _asgi_response_to_response(self, send_queue: asyncio.Queue[MutableMapping[str, Any]]) -> Response:
         response_builder = ResponseBuilder.create_for_mocking()
         body_parts = []
 

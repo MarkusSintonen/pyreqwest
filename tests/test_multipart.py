@@ -7,7 +7,7 @@ import pytest
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import BuilderError
 from pyreqwest.multipart import Form, Part
-from requests_toolbelt import MultipartDecoder
+from requests_toolbelt import MultipartDecoder  # type: ignore[import-untyped]
 
 from .servers.server import Server
 

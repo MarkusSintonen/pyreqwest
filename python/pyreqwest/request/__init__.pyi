@@ -5,7 +5,7 @@ from pyreqwest.http import Body, HeaderMap, Url
 from pyreqwest.middleware.types import Middleware
 from pyreqwest.multipart import Form
 from pyreqwest.response import Response
-from pyreqwest.types import ExtensionsType, FormParams, HeadersType, QueryParams, Stream, UrlType
+from pyreqwest.types import ExtensionsType, FormParams, HeadersType, QueryParams, Stream
 
 class Request:
     @property
@@ -15,7 +15,7 @@ class Request:
     @property
     def url(self) -> Url: ...
     @url.setter
-    def url(self, value: UrlType) -> None: ...
+    def url(self, value: Url | str) -> None: ...
     @property
     def headers(self) -> HeaderMap: ...
     @headers.setter

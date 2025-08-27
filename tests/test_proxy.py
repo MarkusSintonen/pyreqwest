@@ -6,7 +6,6 @@ from pyreqwest.client import ClientBuilder
 from pyreqwest.exceptions import ConnectError, RequestPanicError
 from pyreqwest.http import Url
 from pyreqwest.proxy import Proxy
-from pyreqwest.types import UrlType
 
 from .servers.echo_server import EchoServer
 
@@ -34,11 +33,11 @@ async def test_proxy_simple(
         req = client.get("http://foo.invalid/test").build_consumed()
         with pytest.raises(ConnectError) as e:
             await req.send()
-        assert {"message": "dns error"} in e.value.details["causes"]
+        assert e.value.details and {"message": "dns error"} in e.value.details["causes"]
 
 
 async def test_proxy_custom(echo_server: EchoServer):
-    def proxy_func(url: Url) -> UrlType | None:
+    def proxy_func(url: Url) -> Url | str | None:
         return echo_server.url if "foo.invalid" in str(url) else None
 
     proxy = Proxy.custom(proxy_func)
@@ -54,13 +53,13 @@ async def test_proxy_custom(echo_server: EchoServer):
 
 @pytest.mark.parametrize("case", ["raises", "bad_return"])
 async def test_proxy_custom__fail(case: str):
-    def proxy_func_raises(_url: Url) -> UrlType | None:
+    def proxy_func_raises(_url: Url) -> str | None:
         raise Exception("Custom error")
 
-    def proxy_func_bad_return(_url: Url) -> UrlType | None:
+    def proxy_func_bad_return(_url: Url) -> str | None:
         return "not_a_valid_url"
 
-    bad_fn: Callable[[Url], UrlType | None] = {
+    bad_fn: Callable[[Url], Url | str | None] = {
         "raises": proxy_func_raises,
         "bad_return": proxy_func_bad_return,
     }[case]
@@ -75,7 +74,7 @@ async def test_proxy_custom__fail(case: str):
         req = client.get("http://foo.invalid/").build_consumed()
         with pytest.raises(RequestPanicError) as e:
             await req.send()
-        assert expect_cause in e.value.details["causes"]
+        assert e.value.details and expect_cause in e.value.details["causes"]
 
 
 async def test_proxy_headers(echo_server: EchoServer):
