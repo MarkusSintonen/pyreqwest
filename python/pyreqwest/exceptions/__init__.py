@@ -1,4 +1,4 @@
-"""pyreqwest exceptions."""
+"""Exception classes."""
 
 from json import JSONDecodeError as JSONDecodeError_
 from typing import Any, Generic, TypedDict, TypeVar

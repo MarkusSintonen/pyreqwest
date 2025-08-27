@@ -11,6 +11,7 @@ import pytest
 from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
+from pyreqwest.middleware.types import Middleware
 from pyreqwest.pytest_plugin.internal.matcher import InternalMatcher
 from pyreqwest.pytest_plugin.types import (
     BodyContentMatcher,
@@ -24,7 +25,6 @@ from pyreqwest.pytest_plugin.types import (
 )
 from pyreqwest.request import Request, RequestBuilder
 from pyreqwest.response import Response, ResponseBuilder
-from pyreqwest.types import Middleware
 
 
 class Mock:

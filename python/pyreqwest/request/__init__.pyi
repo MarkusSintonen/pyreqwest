@@ -2,9 +2,10 @@ from datetime import timedelta
 from typing import Any, Self
 
 from pyreqwest.http import Body, HeaderMap, Url
+from pyreqwest.middleware.types import Middleware
 from pyreqwest.multipart import Form
 from pyreqwest.response import Response
-from pyreqwest.types import ExtensionsType, FormParams, HeadersType, Middleware, QueryParams, Stream, UrlType
+from pyreqwest.types import ExtensionsType, FormParams, HeadersType, QueryParams, Stream, UrlType
 
 class Request:
     @property

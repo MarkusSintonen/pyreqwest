@@ -1,4 +1,4 @@
-"""Client module. Defines the HTTP client and related classes."""
+"""Client classes and builders."""
 
 from pyreqwest._pyreqwest.client import Client, ClientBuilder, Runtime
 

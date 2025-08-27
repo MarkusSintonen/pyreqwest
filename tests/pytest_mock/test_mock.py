@@ -9,6 +9,7 @@ from pyreqwest.client import ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
+
 from tests.servers.server import Server
 
 import_time_client = ClientBuilder().build()

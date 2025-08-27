@@ -5,9 +5,9 @@ import pytest
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
+from pyreqwest.middleware.types import Middleware
 from pyreqwest.request import Request
 from pyreqwest.response import Response
-from pyreqwest.types import Middleware
 
 from tests.servers.echo_server import EchoServer
 from tests.servers.server import Server

@@ -1,4 +1,4 @@
-"""ASGI middleware for pyreqwest."""
+"""ASGI middleware."""
 
 import asyncio
 from collections.abc import AsyncIterator, Callable, Coroutine

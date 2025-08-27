@@ -1,9 +1,10 @@
 from datetime import timedelta
 from typing import Any, Self
 
+from pyreqwest.middleware.types import Middleware
 from pyreqwest.proxy import Proxy
 from pyreqwest.request import RequestBuilder
-from pyreqwest.types import HeadersType, Middleware, UrlType
+from pyreqwest.types import HeadersType, UrlType
 
 class Client:
     def request(self, method: str, url: UrlType) -> RequestBuilder: ...

@@ -1,4 +1,4 @@
-"""ASGI middleware for pyreqwest."""
+"""ASGI middleware."""
 
 from .asgi import ASGITestMiddleware
 

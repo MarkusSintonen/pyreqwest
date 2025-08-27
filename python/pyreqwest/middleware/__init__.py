@@ -1,4 +1,4 @@
-"""Middleware package for pyreqwest."""
+"""Middleware classes."""
 
 from pyreqwest._pyreqwest.middleware import Next
 

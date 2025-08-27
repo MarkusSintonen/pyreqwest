@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator, MutableMapping
 import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.exceptions import StatusError, DecodeError, JSONDecodeError
+from pyreqwest.exceptions import DecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
 
 from .servers.server import Server

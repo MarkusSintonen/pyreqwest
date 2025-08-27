@@ -1,4 +1,4 @@
-"""HTTP utils module."""
+"""HTTP utils classes and types."""
 
 from pyreqwest._pyreqwest.http import (
     Body,
