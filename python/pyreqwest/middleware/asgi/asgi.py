@@ -1,3 +1,5 @@
+"""ASGI middleware for pyreqwest."""
+
 import asyncio
 from collections.abc import AsyncIterator, Callable, Coroutine
 from datetime import timedelta
@@ -20,7 +22,7 @@ class ASGITestMiddleware:
         *,
         timeout: timedelta | None = None,
         scope_update: Callable[[dict[str, Any], Request], Coroutine[Any, Any, None]] | None = None,
-    ):
+    ) -> None:
         """Initialize the ASGI test client.
 
         Args:
@@ -37,8 +39,9 @@ class ASGITestMiddleware:
         self._lifespan_task: asyncio.Task[None] | None = None
         self._state = {}
 
-    async def __aenter__(self):
-        async def wrapped_lifespan():
+    async def __aenter__(self) -> None:
+        """Start up the ASGI application."""
+        async def wrapped_lifespan() -> None:
             await self._app(
                 {"type": "lifespan", "asgi": {"version": "3.0"}, "state": self._state},
                 self._lifespan_input_queue.get,
@@ -49,7 +52,8 @@ class ASGITestMiddleware:
         await self._send_lifespan("startup")
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, *args: object, **kwargs: Any) -> None:
+        """Shutdown the ASGI application."""
         await self._send_lifespan("shutdown")
         self._lifespan_task = None
 
@@ -63,9 +67,10 @@ class ASGITestMiddleware:
             await asyncio.sleep(0)
             if self._lifespan_task.done() and (exc := self._lifespan_task.exception()) is not None:
                 raise exc
-            raise Exception(message)
+            raise LifespanError(message)
 
-    async def __call__(self, client: Client, request: Request, next_handler: Next) -> Response:
+    async def __call__(self, _client: Client, request: Request, _next_handler: Next) -> Response:
+        """ASGI middleware handler."""
         scope = await self._request_to_asgi_scope(request)
         body_parts = self._asgi_body_parts(request)
 
@@ -108,9 +113,7 @@ class ASGITestMiddleware:
             return
 
         if (stream := request.body.get_stream()) is not None:
-            body_parts = []
-            async for chunk in stream:
-                body_parts.append(bytes(chunk))
+            body_parts = [bytes(chunk) async for chunk in stream]
             if not body_parts:
                 yield {"type": "http.request", "body": b"", "more_body": False}
                 return
@@ -154,3 +157,7 @@ class ASGITestMiddleware:
             response_builder.body_bytes(body_parts[0])
 
         return await response_builder.build()
+
+
+class LifespanError(Exception):
+    """Error during ASGI application lifespan events."""
