@@ -52,7 +52,7 @@ impl Request {
             let headers = HeaderMap::from(self.inner_ref()?.headers().clone());
             self.py_headers = Some(Py::new(py, headers)?);
         }
-        Ok(&self.py_headers.as_ref().unwrap())
+        Ok(self.py_headers.as_ref().unwrap())
     }
 
     #[setter]
@@ -218,12 +218,12 @@ impl Request {
             match this.body.take() {
                 Some(ReqBody::Body(mut body)) => {
                     body.set_task_local(py, client.as_ref())?;
-                    *request.body_mut() = Some(body.to_reqwest()?)
+                    *request.body_mut() = Some(body.into_reqwest()?)
                 }
                 Some(ReqBody::PyBody(py_body)) => {
                     let mut py_body = py_body.try_borrow_mut(py)?;
                     py_body.set_task_local(py, client.as_ref())?;
-                    *request.body_mut() = Some(py_body.to_reqwest()?)
+                    *request.body_mut() = Some(py_body.into_reqwest()?)
                 }
                 None => {}
             }
@@ -299,7 +299,7 @@ impl Request {
             body,
             this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
             this.error_for_status,
-            this.body_consume_config.clone(),
+            this.body_consume_config,
         ))
     }
 

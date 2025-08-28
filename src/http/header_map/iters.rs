@@ -16,11 +16,11 @@ impl HeaderMapItemsIter {
         slf
     }
 
-    fn __next__<'py>(&mut self) -> PyResult<(HeaderName, HeaderValue)> {
+    fn __next__(&mut self) -> PyResult<(HeaderName, HeaderValue)> {
         if self.cur_values.is_empty() {
             if let Some(key) = self.keys.front() {
                 self.map.get_all_extend_to_deque(key.0.as_str(), &mut self.cur_values)?;
-                assert!(self.cur_values.len() >= 1, "Should have at least one value for a header key");
+                assert!(!self.cur_values.is_empty(), "Should have at least one value for a header key");
             } else {
                 return Err(PyStopIteration::new_err("No more items"));
             }

@@ -94,10 +94,11 @@ impl Body {
         }
     }
 
-    pub fn to_reqwest(&mut self) -> PyResult<reqwest::Body> {
+    #[allow(clippy::wrong_self_convention)]
+    pub fn into_reqwest(&mut self) -> PyResult<reqwest::Body> {
         match self.body.take() {
             Some(InnerBody::Bytes(bytes)) => Ok(reqwest::Body::from(bytes)),
-            Some(InnerBody::Stream(stream)) => stream.to_reqwest(),
+            Some(InnerBody::Stream(stream)) => stream.into_reqwest(),
             None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
@@ -173,7 +174,7 @@ impl BodyStream {
         })
     }
 
-    pub fn to_reqwest(self) -> PyResult<reqwest::Body> {
+    pub fn into_reqwest(self) -> PyResult<reqwest::Body> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
         }

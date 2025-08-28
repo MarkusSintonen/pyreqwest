@@ -61,7 +61,7 @@ impl HeaderMap {
     }
 
     fn __iter__(&self) -> PyResult<HeaderMapKeysIter> {
-        HeaderMapKeysIter::new(&self)
+        HeaderMapKeysIter::new(self)
     }
 
     fn __bool__(&self) -> PyResult<bool> {
@@ -133,7 +133,10 @@ impl HeaderMap {
     }
 
     fn clear(&mut self) -> PyResult<()> {
-        self.mut_map(|map| Ok(map.clear()))
+        self.mut_map(|map| {
+            map.clear();
+            Ok(())
+        })
     }
 
     #[pyo3(signature = (other=None, **py_kwargs))]
@@ -181,7 +184,7 @@ impl HeaderMap {
         self.ref_map(|map| Ok(map.keys_len()))
     }
 
-    fn getall<'py>(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
+    fn getall(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
         self.ref_map(|map| Ok(map.get_all(key).into_iter().map(|v| HeaderValue(v.clone())).collect()))
     }
 
@@ -255,6 +258,12 @@ impl HeaderMap {
         Ok(format!("HeaderMap({})", repr.to_str()?))
     }
 }
+impl Default for HeaderMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HeaderMap {
     pub fn new() -> Self {
         let inner = Inner {
@@ -263,7 +272,7 @@ impl HeaderMap {
         HeaderMap(Arc::new(Mutex::new(inner)))
     }
 
-    pub fn get_one<'py>(&self, key: &str) -> PyResult<Option<HeaderValue>> {
+    pub fn get_one(&self, key: &str) -> PyResult<Option<HeaderValue>> {
         self.ref_map(|map| Ok(map.get(key).map(|v| HeaderValue(v.clone()))))
     }
 
@@ -303,11 +312,11 @@ impl HeaderMap {
     }
 
     pub fn keys_once_deque(&self) -> PyResult<VecDeque<HeaderName>> {
-        self.ref_map(|map| Ok(map.keys().into_iter().map(|k| HeaderName(k.clone())).collect()))
+        self.ref_map(|map| Ok(map.keys().map(|k| HeaderName(k.clone())).collect()))
     }
 
     pub fn keys_mult_deque(&self) -> PyResult<VecDeque<HeaderName>> {
-        self.ref_map(|map| Ok(map.iter().into_iter().map(|(k, _)| HeaderName(k.clone())).collect()))
+        self.ref_map(|map| Ok(map.iter().map(|(k, _)| HeaderName(k.clone())).collect()))
     }
 
     pub fn get_all_extend_to_deque(&self, key: &str, deque: &mut VecDeque<HeaderValue>) -> PyResult<()> {

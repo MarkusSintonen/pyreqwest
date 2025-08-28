@@ -27,7 +27,7 @@ impl Form {
         Self::apply(slf, |builder| Ok(builder.text(name, value)))
     }
 
-    async fn file<'py>(
+    async fn file(
         slf: Py<Self>,
         name: String,
         path: PathBuf,

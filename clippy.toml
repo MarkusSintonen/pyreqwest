@@ -1,0 +1,2 @@
+allow-private-module-inception = true
+too-many-arguments-threshold = 8

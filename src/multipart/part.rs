@@ -26,14 +26,14 @@ impl Part {
     fn from_stream(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
         let mut stream = BodyStream::new(py, stream)?;
         stream.set_task_local(py, None)?;
-        Ok(reqwest::multipart::Part::stream(stream.to_reqwest()?).into())
+        Ok(reqwest::multipart::Part::stream(stream.into_reqwest()?).into())
     }
 
     #[staticmethod]
     fn from_stream_with_length(py: Python, async_gen: Py<PyAny>, length: u64) -> PyResult<Self> {
         let mut stream = BodyStream::new(py, async_gen)?;
         stream.set_task_local(py, None)?;
-        Ok(reqwest::multipart::Part::stream_with_length(stream.to_reqwest()?, length).into())
+        Ok(reqwest::multipart::Part::stream_with_length(stream.into_reqwest()?, length).into())
     }
 
     #[staticmethod]
@@ -48,11 +48,11 @@ impl Part {
         Self::apply(slf, |builder| builder.mime_str(mime).map_err(|e| PyValueError::new_err(e.to_string())))
     }
 
-    fn file_name<'py>(slf: PyRefMut<'py, Self>, filename: String) -> PyResult<PyRefMut<'py, Self>> {
+    fn file_name(slf: PyRefMut<'_, Self>, filename: String) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.file_name(filename)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+    fn headers(slf: PyRefMut<'_, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 }

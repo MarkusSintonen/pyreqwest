@@ -21,7 +21,7 @@ impl ResponseBuilder {
             .take()
             .map(|mut b| {
                 Python::with_gil(|py| b.set_task_local(py, self.client.as_ref()))?;
-                b.to_reqwest()
+                b.into_reqwest()
             })
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));
@@ -51,7 +51,7 @@ impl ResponseBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+    fn headers(slf: PyRefMut<'_, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |mut builder| {
             let headers_mut = builder
                 .headers_mut()
@@ -67,9 +67,7 @@ impl ResponseBuilder {
     }
 
     fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<Body>>) -> PyResult<PyRefMut<'py, Self>> {
-        slf.body = body
-            .map(|v| Ok::<_, PyErr>(v.try_borrow_mut()?.take_inner()?))
-            .transpose()?;
+        slf.body = body.map(|v| v.try_borrow_mut()?.take_inner()).transpose()?;
         Ok(slf)
     }
 
@@ -83,7 +81,7 @@ impl ResponseBuilder {
         Ok(slf)
     }
 
-    fn body_json<'py>(mut slf: PyRefMut<'py, Self>, data: JsonValue) -> PyResult<PyRefMut<'py, Self>> {
+    fn body_json(mut slf: PyRefMut<'_, Self>, data: JsonValue) -> PyResult<PyRefMut<'_, Self>> {
         let bytes = serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string()))?;
         slf.body = Some(bytes.into());
         Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))

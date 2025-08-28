@@ -386,9 +386,9 @@ impl From<UrlType> for Url {
         Url::new(value.0)
     }
 }
-impl Into<reqwest::Url> for Url {
-    fn into(self) -> reqwest::Url {
-        self.url
+impl From<Url> for reqwest::Url {
+    fn from(val: Url) -> Self {
+        val.url
     }
 }
 

@@ -13,7 +13,7 @@ pub struct Mime(mime::Mime);
 impl Mime {
     #[staticmethod]
     fn parse(mime: &str) -> PyResult<Self> {
-        Ok(Mime(Mime::parse_inner(&mime)?))
+        Ok(Mime(Mime::parse_inner(mime)?))
     }
 
     #[getter]

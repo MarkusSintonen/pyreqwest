@@ -101,7 +101,7 @@ impl ClientBuilder {
         Self::apply(slf, |builder| Ok(builder.user_agent(value)))
     }
 
-    fn default_headers<'py>(mut slf: PyRefMut<'py, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+    fn default_headers(mut slf: PyRefMut<'_, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
         slf.default_headers = Some(headers);
         Ok(slf)

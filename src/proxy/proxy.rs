@@ -45,16 +45,16 @@ impl Proxy {
         Self::apply(slf, |builder| Ok(builder.basic_auth(username, password)))
     }
 
-    fn custom_http_auth<'py>(slf: PyRefMut<'py, Self>, header_value: HeaderValue) -> PyResult<PyRefMut<'py, Self>> {
+    fn custom_http_auth(slf: PyRefMut<'_, Self>, header_value: HeaderValue) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.custom_http_auth(header_value.0)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+    fn headers(slf: PyRefMut<'_, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 
     fn no_proxy<'py>(slf: PyRefMut<'py, Self>, no_proxy_list: Option<&str>) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.no_proxy(no_proxy_list.map(NoProxy::from_string).flatten())))
+        Self::apply(slf, |builder| Ok(builder.no_proxy(no_proxy_list.and_then(NoProxy::from_string))))
     }
 }
 

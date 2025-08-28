@@ -33,12 +33,15 @@ impl<'py> KeyValPairs<'py> {
         }
     }
 
-    pub fn to_vec<K: FromPyObject<'py>, V: FromPyObject<'py>>(self) -> PyResult<Vec<(K, V)>>
+    pub fn into_vec<K: FromPyObject<'py>, V: FromPyObject<'py>>(self) -> PyResult<Vec<(K, V)>>
     where
         (K, V): FromPyObject<'py>,
     {
         let mut res = Vec::with_capacity(self.len()?);
-        self.for_each(|(key, value)| Ok(res.push((key, value))))?;
+        self.for_each(|(key, value)| {
+            res.push((key, value));
+            Ok(())
+        })?;
         Ok(res)
     }
 

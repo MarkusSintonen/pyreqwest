@@ -116,12 +116,12 @@ impl PartialOrd for HeaderValue {
 
 impl<'py> FromPyObject<'py> for QueryParams {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(QueryParams(ob.extract::<KeyValPairs>()?.to_vec()?))
+        Ok(QueryParams(ob.extract::<KeyValPairs>()?.into_vec()?))
     }
 }
 impl<'py> FromPyObject<'py> for FormParams {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(FormParams(ob.extract::<KeyValPairs>()?.to_vec()?))
+        Ok(FormParams(ob.extract::<KeyValPairs>()?.into_vec()?))
     }
 }
 

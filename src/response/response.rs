@@ -90,10 +90,8 @@ impl Response {
         let bytes = self.bytes_inner().await?;
         let encoding = self
             .content_type_mime()?
-            .map(|mime| mime.get_param("charset").map(String::from))
-            .flatten()
-            .map(|charset| Encoding::for_label(charset.as_bytes()))
-            .flatten()
+            .and_then(|mime| mime.get_param("charset").map(String::from))
+            .and_then(|charset| Encoding::for_label(charset.as_bytes()))
             .unwrap_or(UTF_8);
         let (text, _, _) = encoding.decode(&bytes);
         Ok(text.into_owned())
@@ -134,10 +132,12 @@ impl Response {
         let (head, init_chunks, body_stream, permit) = match consume_body {
             BodyConsumeConfig::Fully => {
                 let (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
-                assert_eq!(has_more, false, "Should have fully consumed the response");
+                assert!(!has_more, "Should have fully consumed the response");
 
                 // Release the semaphore right away without waiting for user to do it (by consuming or closing).
-                request_semaphore_permit.take().map(drop);
+                if let Some(a) = request_semaphore_permit.take() {
+                    drop(a)
+                }
 
                 let (head, body) = Self::response_parts(response);
                 drop(body); // Was already read
@@ -151,7 +151,9 @@ impl Response {
                     (Some(body), request_semaphore_permit)
                 } else {
                     // Release the semaphore right away without waiting for user to do it (by consuming or closing).
-                    request_semaphore_permit.take().map(drop);
+                    if let Some(a) = request_semaphore_permit.take() {
+                        drop(a)
+                    }
                     drop(body); // Was already read
                     (None, None)
                 };
@@ -196,8 +198,12 @@ impl Response {
                         // Skip non-DATA frame
                     }
                 } else {
-                    self.request_semaphore_permit.take().map(drop);
-                    self.body_stream.take().map(drop);
+                    if let Some(a) = self.request_semaphore_permit.take() {
+                        drop(a)
+                    }
+                    if let Some(a) = self.body_stream.take() {
+                        drop(a)
+                    }
                     return Ok(None); // All was consumed
                 }
             }
@@ -258,13 +264,17 @@ impl Response {
     }
 
     pub fn inner_close(&mut self) {
-        self.request_semaphore_permit.take().map(drop);
-        self.body_stream.take().map(drop);
+        if let Some(a) = self.request_semaphore_permit.take() {
+            drop(a)
+        }
+        if let Some(a) = self.body_stream.take() {
+            drop(a)
+        }
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
         let text = self.text().await?;
-        let details = json!({"pos": Self::json_error_pos(&text, &e), "doc": text, "causes": serde_json::Value::Null});
+        let details = json!({"pos": Self::json_error_pos(&text, e), "doc": text, "causes": serde_json::Value::Null});
         Ok(JSONDecodeError::from_custom(&e.to_string(), details))
     }
 

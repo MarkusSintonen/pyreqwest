@@ -40,7 +40,7 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    fn headers<'py>(slf: PyRefMut<'py, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'py, Self>> {
+    fn headers(slf: PyRefMut<'_, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 
@@ -54,9 +54,7 @@ impl RequestBuilder {
 
     fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<Body>>) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
-        slf.body = body
-            .map(|v| Ok::<_, PyErr>(v.try_borrow_mut()?.take_inner()?))
-            .transpose()?;
+        slf.body = body.map(|v| v.try_borrow_mut()?.take_inner()).transpose()?;
         Ok(slf)
     }
 
@@ -72,7 +70,7 @@ impl RequestBuilder {
         Ok(slf)
     }
 
-    fn body_json<'py>(mut slf: PyRefMut<'py, Self>, data: JsonValue) -> PyResult<PyRefMut<'py, Self>> {
+    fn body_json(mut slf: PyRefMut<'_, Self>, data: JsonValue) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
         let bytes = serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string()))?;
         slf.body = Some(bytes.into());
@@ -101,7 +99,7 @@ impl RequestBuilder {
         Self::apply(slf, |builder| Ok(builder.form(&form.extract::<FormParams>()?.0)))
     }
 
-    fn extensions<'py>(mut slf: PyRefMut<'py, Self>, extensions: Extensions) -> PyResult<PyRefMut<'py, Self>> {
+    fn extensions(mut slf: PyRefMut<'_, Self>, extensions: Extensions) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
         slf.extensions = Some(extensions);
         Ok(slf)
