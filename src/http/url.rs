@@ -406,6 +406,6 @@ impl<'py> FromPyObject<'py> for UrlType {
         if let Ok(str) = ob.extract::<&str>() {
             return Ok(UrlType(Url::parse_inner(str)?));
         }
-        Ok(UrlType(Url::parse_inner(ob.str()?.extract::<&str>()?)?))
+        Ok(UrlType(Url::parse_inner(ob.str()?.to_str()?)?))
     }
 }

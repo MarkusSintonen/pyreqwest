@@ -6,7 +6,7 @@ import pytest
 import trustme
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
-from pyreqwest.client import ClientBuilder, Runtime
+from pyreqwest.client import Client, ClientBuilder, Runtime
 from pyreqwest.exceptions import (
     BuilderError,
     ClientClosedError,
@@ -20,6 +20,31 @@ from pyreqwest.http import HeaderMap, Url
 
 from .servers.echo_server import EchoServer
 from .servers.server import find_free_port
+
+
+async def test_base_url(echo_server: EchoServer):
+    async def echo_path(client: Client, path: str) -> str:
+        resp = await (await client.get(path).build_consumed().send()).json()
+        return resp["path"]
+
+    async with ClientBuilder().base_url(echo_server.url).error_for_status(True).build() as client:
+        assert await echo_path(client, "") == "/"
+        assert await echo_path(client, "/") == "/"
+        assert await echo_path(client, "test") == "/test"
+        assert await echo_path(client, "/test") == "/test"
+        assert await echo_path(client, "test/") == "/test/"
+        assert await echo_path(client, "/test/") == "/test/"
+
+    async with ClientBuilder().base_url(echo_server.url / "mid/").error_for_status(True).build() as client:
+        assert await echo_path(client, "") == "/mid/"
+        assert await echo_path(client, "/") == "/"
+        assert await echo_path(client, "test") == "/mid/test"
+        assert await echo_path(client, "/test") == "/test"
+        assert await echo_path(client, "test/") == "/mid/test/"
+        assert await echo_path(client, "/test/") == "/test/"
+
+    with pytest.raises(ValueError, match="base_url must end with a trailing slash '/'"):
+        ClientBuilder().base_url(echo_server.url / "bad")
 
 
 @pytest.mark.parametrize("value", [True, False])

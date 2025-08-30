@@ -19,8 +19,8 @@ pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult
     let event_loop = task_local.event_loop()?;
 
     let task_creator = TaskCreator {
+        callback: Py::new(py, TaskCallback { tx: Some(tx) })?,
         event_loop: Some(event_loop.clone_ref(py)),
-        callback: Some(Py::new(py, TaskCallback { tx: Some(tx) })?),
         coro: Some(py_coro.unbind()),
     };
 
@@ -33,8 +33,8 @@ pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult
 
 #[pyclass]
 struct TaskCreator {
+    callback: Py<TaskCallback>,
     event_loop: Option<Py<PyAny>>,
-    callback: Option<Py<TaskCallback>>,
     coro: Option<Py<PyAny>>,
 }
 #[pymethods]
@@ -42,25 +42,18 @@ impl TaskCreator {
     fn __call__(&self, py: Python) -> PyResult<()> {
         match self.create_task(py) {
             Ok(_) => Ok(()),
-            Err(e) => self
-                .callback
-                .as_ref()
-                .ok_or_else(|| PyRuntimeError::new_err("Expected callback"))?
-                .try_borrow_mut(py)?
-                .tx_send(Err(e)),
+            Err(e) => self.callback.try_borrow_mut(py)?.tx_send(Err(e)),
         }
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.event_loop)?;
-        visit.call(&self.callback)?;
         visit.call(&self.coro)?;
         Ok(())
     }
 
     fn __clear__(&mut self) {
         self.event_loop = None;
-        self.callback = None;
         self.coro = None;
     }
 }

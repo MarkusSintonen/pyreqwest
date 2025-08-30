@@ -66,6 +66,9 @@ impl ClientBuilder {
     }
 
     fn base_url(mut slf: PyRefMut<Self>, base_url: UrlType) -> PyResult<PyRefMut<Self>> {
+        if !base_url.0.as_str().ends_with('/') {
+            return Err(PyValueError::new_err("base_url must end with a trailing slash '/'"));
+        }
         slf.check_inner()?;
         slf.base_url = Some(base_url.into());
         Ok(slf)
