@@ -8,16 +8,15 @@ from pyreqwest.middleware import Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response
 
-Middleware = Callable[[Client, Request, Next], Coroutine[Any, Any, Response]]
+Middleware = Callable[[Request, Next], Coroutine[Any, Any, Response]]
 """Middleware handler which is called with a request before sending it.
 
 Call `await Next.run(Request)` to continue processing the request.
-Alternatively, you can return a custom response via `Next.response_builder` You can also use `Client`
-to send additional request(s).
+Alternatively, you can return a custom response via `ResponseBuilder`.
 If you need to forward data down the middleware stack, you can use Request.extensions.
+If you are retrying requests, make sure to clone the request via `Request.copy()` before sending.
 
 Args:
-    Client: HTTP client instance
     Request: HTTP request to process
     Next: Next middleware in the chain to call
 

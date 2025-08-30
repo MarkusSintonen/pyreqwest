@@ -237,7 +237,7 @@ async def test_assert_called_custom_matcher_and_handler(
 
     async def admin_handler(_request: Request) -> Response:
         return (
-            await ResponseBuilder.create_for_mocking()
+            await ResponseBuilder()
             .status(200)
             .body_json({"message": "Admin access granted"})
             .build()

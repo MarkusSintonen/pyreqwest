@@ -25,14 +25,14 @@ impl Part {
     #[staticmethod]
     fn from_stream(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
         let mut stream = BodyStream::new(py, stream)?;
-        stream.set_task_local(py, None)?;
+        stream.set_task_local(py)?;
         Ok(reqwest::multipart::Part::stream(stream.into_reqwest()?).into())
     }
 
     #[staticmethod]
     fn from_stream_with_length(py: Python, async_gen: Py<PyAny>, length: u64) -> PyResult<Self> {
         let mut stream = BodyStream::new(py, async_gen)?;
-        stream.set_task_local(py, None)?;
+        stream.set_task_local(py)?;
         Ok(reqwest::multipart::Part::stream_with_length(stream.into_reqwest()?, length).into())
     }
 

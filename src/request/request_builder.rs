@@ -1,4 +1,4 @@
-use crate::client::Client;
+use std::sync::Arc;
 use crate::exceptions::BuilderError;
 use crate::http::{Body, Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, JsonValue, QueryParams};
 use crate::multipart::Form;
@@ -10,13 +10,17 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::time::Duration;
+use crate::asyncio::TaskLocal;
+use crate::client::Spawner;
+use crate::middleware::Next;
 
 #[pyclass]
 pub struct RequestBuilder {
-    client: Client,
     inner: Option<reqwest::RequestBuilder>,
+    spawner: Option<Spawner>,
     body: Option<Body>,
     extensions: Option<Extensions>,
+    middlewares_next: Option<Py<Next>>,
     error_for_status: bool,
 }
 #[pymethods]
@@ -104,14 +108,27 @@ impl RequestBuilder {
         slf.extensions = Some(extensions);
         Ok(slf)
     }
+
+    fn _set_interceptor<'py>(mut slf: PyRefMut<'py, Self>, interceptor: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+        let py = slf.py();
+        if let Some(middlewares_next) = slf.middlewares_next.as_mut() {
+            middlewares_next.try_borrow_mut(py)?.add_middleware(interceptor)?;
+        } else {
+            let middlewares = Arc::new(vec![interceptor.unbind()]);
+            let next = Next::new(middlewares, TaskLocal::current(py)?);
+            slf.middlewares_next = Some(Py::new(py, next)?);
+        }
+        Ok(slf)
+    }
 }
 impl RequestBuilder {
-    pub fn new(client: Client, inner: reqwest::RequestBuilder, error_for_status: bool) -> Self {
+    pub fn new(inner: reqwest::RequestBuilder, spawner: Spawner, middlewares_next: Option<Py<Next>>, error_for_status: bool) -> Self {
         RequestBuilder {
-            client,
             inner: Some(inner),
+            spawner: Some(spawner),
             body: None,
             extensions: None,
+            middlewares_next,
             error_for_status,
         }
     }
@@ -129,10 +146,11 @@ impl RequestBuilder {
         }
 
         let request = Request::new(
-            self.client.clone(),
             request,
+            self.spawner.take().ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?,
             self.body.take(),
             self.extensions.take(),
+            self.middlewares_next.take(),
             self.error_for_status,
             consume_body,
         );

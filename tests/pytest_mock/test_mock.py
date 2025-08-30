@@ -428,7 +428,7 @@ async def test_custom_handler_basic(client_mocker: ClientMocker) -> None:
     async def echo_handler(request: Request) -> Response | None:
         if request.method == "POST" and "echo" in str(request.url):
             response_builder = (
-                ResponseBuilder.create_for_mocking()
+                ResponseBuilder()
                 .status(200)
                 .body_json(
                     {
@@ -473,7 +473,7 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
 
         if body_data.get("role") == "admin":
             response_builder = (
-                ResponseBuilder.create_for_mocking()
+                ResponseBuilder()
                 .status(200)
                 .body_json(
                     {
@@ -563,7 +563,7 @@ async def test_get_call_count_with_custom_handlers(client_mocker: ClientMocker) 
         if request.method == "GET" and "custom" in str(request.url):
             call_count += 1
             return (
-                await ResponseBuilder.create_for_mocking()
+                await ResponseBuilder()
                 .status(200)
                 .body_text(f"Custom response {call_count}")
                 .build()

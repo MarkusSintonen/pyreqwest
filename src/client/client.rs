@@ -1,59 +1,53 @@
-use crate::asyncio::get_running_loop;
+use crate::asyncio::TaskLocal;
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Handle;
-use crate::exceptions::utils::map_send_error;
-use crate::exceptions::{ClientClosedError, PoolTimeoutError};
-use crate::http::{Extensions, Url, UrlType};
+use crate::http::{Url, UrlType};
 use crate::http::{HeaderMap, Method};
 use crate::middleware::Next;
 use crate::request::RequestBuilder;
-use crate::response::{BodyConsumeConfig, Response};
-use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::OwnedSemaphorePermit;
+use pyo3::{PyTraverseError, PyVisit};
 use tokio_util::sync::CancellationToken;
+use crate::client::spawner::Spawner;
 
 #[pyclass]
-pub struct Client(Arc<ClientInner>);
-struct ClientInner {
+pub struct Client {
     client: reqwest::Client,
     base_url: Option<Url>,
     runtime: Handle,
-    middlewares: Option<Vec<Py<PyAny>>>,
+    middlewares: Option<Arc<Vec<Py<PyAny>>>>,
     total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
     default_headers: Option<HeaderMap>,
-    event_loop_cell: GILOnceCell<Py<PyAny>>,
     close_cancellation: CancellationToken,
-}
-impl Drop for ClientInner {
-    fn drop(&mut self) {
-        self.close_cancellation.cancel();
-    }
 }
 
 #[pymethods]
 impl Client {
     fn request(&self, method: Method, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        let client = self.clone();
+        let middlewares_next = self.init_middleware_next(url.py())?;
+        let spawner = Spawner::new(
+            self.client.clone(),
+            self.runtime.clone(),
+            self.connection_limiter.clone(),
+            self.close_cancellation.child_token(),
+        );
 
-        let url: reqwest::Url = match self.0.base_url.as_ref() {
+        let url: reqwest::Url = match self.base_url.as_ref() {
             Some(base_url) => base_url.join(url.extract()?)?.into(),
             None => url.extract::<UrlType>()?.0,
         };
 
-        let request = client.0.client.request(method.0, url);
-        let mut builder = RequestBuilder::new(client, request, self.0.error_for_status);
-        self.0
-            .total_timeout
+        let reqwest_request_builder = self.client.request(method.0, url);
+        let mut builder = RequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
+
+        self.total_timeout
             .map(|timeout| builder.inner_timeout(timeout))
             .transpose()?;
-        self.0
-            .default_headers
+        self.default_headers
             .as_ref()
             .map(|default_headers| builder.inner_headers(default_headers))
             .transpose()?;
@@ -93,7 +87,20 @@ impl Client {
     }
 
     async fn close(&self) {
-        self.0.close_cancellation.cancel();
+        self.close_cancellation.cancel();
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(middlewares) = &self.middlewares {
+            for mw in middlewares.iter() {
+                visit.call(mw)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.middlewares = None;
     }
 }
 impl Client {
@@ -107,126 +114,26 @@ impl Client {
         default_headers: Option<HeaderMap>,
         base_url: Option<Url>,
     ) -> Self {
-        Client(Arc::new(ClientInner {
+        Client {
             client,
             runtime,
-            middlewares,
+            middlewares: middlewares.map(Arc::new),
             total_timeout,
             connection_limiter,
             error_for_status,
             default_headers,
             base_url,
-            event_loop_cell: GILOnceCell::new(),
             close_cancellation: CancellationToken::new(),
-        }))
-    }
-
-    pub async fn spawn_reqwest(
-        &self,
-        mut request: reqwest::Request,
-        body_consume_config: BodyConsumeConfig,
-        extensions: Option<Extensions>,
-        cancel: CancelHandle,
-    ) -> PyResult<Response> {
-        let client = self.0.client.clone();
-        let connection_limiter = self.0.connection_limiter.clone();
-        let close_handle = self.0.close_cancellation.clone();
-
-        let fut = async move {
-            let permit = match connection_limiter {
-                Some(lim) => Some(Self::limit_connections(&lim, &mut request).await?),
-                _ => None,
-            };
-
-            let mut resp = client.execute(request).await.map_err(map_send_error)?;
-
-            extensions
-                .map(|ext| ext.into_response(resp.extensions_mut()))
-                .transpose()?;
-
-            Response::initialize(resp, permit, body_consume_config).await
-        };
-
-        let fut = self.0.runtime.spawn(fut, cancel);
-
-        tokio::select! {
-            res = fut => res?,
-            _ = close_handle.cancelled() => Err(ClientClosedError::from_causes("Client was closed", vec![]),)
         }
     }
 
-    pub async fn limit_connections(
-        connection_limiter: &ConnectionLimiter,
-        request: &mut reqwest::Request,
-    ) -> PyResult<OwnedSemaphorePermit> {
-        let req_timeout = request.timeout().copied();
-        let now = std::time::Instant::now();
-
-        let permit = connection_limiter.limit_connections(req_timeout).await?;
-        let elapsed = now.elapsed();
-        if let Some(req_timeout) = req_timeout {
-            if elapsed >= req_timeout {
-                return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", vec![]));
-            } else {
-                *request.timeout_mut() = Some(req_timeout - elapsed);
-            }
-        }
-
-        Ok(permit)
-    }
-
-    pub fn init_middleware_next(
-        &self,
-        py: Python,
-        override_middlewares: Option<Vec<Py<PyAny>>>,
-    ) -> PyResult<Option<Next>> {
-        if self.0.middlewares.is_some() || override_middlewares.is_some() {
-            let task_local = Self::get_task_local_state(Some(self), py)?;
-            Ok(Some(Next::new(self.clone(), task_local, override_middlewares)))
+    pub fn init_middleware_next(&self, py: Python) -> PyResult<Option<Py<Next>>> {
+        if let Some(middlewares) = self.middlewares.as_ref() {
+            let task_local = TaskLocal::current(py)?;
+            let next = Next::new(middlewares.clone(), task_local);
+            Ok(Some(Py::new(py, next)?))
         } else {
             Ok(None)
-        }
-    }
-
-    pub fn middlewares(&self) -> Option<&Vec<Py<PyAny>>> {
-        self.0.middlewares.as_ref()
-    }
-
-    pub fn get_task_local_state(client: Option<&Self>, py: Python) -> PyResult<TaskLocal> {
-        static ONCE_CTX_VARS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
-
-        let event_loop = match client {
-            Some(client) => client
-                .0
-                .event_loop_cell
-                .get_or_try_init(py, || Ok::<_, PyErr>(get_running_loop(py)?.unbind()))?
-                .clone_ref(py),
-            None => get_running_loop(py)?.unbind(),
-        };
-
-        Ok(TaskLocal {
-            event_loop,
-            context: ONCE_CTX_VARS
-                .import(py, "contextvars", "copy_context")?
-                .call0()?
-                .unbind(),
-        })
-    }
-
-    pub fn clone(&self) -> Self {
-        Client(Arc::clone(&self.0))
-    }
-}
-
-pub struct TaskLocal {
-    pub event_loop: Py<PyAny>,
-    pub context: Py<PyAny>,
-}
-impl TaskLocal {
-    pub fn clone_ref(&self, py: Python) -> Self {
-        TaskLocal {
-            event_loop: self.event_loop.clone_ref(py),
-            context: self.context.clone_ref(py),
         }
     }
 }

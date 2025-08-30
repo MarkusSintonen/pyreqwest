@@ -76,7 +76,7 @@ class ASGITestMiddleware:
                 raise exc
             raise LifespanError(message)
 
-    async def __call__(self, _client: Client, request: Request, _next_handler: Next) -> Response:
+    async def __call__(self, request: Request, _next_handler: Next) -> Response:
         """ASGI middleware handler."""
         scope = await self._request_to_asgi_scope(request)
         body_parts = self._asgi_body_parts(request)
@@ -135,7 +135,7 @@ class ASGITestMiddleware:
         yield {"type": "http.request", "body": body_buf.to_bytes(), "more_body": False}
 
     async def _asgi_response_to_response(self, send_queue: asyncio.Queue[MutableMapping[str, Any]]) -> Response:
-        response_builder = ResponseBuilder.create_for_mocking()
+        response_builder = ResponseBuilder()
         body_parts = []
 
         while True:

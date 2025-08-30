@@ -1,7 +1,12 @@
 import asyncio
 import copy
+import gc
 import time
+import tracemalloc
+import weakref
 from collections.abc import AsyncGenerator
+from datetime import timedelta
+from typing import Any
 
 import pytest
 import trustme
@@ -284,3 +289,32 @@ def test_repr(snapshot: SnapshotAssertion):
     streamed = client.get("https://example.com").body(Body.from_stream(StreamRepr())).build_streamed()
     assert repr(streamed) == repr(req)
     assert streamed.repr_full() == req.repr_full()
+
+
+def test_circular_reference_collected(echo_server: Server) -> None:
+    # Check the GC support via __traverse__ and __clear__
+    ref: weakref.ReferenceType[Any] | None = None
+
+    def check() -> None:
+        nonlocal ref
+
+        class StreamHandler:
+            def __init__(self) -> None:
+                self.request = None
+
+            def __aiter__(self) -> AsyncGenerator[bytes]:
+                async def gen() -> AsyncGenerator[bytes]:
+                    yield b"test"
+
+                return gen()
+
+        client = ClientBuilder().error_for_status(True).timeout(timedelta(seconds=5)).build()
+
+        stream = StreamHandler()
+        ref = weakref.ref(stream)
+        request = client.post(echo_server.url).body(Body.from_stream(stream)).build_consumed()
+        stream.request = request
+
+    check()
+    gc.collect()
+    assert ref is not None and ref() is None

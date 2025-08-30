@@ -201,7 +201,7 @@ class Mock:
     def _response_builder(self) -> ResponseBuilder:
         assert self._custom_handler is None, "Cannot use response builder and custom handler together"
         self._using_response_builder = True
-        return ResponseBuilder.create_for_mocking()
+        return ResponseBuilder()
 
     async def _response(self) -> Response:
         if self._built_response is None:
@@ -332,7 +332,7 @@ class ClientMocker:
             mock.reset_requests()
 
     def _create_middleware(self) -> Middleware:
-        async def mock_middleware(_client: Client, request: Request, next_handler: Next) -> Response:
+        async def mock_middleware(request: Request, next_handler: Next) -> Response:
             if request.body is not None and (stream := request.body.get_stream()) is not None:
                 body = [bytes(chunk) async for chunk in stream]  # Read the body stream into bytes
                 request = request.from_request_and_body(request, Body.from_bytes(b"".join(body)))
@@ -359,10 +359,7 @@ def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
     orig_build_streamed = RequestBuilder.build_streamed
 
     def build_patch(self: RequestBuilder, orig: Callable[[RequestBuilder], Request]) -> Request:
-        request = orig(self)
-        assert request._interceptor is None  # type: ignore[attr-defined]
-        request._interceptor = mocker._create_middleware()  # type: ignore[attr-defined]
-        return request
+        return orig(self._set_interceptor(mocker._create_middleware()))  # type: ignore[attr-defined]
 
     monkeypatch.setattr(RequestBuilder, "build_consumed", lambda slf: build_patch(slf, orig_build_consumed))
     monkeypatch.setattr(RequestBuilder, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))

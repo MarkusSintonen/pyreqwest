@@ -1,25 +1,24 @@
-use crate::client::Client;
 use crate::http::{Body, Extensions, HeaderMap, Method, Url, UrlType};
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
-use pyo3::intern;
+use pyo3::{intern, PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyType};
 use std::fmt::Display;
+use crate::client::Spawner;
+use crate::middleware::Next;
 
 #[pyclass(subclass)]
 pub struct Request {
-    client: Client,
     inner: Option<reqwest::Request>,
+    spawner: Option<Spawner>,
     body: Option<ReqBody>,
     py_headers: Option<Py<HeaderMap>>,
     extensions: Option<Extensions>,
+    middlewares_next: Option<Py<Next>>,
     error_for_status: bool,
     body_consume_config: BodyConsumeConfig,
-
-    #[pyo3(get, set)]
-    _interceptor: Option<Py<PyAny>>,
 }
 
 #[pymethods]
@@ -119,64 +118,77 @@ impl Request {
     ) -> PyResult<Self> {
         Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
     }
+
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.py_headers)?;
+        if let Some(extensions) = &self.extensions {
+            visit.call(&extensions.0)?;
+        }
+        visit.call(&self.middlewares_next)?;
+        match &self.body {
+            Some(ReqBody::Body(body)) => body.__traverse__(visit)?,
+            Some(ReqBody::PyBody(py_body)) => visit.call(py_body)?,
+            None => {}
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.inner = None;
+        self.spawner = None;
+        self.body = None;
+        self.py_headers = None;
+        self.extensions = None;
+        self.middlewares_next = None;
+    }
 }
 impl Request {
     pub fn new(
-        client: Client,
         request: reqwest::Request,
+        spawner: Spawner,
         body: Option<Body>,
         extensions: Option<Extensions>,
+        middlewares_next: Option<Py<Next>>,
         error_for_status: bool,
         body_consume_config: BodyConsumeConfig,
     ) -> Self {
         Request {
-            client,
             inner: Some(request),
+            spawner: Some(spawner),
             extensions,
             body: body.map(ReqBody::Body),
             py_headers: None,
+            middlewares_next,
             error_for_status,
             body_consume_config,
-            _interceptor: None,
         }
     }
 
     pub async fn send_inner(slf: Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
         let mut error_for_status = false;
-        let mut middlewares_next = None;
+        let mut middleware_coro = None;
 
         Python::with_gil(|py| -> PyResult<()> {
             let req = slf.bind(py).downcast::<Self>()?;
             let mut this = req.try_borrow_mut()?;
-            let client = this.client.clone();
-
             error_for_status = this.error_for_status;
-            middlewares_next = client.init_middleware_next(py, this.override_middlewares(py, &client)?)?;
 
             match this.body.as_mut() {
-                Some(ReqBody::Body(body)) => body.set_task_local(py, Some(&client))?,
-                Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local(py, Some(&client))?,
+                Some(ReqBody::Body(body)) => body.set_task_local(py)?,
+                Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local(py)?,
                 None => {}
             }
+
+            if let Some(middlewares_next) = this.middlewares_next.as_ref() {
+                middleware_coro = Next::next_coro(middlewares_next.bind(py), &slf)?;
+            }
+
             Ok(())
         })?;
 
-        match middlewares_next {
-            Some(middlewares_next) => middlewares_next.call_first(slf, error_for_status).await,
+        match middleware_coro {
+            Some(middleware_coro) => Next::coro_result(middleware_coro, error_for_status).await,
             None => Request::spawn_request(slf, cancel).await,
-        }
-    }
-
-    fn override_middlewares(&self, py: Python, client: &Client) -> PyResult<Option<Vec<Py<PyAny>>>> {
-        if let Some(interceptor) = self._interceptor.as_ref() {
-            let mut override_middlewares = Vec::new();
-            if let Some(middlewares) = client.middlewares() {
-                override_middlewares.extend(middlewares.iter().map(|m| m.clone_ref(py)));
-            }
-            override_middlewares.push(interceptor.clone_ref(py));
-            Ok(Some(override_middlewares))
-        } else {
-            Ok(None)
         }
     }
 
@@ -193,23 +205,20 @@ impl Request {
     }
 
     pub async fn spawn_request(request: Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let mut client = None;
         let mut inner_request = None;
+        let mut spawner = None;
         let mut extensions = None;
         let mut error_for_status = false;
         let mut body_consume_config = BodyConsumeConfig::Fully;
 
         Python::with_gil(|py| -> PyResult<_> {
             let mut this = request.downcast_bound::<Request>(py)?.try_borrow_mut()?;
-            client = Some(this.client.clone());
+            spawner = this.spawner.clone();
             extensions = this.extensions.take();
             error_for_status = this.error_for_status;
             body_consume_config = this.body_consume_config;
 
-            let mut request = this
-                .inner
-                .take()
-                .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
+            let mut request = this.inner.take().ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
 
             if let Some(py_headers) = this.py_headers.as_ref() {
                 *request.headers_mut() = py_headers.try_borrow_mut(py)?.try_take_inner()?;
@@ -217,12 +226,12 @@ impl Request {
 
             match this.body.take() {
                 Some(ReqBody::Body(mut body)) => {
-                    body.set_task_local(py, client.as_ref())?;
+                    body.set_task_local(py)?;
                     *request.body_mut() = Some(body.into_reqwest()?)
                 }
                 Some(ReqBody::PyBody(py_body)) => {
                     let mut py_body = py_body.try_borrow_mut(py)?;
-                    py_body.set_task_local(py, client.as_ref())?;
+                    py_body.set_task_local(py)?;
                     *request.body_mut() = Some(py_body.into_reqwest()?)
                 }
                 None => {}
@@ -231,8 +240,8 @@ impl Request {
             Ok(())
         })?;
 
-        let resp = client
-            .unwrap()
+        let resp = spawner
+            .unwrap()  // Already checked above
             .spawn_reqwest(inner_request.unwrap(), body_consume_config, extensions, cancel)
             .await?;
 
@@ -264,14 +273,14 @@ impl Request {
             .transpose()?;
 
         Ok(Request {
-            client: self.client.clone(),
             inner: Some(new_inner),
+            spawner: self.spawner.clone(),
             body: body.map(ReqBody::Body),
             py_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
+            middlewares_next: self.middlewares_next.as_ref().map(|next| next.clone_ref(py)),
             error_for_status: self.error_for_status,
             body_consume_config: self.body_consume_config,
-            _interceptor: self._interceptor.as_ref().map(|v| v.clone_ref(py)),
         })
     }
 
@@ -285,22 +294,29 @@ impl Request {
 
     pub fn inner_from_request_and_body(py: Python, request: Bound<PyAny>, body: Option<Bound<Body>>) -> PyResult<Self> {
         let this = request.downcast::<Request>()?.try_borrow()?;
-        let client = this.client.clone();
-        let inner_request = this
+        let new_inner = this
             .inner_ref()?
             .try_clone()
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
 
         let body = body.map(|b| b.try_borrow_mut()?.take_inner()).transpose()?;
 
-        Ok(Request::new(
-            client,
-            inner_request,
-            body,
-            this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
-            this.error_for_status,
-            this.body_consume_config,
-        ))
+        let py_headers = this
+            .py_headers
+            .as_ref()
+            .map(|h| Py::new(py, h.try_borrow(py)?.try_clone()?))
+            .transpose()?;
+
+        Ok(Request {
+            inner: Some(new_inner),
+            spawner: this.spawner.clone(),
+            body: body.map(ReqBody::Body),
+            py_headers,
+            extensions: this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
+            middlewares_next: this.middlewares_next.as_ref().map(|next| next.clone_ref(py)),
+            error_for_status: this.error_for_status,
+            body_consume_config: this.body_consume_config,
+        })
     }
 
     pub fn repr(&self, py: Python, hide_sensitive: bool) -> PyResult<String> {

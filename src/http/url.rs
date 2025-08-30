@@ -391,6 +391,11 @@ impl From<Url> for reqwest::Url {
         val.url
     }
 }
+impl Clone for Url {
+    fn clone(&self) -> Self {
+        Url::new(self.url.clone())
+    }
+}
 
 pub struct UrlType(pub url::Url);
 impl<'py> FromPyObject<'py> for UrlType {

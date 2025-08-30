@@ -1,4 +1,3 @@
-use crate::client::Client;
 use crate::http::{Body, HeaderMap, HeaderName, HeaderValue, JsonValue};
 use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
@@ -8,19 +7,23 @@ use pyo3_bytes::PyBytes;
 
 #[pyclass]
 pub struct ResponseBuilder {
-    client: Option<Client>,
     inner: Option<http::response::Builder>,
     body: Option<Body>,
     extensions: Option<Extensions>,
 }
 #[pymethods]
 impl ResponseBuilder {
+    #[new]
+    fn py_new() -> Self {
+        Self::new()
+    }
+
     async fn build(&mut self) -> PyResult<Response> {
         let body: reqwest::Body = self
             .body
             .take()
             .map(|mut b| {
-                Python::with_gil(|py| b.set_task_local(py, self.client.as_ref()))?;
+                Python::with_gil(|py| b.set_task_local(py))?;
                 b.into_reqwest()
             })
             .transpose()?
@@ -91,21 +94,10 @@ impl ResponseBuilder {
         slf.body = Some(Body::from_stream(slf.py(), stream)?);
         Ok(slf)
     }
-
-    #[staticmethod]
-    pub fn create_for_mocking() -> PyResult<Self> {
-        Ok(ResponseBuilder {
-            client: None,
-            inner: Some(http::response::Builder::new()),
-            body: None,
-            extensions: None,
-        })
-    }
 }
 impl ResponseBuilder {
-    pub fn new(client: Client) -> Self {
+    pub fn new() -> Self {
         Self {
-            client: Some(client),
             inner: Some(http::response::Builder::new()),
             body: None,
             extensions: None,

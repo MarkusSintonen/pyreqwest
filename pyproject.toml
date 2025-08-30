@@ -13,7 +13,7 @@ pyreqwest = "pyreqwest.pytest_plugin.plugin"
 
 [dependency-groups]
 dev = [
-    "maturin==1.9.1",
+    "maturin==1.9.4",
     "pytest==8.4.1",
     "pytest-asyncio==1.0.0",
     "granian==2.4.1",
