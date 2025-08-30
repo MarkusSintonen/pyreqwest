@@ -33,21 +33,6 @@ pub struct Response {
 
 #[pymethods]
 impl Response {
-    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        if let Some(RespHeaders::PyHeaders(py_headers)) = &self.headers {
-            visit.call(py_headers)?;
-        }
-        if let Some(RespExtensions::PyExtensions(py_ext)) = &self.extensions {
-            visit.call(py_ext)?;
-        }
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        self.headers = None;
-        self.extensions = None;
-    }
-
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
         if self.headers.is_none() {
@@ -143,6 +128,21 @@ impl Response {
             "HTTP status server error"
         };
         Err(StatusError::from_custom(msg, json!({"status": self.status.0.as_u16()})))
+    }
+
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(RespHeaders::PyHeaders(py_headers)) = &self.headers {
+            visit.call(py_headers)?;
+        }
+        if let Some(RespExtensions::PyExtensions(py_ext)) = &self.extensions {
+            visit.call(py_ext)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.headers = None;
+        self.extensions = None;
     }
 }
 impl Response {
