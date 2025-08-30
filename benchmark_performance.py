@@ -17,6 +17,7 @@ class PerformanceBenchmark:
     def __init__(self, echo_server: EchoServer) -> None:
         """Initialize benchmark with echo server."""
         self.echo_server = echo_server
+        self.url = echo_server.url.with_query({"echo_only_body": "1"})
         self.body_sizes = [
             1000,  # 1KB
             10_000,  # 10KB
@@ -41,13 +42,8 @@ class PerformanceBenchmark:
         body = self.generate_body(body_size)
 
         async with ClientBuilder().build() as client:
-            async def post_next_chunks():
-                response = await client.post(self.echo_server.url).body_bytes(body).build_consumed().send()
-                while await response.next_chunk() is not None:
-                    pass
-
             async def post_read():
-                response = await client.post(self.echo_server.url).body_bytes(body).build_consumed().send()
+                response = await client.post(self.url).body_bytes(body).build_consumed().send()
                 await response.bytes()
 
             # Warmup rounds
@@ -61,7 +57,7 @@ class PerformanceBenchmark:
                 start_time = time.perf_counter()
                 await post_read()
                 end_time = time.perf_counter()
-                times.append(end_time - start_time)
+                times.append((end_time - start_time) * 1000)
 
         return times
 
@@ -69,14 +65,9 @@ class PerformanceBenchmark:
         """Benchmark aiohttp with specified body size."""
         times = []
         body = self.generate_body(body_size)
-        url_str = str(self.echo_server.url)  # Convert pyreqwest URL to string
+        url_str = str(self.url)  # Convert pyreqwest URL to string
 
         async with aiohttp.ClientSession() as session:
-            async def post_next_chunks():
-                async with session.post(url_str, data=body) as response:
-                    async for data, _ in response.content.iter_chunks():
-                        pass
-
             async def post_read():
                 async with session.post(url_str, data=body) as response:
                     await response.read()
@@ -92,14 +83,14 @@ class PerformanceBenchmark:
                 start_time = time.perf_counter()
                 await post_read()
                 end_time = time.perf_counter()
-                times.append(end_time - start_time)
+                times.append((end_time - start_time) * 1000)
 
         return times
 
     async def run_benchmarks(self) -> None:
         """Run all benchmarks."""
         print("Starting performance benchmarks...")
-        print(f"Echo server URL: {self.echo_server.url}")
+        print(f"Echo server URL: {self.url}")
         print(f"Body sizes: {[f'{size//1000}KB' if size < 1_000_000 else f'{size//1_000_000}MB' for size in self.body_sizes]}")
         print(f"Warmup iterations: {self.warmup_iterations}")
         print(f"Benchmark iterations: {self.iterations}")
@@ -122,8 +113,8 @@ class PerformanceBenchmark:
             # Print summary for this body size
             pyreqwest_avg = statistics.mean(pyreqwest_times)
             aiohttp_avg = statistics.mean(aiohttp_times)
-            print(f"  pyreqwest average: {pyreqwest_avg:.4f}s")
-            print(f"  aiohttp average: {aiohttp_avg:.4f}s")
+            print(f"  pyreqwest average: {pyreqwest_avg:.4f}ms")
+            print(f"  aiohttp average: {aiohttp_avg:.4f}ms")
             speedup = aiohttp_avg / pyreqwest_avg if pyreqwest_avg != 0 else 0
             print(f"  Speedup: {speedup:.2f}x")
             print()
@@ -163,7 +154,7 @@ class PerformanceBenchmark:
 
             # Customize subplot
             ax.set_title(f"{size_label} Body Size", fontweight='bold')
-            ax.set_ylabel("Response Time (seconds)")
+            ax.set_ylabel("Response Time (ms)")
             ax.grid(True, alpha=0.3)
 
             # Add performance comparison text
@@ -182,9 +173,6 @@ class PerformanceBenchmark:
             ax.text(0.5, 0.95, f"{faster_lib} {speedup_text}",
                     transform=ax.transAxes, ha='center', va='top',
                     bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8))
-
-        # Remove the last empty subplot (we have 5 body sizes, 6 subplot positions)
-        axes[-1].remove()
 
         # Add overall legend
         blue_patch = plt.Rectangle((0, 0), 1, 1, facecolor="lightblue", label="pyreqwest")
@@ -227,12 +215,12 @@ class PerformanceBenchmark:
             }
 
             print(f"\n{size_label} Body Size:")
-            print(f"  pyreqwest - Mean: {pyreqwest_stats['mean']:.4f}s, "
-                  f"Median: {pyreqwest_stats['median']:.4f}s, "
-                  f"StdDev: {pyreqwest_stats['stdev']:.4f}s")
-            print(f"  aiohttp   - Mean: {aiohttp_stats['mean']:.4f}s, "
-                  f"Median: {aiohttp_stats['median']:.4f}s, "
-                  f"StdDev: {aiohttp_stats['stdev']:.4f}s")
+            print(f"  pyreqwest - Mean: {pyreqwest_stats['mean']:.4f}ms, "
+                  f"Median: {pyreqwest_stats['median']:.4f}ms, "
+                  f"StdDev: {pyreqwest_stats['stdev']:.4f}ms")
+            print(f"  aiohttp   - Mean: {aiohttp_stats['mean']:.4f}ms, "
+                  f"Median: {aiohttp_stats['median']:.4f}ms, "
+                  f"StdDev: {aiohttp_stats['stdev']:.4f}ms")
 
             speedup = aiohttp_stats['mean'] / pyreqwest_stats['mean'] if pyreqwest_stats['mean'] != 0 else 0
             print(f"  Speedup: {speedup:.2f}x faster")

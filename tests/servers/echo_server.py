@@ -27,19 +27,23 @@ class EchoServer(Server):
         if sleep_start := float(query_dict.get("sleep_start", 0)):
             await asyncio.sleep(sleep_start)
 
-        resp = {
-            "headers": scope["headers"],
-            "http_version": scope["http_version"],
-            "method": scope["method"],
-            "path": scope["path"],
-            "query": query,
-            "raw_path": scope["raw_path"],
-            "scheme": scope["scheme"],
-            "body_parts": [b async for b in receive_all(receive)],
-        }
-        resp_headers = [[b"content-type", b"application/json"]]
+        if query_dict.get("echo_only_body") == "1":
+            resp_body = b"".join([b async for b in receive_all(receive)])
+            resp_headers = [[b"content-type", b"application/octet-stream"]]
+        else:
+            resp = {
+                "headers": scope["headers"],
+                "http_version": scope["http_version"],
+                "method": scope["method"],
+                "path": scope["path"],
+                "query": query,
+                "raw_path": scope["raw_path"],
+                "scheme": scope["scheme"],
+                "body_parts": [b async for b in receive_all(receive)],
+            }
+            resp_body = json_dump(resp)
+            resp_headers = [[b"content-type", b"application/json"]]
 
-        resp_body = json_dump(resp)
         if query_dict.get("compress") == "gzip":
             resp_body = gzip.compress(resp_body)
             resp_headers.extend([[b"content-encoding", b"gzip"], [b"x-content-encoding", b"gzip"]])
