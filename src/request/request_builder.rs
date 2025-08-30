@@ -10,6 +10,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_bytes::PyBytes;
 use std::time::Duration;
+use pyo3::{PyTraverseError, PyVisit};
 use crate::asyncio::TaskLocal;
 use crate::client::Spawner;
 use crate::middleware::Next;
@@ -119,6 +120,25 @@ impl RequestBuilder {
             slf.middlewares_next = Some(Py::new(py, next)?);
         }
         Ok(slf)
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(extensions) = &self.extensions {
+            visit.call(&extensions.0)?;
+        }
+        visit.call(&self.middlewares_next)?;
+        if let Some(body) = &self.body {
+            body.__traverse__(visit)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.inner = None;
+        self.spawner = None;
+        self.body = None;
+        self.extensions = None;
+        self.middlewares_next = None;
     }
 }
 impl RequestBuilder {

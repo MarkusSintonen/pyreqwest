@@ -11,6 +11,7 @@ use pyo3::types::PyDict;
 use pyo3_bytes::PyBytes;
 use serde_json::json;
 use std::collections::VecDeque;
+use pyo3::{PyTraverseError, PyVisit};
 use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
@@ -20,8 +21,8 @@ pub struct Response {
     #[pyo3(get, set)]
     version: Version,
 
-    headers: RespHeaders,
-    extensions: RespExtensions,
+    headers: Option<RespHeaders>,
+    extensions: Option<RespExtensions>,
 
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
     body_stream: Option<reqwest::Body>,
@@ -32,13 +33,31 @@ pub struct Response {
 
 #[pymethods]
 impl Response {
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(RespHeaders::PyHeaders(py_headers)) = &self.headers {
+            visit.call(py_headers)?;
+        }
+        if let Some(RespExtensions::PyExtensions(py_ext)) = &self.extensions {
+            visit.call(py_ext)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.headers = None;
+        self.extensions = None;
+    }
+
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
-        if let RespHeaders::Headers(headers) = &mut self.headers {
+        if self.headers.is_none() {
+            return Err(PyRuntimeError::new_err("Expected headers"));
+        };
+        if let RespHeaders::Headers(headers) = self.headers.as_mut().unwrap() {
             let py_headers = Py::new(py, HeaderMap::from(headers.try_take_inner()?))?;
-            self.headers = RespHeaders::PyHeaders(py_headers);
+            self.headers = Some(RespHeaders::PyHeaders(py_headers));
         }
-        match &self.headers {
+        match self.headers.as_ref().unwrap() {
             RespHeaders::PyHeaders(py_headers) => Ok(py_headers),
             RespHeaders::Headers(_) => Err(PyRuntimeError::new_err("Expected PyHeaders")),
         }
@@ -46,20 +65,23 @@ impl Response {
 
     #[setter]
     fn set_headers(&mut self, value: Py<HeaderMap>) -> PyResult<()> {
-        self.headers = RespHeaders::PyHeaders(value);
+        self.headers = Some(RespHeaders::PyHeaders(value));
         Ok(())
     }
 
     #[getter]
     fn get_extensions(&mut self, py: Python) -> PyResult<&Py<PyDict>> {
-        if let RespExtensions::Extensions(ext) = &mut self.extensions {
+        if self.extensions.is_none() {
+            return Err(PyRuntimeError::new_err("Expected extensions"));
+        };
+        if let RespExtensions::Extensions(ext) = self.extensions.as_mut().unwrap() {
             let py_ext = ext
                 .remove::<Extensions>()
                 .unwrap_or_else(|| Extensions(PyDict::new(py).unbind()))
                 .0;
-            self.extensions = RespExtensions::PyExtensions(py_ext);
+            self.extensions = Some(RespExtensions::PyExtensions(py_ext));
         }
-        match &self.extensions {
+        match self.extensions.as_ref().unwrap() {
             RespExtensions::PyExtensions(py_ext) => Ok(py_ext),
             RespExtensions::Extensions(_) => Err(PyRuntimeError::new_err("Expected PyExtensions")),
         }
@@ -67,7 +89,7 @@ impl Response {
 
     #[setter]
     fn set_extensions(&mut self, extensions: Extensions) {
-        self.extensions = RespExtensions::PyExtensions(extensions.0);
+        self.extensions = Some(RespExtensions::PyExtensions(extensions.0));
     }
 
     async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
@@ -164,8 +186,8 @@ impl Response {
         let resp = Response {
             status: StatusCode(head.status),
             version: Version(head.version),
-            headers: RespHeaders::Headers(HeaderMap::from(head.headers)),
-            extensions: RespExtensions::Extensions(head.extensions),
+            headers: Some(RespHeaders::Headers(HeaderMap::from(head.headers))),
+            extensions: Some(RespExtensions::Extensions(head.extensions)),
             body_stream,
             request_semaphore_permit: permit,
             init_chunks,
@@ -177,8 +199,9 @@ impl Response {
 
     fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
         match self.headers {
-            RespHeaders::Headers(ref headers) => headers.get_one(name),
-            RespHeaders::PyHeaders(ref py_headers) => py_headers.try_borrow(py)?.get_one(name),
+            Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
+            Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.try_borrow(py)?.get_one(name),
+            None => Err(PyRuntimeError::new_err("Expected headers")),
         }
     }
 

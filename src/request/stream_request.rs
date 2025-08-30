@@ -4,6 +4,7 @@ use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::{PyTraverseError, PyVisit};
 use pyo3::types::PyType;
 
 const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
@@ -73,6 +74,14 @@ impl StreamRequest {
         body: Option<Bound<Body>>,
     ) -> PyResult<Py<Self>> {
         Self::new_py(Request::inner_from_request_and_body(py, request, body)?)
+    }
+
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.ctx_response)
+    }
+
+    fn __clear__(&mut self) {
+        self.ctx_response = None;
     }
 }
 impl StreamRequest {

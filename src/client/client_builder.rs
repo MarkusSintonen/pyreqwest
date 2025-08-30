@@ -10,6 +10,7 @@ use reqwest::redirect;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
+use pyo3::{PyTraverseError, PyVisit};
 
 #[pyclass]
 #[derive(Default)]
@@ -349,6 +350,20 @@ impl ClientBuilder {
             let ip = IpAddr::from_str(ip.as_str()).map_err(|e| PyValueError::new_err(e.to_string()))?;
             Ok(builder.resolve(domain.as_str(), SocketAddr::new(ip, port)))
         })
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(middlewares) = &self.middlewares {
+            for mw in middlewares.iter() {
+                visit.call(mw)?;
+            }
+        }
+        visit.call(&self.runtime)
+    }
+
+    fn __clear__(&mut self) {
+        self.middlewares = None;
+        self.runtime = None;
     }
 }
 impl ClientBuilder {

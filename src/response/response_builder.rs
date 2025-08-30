@@ -3,6 +3,7 @@ use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::{PyTraverseError, PyVisit};
 use pyo3_bytes::PyBytes;
 
 #[pyclass]
@@ -93,6 +94,21 @@ impl ResponseBuilder {
     fn body_stream(mut slf: PyRefMut<Self>, stream: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
         slf.body = Some(Body::from_stream(slf.py(), stream)?);
         Ok(slf)
+    }
+
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(ext) = &self.extensions {
+            visit.call(&ext.0)?;
+        }
+        if let Some(body) = &self.body {
+            body.__traverse__(visit)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.body = None;
+        self.extensions = None;
     }
 }
 impl ResponseBuilder {
