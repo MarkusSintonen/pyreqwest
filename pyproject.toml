@@ -29,6 +29,9 @@ dev = [
     "yarl==1.20.1",
     "multidict==6.6.3",
     "starlette==0.47.3",
+    # Perf comparison
+    "aiohttp==3.12.15",
+    "matplotlib>=3.7.0",
 ]
 
 [tool.maturin]

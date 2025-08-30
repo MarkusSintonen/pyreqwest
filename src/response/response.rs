@@ -2,7 +2,7 @@ use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use encoding_rs::{Encoding, UTF_8};
 use http_body_util::BodyExt;
 use pyo3::exceptions::PyRuntimeError;
@@ -105,7 +105,7 @@ impl Response {
     }
 
     fn content_type_mime(&self) -> PyResult<Option<Mime>> {
-        let Some(content_type) = Python::with_gil(|py| self.get_header(py, "content-type"))? else {
+        let Some(content_type) = self.get_header("content-type")? else {
             return Ok(None);
         };
         let mime = content_type
@@ -197,10 +197,12 @@ impl Response {
         Ok(resp)
     }
 
-    fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
+    fn get_header(&self, name: &str) -> PyResult<Option<HeaderValue>> {
         match self.headers {
             Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
-            Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.try_borrow(py)?.get_one(name),
+            Some(RespHeaders::PyHeaders(ref py_headers)) => {
+                Python::with_gil(|py| py_headers.try_borrow(py)?.get_one(name))
+            },
             None => Err(PyRuntimeError::new_err("Expected headers")),
         }
     }
@@ -244,14 +246,31 @@ impl Response {
             return Err(PyRuntimeError::new_err("Response body already consumed"));
         }
 
-        let mut bytes: Vec<u8> = vec![];
+        let mut bytes = match self.content_length()? {
+            Some(len) => BytesMut::with_capacity(len),
+            None => BytesMut::new(),
+        };
+
         while let Some(chunk) = self.next_chunk_inner().await? {
-            bytes.extend(chunk);
+            bytes.extend_from_slice(&chunk);
         }
 
         let bytes = Bytes::from(bytes);
         self.read_body = Some(bytes.clone());
         Ok(bytes)
+    }
+
+    fn content_length(&self) -> PyResult<Option<usize>> {
+        let Some(content_type) = self.get_header("content-length")? else {
+            return Ok(None);
+        };
+        content_type
+            .0
+            .to_str()
+            .map_err(|e| RequestError::from_err("Invalid Content-Length header", &e))?
+            .parse::<usize>()
+            .map_err(|e| RequestError::from_err("Failed to parse Content-Length header", &e))
+            .map(Some)
     }
 
     fn response_parts(response: reqwest::Response) -> (http::response::Parts, reqwest::Body) {
