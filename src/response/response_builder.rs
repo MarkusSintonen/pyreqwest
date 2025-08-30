@@ -111,6 +111,12 @@ impl ResponseBuilder {
         self.extensions = None;
     }
 }
+impl Default for ResponseBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResponseBuilder {
     pub fn new() -> Self {
         Self {

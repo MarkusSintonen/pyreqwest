@@ -2,7 +2,6 @@ import asyncio
 import copy
 import gc
 import time
-import tracemalloc
 import weakref
 from collections.abc import AsyncGenerator
 from datetime import timedelta
@@ -300,7 +299,7 @@ def test_circular_reference_collected(echo_server: Server) -> None:
 
         class StreamHandler:
             def __init__(self) -> None:
-                self.request = None
+                self.request: Request | None = None
 
             def __aiter__(self) -> AsyncGenerator[bytes]:
                 async def gen() -> AsyncGenerator[bytes]:

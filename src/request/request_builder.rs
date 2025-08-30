@@ -1,6 +1,8 @@
-use std::sync::Arc;
+use crate::asyncio::TaskLocal;
+use crate::client::Spawner;
 use crate::exceptions::BuilderError;
 use crate::http::{Body, Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, JsonValue, QueryParams};
+use crate::middleware::Next;
 use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
@@ -8,12 +10,10 @@ use crate::request::stream_request::StreamRequest;
 use crate::response::BodyConsumeConfig;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3_bytes::PyBytes;
-use std::time::Duration;
 use pyo3::{PyTraverseError, PyVisit};
-use crate::asyncio::TaskLocal;
-use crate::client::Spawner;
-use crate::middleware::Next;
+use pyo3_bytes::PyBytes;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[pyclass]
 pub struct RequestBuilder {
@@ -110,7 +110,10 @@ impl RequestBuilder {
         Ok(slf)
     }
 
-    fn _set_interceptor<'py>(mut slf: PyRefMut<'py, Self>, interceptor: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+    fn _set_interceptor<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        interceptor: Bound<'py, PyAny>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
         let py = slf.py();
         if let Some(middlewares_next) = slf.middlewares_next.as_mut() {
             middlewares_next.try_borrow_mut(py)?.add_middleware(interceptor)?;
@@ -142,7 +145,12 @@ impl RequestBuilder {
     }
 }
 impl RequestBuilder {
-    pub fn new(inner: reqwest::RequestBuilder, spawner: Spawner, middlewares_next: Option<Py<Next>>, error_for_status: bool) -> Self {
+    pub fn new(
+        inner: reqwest::RequestBuilder,
+        spawner: Spawner,
+        middlewares_next: Option<Py<Next>>,
+        error_for_status: bool,
+    ) -> Self {
         RequestBuilder {
             inner: Some(inner),
             spawner: Some(spawner),
@@ -167,7 +175,9 @@ impl RequestBuilder {
 
         let request = Request::new(
             request,
-            self.spawner.take().ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?,
+            self.spawner
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?,
             self.body.take(),
             self.extensions.take(),
             self.middlewares_next.take(),

@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use crate::asyncio::{py_coro_waiter, PyCoroWaiter, TaskLocal};
+use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use crate::request::Request;
 use crate::response::Response;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
+use std::sync::Arc;
 
 #[pyclass]
 pub struct Next {
@@ -73,11 +73,14 @@ impl Next {
         let py = slf.py();
         let this = slf.try_borrow()?;
 
-        let Some (middleware) = this.current_middleware() else {
-            return Ok(None);  // No more middlewares
+        let Some(middleware) = this.current_middleware() else {
+            return Ok(None); // No more middlewares
         };
 
-        let task_local = this.task_local.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected task_local"))?;
+        let task_local = this
+            .task_local
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected task_local"))?;
 
         let next = Next {
             task_local: Some(task_local.clone_ref(py)?),
@@ -90,7 +93,7 @@ impl Next {
         };
 
         let coro = middleware.bind(py).call1((request, next))?;
-        Ok(Some(py_coro_waiter(coro, &task_local)?))
+        Ok(Some(py_coro_waiter(coro, task_local)?))
     }
 
     pub async fn coro_result(coro: PyCoroWaiter, error_for_status: bool) -> PyResult<Py<Response>> {

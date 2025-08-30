@@ -302,13 +302,14 @@ async def test_proxy_nested_request(echo_server: EchoServer) -> None:
 
     class MiddlewareProxy:
         def __init__(self) -> None:
-            self.client = None
+            self.client: Client | None = None
 
         async def __call__(self, request: Request, next_handler: Next) -> Response:
             if request.extensions.get("skip_proxy"):
                 return await next_handler.run(request)
             assert request.url == "http://foo.invalid"
             ext = {"skip_proxy": True}
+            assert self.client
             return await self.client.request(request.method, echo_server.url).extensions(ext).build_consumed().send()
 
     middleware = MiddlewareProxy()
@@ -325,11 +326,12 @@ async def test_nested_request_context_var(echo_server: EchoServer) -> None:
 
     class MiddlewareProxyCtxVar:
         def __init__(self) -> None:
-            self.client = None
+            self.client: Client | None = None
 
         async def __call__(self, request: Request, next_handler: Next) -> Response:
             if ctx_var.get() == "val1":
                 ctx_var.set("val2")
+                assert self.client
                 return await self.client.request(request.method, echo_server.url).build_consumed().send()
             assert ctx_var.get() == "val2"
             return await next_handler.run(request)
@@ -350,7 +352,7 @@ async def test_proxy_modify_request(echo_server: EchoServer) -> None:
 
     class MiddlewareProxy:
         def __init__(self) -> None:
-            self.client = None
+            self.client: Client | None = None
 
         async def __call__(self, request: Request, next_handler: Next) -> Response:
             if request.url == "http://foo.invalid":
@@ -397,7 +399,7 @@ async def test_circular_reference_collected(echo_server: EchoServer) -> None:
 
         class MiddlewareWithClient:
             def __init__(self) -> None:
-                self.client = None
+                self.client: Client | None = None
 
             async def __call__(self, request: Request, next_handler: Next) -> Response:
                 return await next_handler.run(request)

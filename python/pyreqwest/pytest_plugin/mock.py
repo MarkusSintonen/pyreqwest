@@ -8,7 +8,6 @@ from typing import Any, Literal, Self, assert_never
 
 import pytest
 
-from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
 from pyreqwest.middleware.types import Middleware

@@ -562,12 +562,7 @@ async def test_get_call_count_with_custom_handlers(client_mocker: ClientMocker) 
         nonlocal call_count
         if request.method == "GET" and "custom" in str(request.url):
             call_count += 1
-            return (
-                await ResponseBuilder()
-                .status(200)
-                .body_text(f"Custom response {call_count}")
-                .build()
-            )
+            return await ResponseBuilder().status(200).body_text(f"Custom response {call_count}").build()
         return None
 
     custom_mock = client_mocker.mock().match_request_with_response(custom_handler)

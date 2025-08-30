@@ -236,12 +236,7 @@ async def test_assert_called_custom_matcher_and_handler(
         return isinstance(body, dict) and body.get("role") == "admin"
 
     async def admin_handler(_request: Request) -> Response:
-        return (
-            await ResponseBuilder()
-            .status(200)
-            .body_json({"message": "Admin access granted"})
-            .build()
-        )
+        return await ResponseBuilder().status(200).body_json({"message": "Admin access granted"}).build()
 
     mock = client_mocker.post("/admin").match_request(is_admin_request).match_request_with_response(admin_handler)
 

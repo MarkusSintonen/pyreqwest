@@ -1,13 +1,13 @@
-use pyo3::coroutine::CancelHandle;
-use pyo3::PyResult;
-use tokio::sync::OwnedSemaphorePermit;
-use tokio_util::sync::CancellationToken;
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime;
-use crate::exceptions::{ClientClosedError, PoolTimeoutError};
 use crate::exceptions::utils::map_send_error;
+use crate::exceptions::{ClientClosedError, PoolTimeoutError};
 use crate::http::Extensions;
 use crate::response::{BodyConsumeConfig, Response};
+use pyo3::PyResult;
+use pyo3::coroutine::CancelHandle;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio_util::sync::CancellationToken;
 
 pub struct Spawner {
     client: reqwest::Client,
@@ -42,7 +42,7 @@ impl Spawner {
 
         let fut = async move {
             let permit = match connection_limiter.as_ref() {
-                Some(lim) => Some(Self::limit_connections(&lim, &mut request).await?),
+                Some(lim) => Some(Self::limit_connections(lim, &mut request).await?),
                 _ => None,
             };
 

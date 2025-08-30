@@ -1,11 +1,11 @@
-use crate::asyncio::{PyCoroWaiter, py_coro_waiter, TaskLocal};
+use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::{intern, PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyEllipsis;
+use pyo3::{PyTraverseError, PyVisit, intern};
 use pyo3_bytes::PyBytes;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -178,7 +178,9 @@ impl BodyStream {
     }
 
     pub fn get_stream(&self) -> PyResult<&Py<PyAny>> {
-        self.stream.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected stream"))
+        self.stream
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected stream"))
     }
 
     pub fn into_reqwest(self) -> PyResult<reqwest::Body> {
@@ -240,7 +242,11 @@ impl BodyStream {
             return Err(PyRuntimeError::new_err("Cannot clone a stream that was already consumed"));
         }
 
-        let new_stream = self.stream.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected stream"))?.call_method0(py, intern!(py, "__copy__"))?;
+        let new_stream = self
+            .stream
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected stream"))?
+            .call_method0(py, intern!(py, "__copy__"))?;
 
         Ok(BodyStream {
             aiter: Some(Self::get_aiter(py, &new_stream)?.unbind()),

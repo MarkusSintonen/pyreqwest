@@ -3,7 +3,6 @@
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from pyreqwest.client import Client
 from pyreqwest.middleware import Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response

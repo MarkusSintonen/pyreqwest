@@ -3,7 +3,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyDict;
-use pyo3::{Bound, Py, PyAny, PyResult, Python, intern, pyclass, pymethods, PyVisit, PyTraverseError};
+use pyo3::{Bound, Py, PyAny, PyResult, PyTraverseError, PyVisit, Python, intern, pyclass, pymethods};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -42,7 +42,12 @@ impl TaskCreator {
     fn __call__(&self, py: Python) -> PyResult<()> {
         match self.create_task(py) {
             Ok(_) => Ok(()),
-            Err(e) => self.callback.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected callback"))?.try_borrow_mut(py)?.tx_send(Err(e)),
+            Err(e) => self
+                .callback
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("Expected callback"))?
+                .try_borrow_mut(py)?
+                .tx_send(Err(e)),
         }
     }
 
@@ -132,21 +137,35 @@ impl TaskLocal {
 
         Ok(TaskLocal {
             event_loop: Some(get_running_loop(py)?.unbind()),
-            context: Some(ONCE_CTX_VARS
-                .import(py, "contextvars", "copy_context")?
-                .call0()?
-                .unbind()),
+            context: Some(
+                ONCE_CTX_VARS
+                    .import(py, "contextvars", "copy_context")?
+                    .call0()?
+                    .unbind(),
+            ),
         })
     }
 
     pub fn event_loop(&self) -> PyResult<&Py<PyAny>> {
-        Ok(self.event_loop.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))?)
+        self.event_loop
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))
     }
 
     pub fn clone_ref(&self, py: Python) -> PyResult<Self> {
         Ok(TaskLocal {
-            event_loop: Some(self.event_loop.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))?.clone_ref(py)),
-            context: Some(self.context.as_ref().ok_or_else(|| PyRuntimeError::new_err("Expected context"))?.clone_ref(py)),
+            event_loop: Some(
+                self.event_loop
+                    .as_ref()
+                    .ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))?
+                    .clone_ref(py),
+            ),
+            context: Some(
+                self.context
+                    .as_ref()
+                    .ok_or_else(|| PyRuntimeError::new_err("Expected context"))?
+                    .clone_ref(py),
+            ),
         })
     }
 
@@ -161,4 +180,3 @@ impl TaskLocal {
         self.context = None;
     }
 }
-

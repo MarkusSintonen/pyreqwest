@@ -8,10 +8,10 @@ use http_body_util::BodyExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use pyo3::{PyTraverseError, PyVisit};
 use pyo3_bytes::PyBytes;
 use serde_json::json;
 use std::collections::VecDeque;
-use pyo3::{PyTraverseError, PyVisit};
 use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]

@@ -5,12 +5,12 @@ use crate::http::{HeaderMap, Url, UrlType};
 use crate::proxy::Proxy;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::{PyTraverseError, PyVisit};
 use pyo3_bytes::PyBytes;
 use reqwest::redirect;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
-use pyo3::{PyTraverseError, PyVisit};
 
 #[pyclass]
 #[derive(Default)]

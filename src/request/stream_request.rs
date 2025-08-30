@@ -4,8 +4,8 @@ use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::{PyTraverseError, PyVisit};
 use pyo3::types::PyType;
+use pyo3::{PyTraverseError, PyVisit};
 
 const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
 

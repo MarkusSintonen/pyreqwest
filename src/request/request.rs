@@ -1,13 +1,13 @@
+use crate::client::Spawner;
 use crate::http::{Body, Extensions, HeaderMap, Method, Url, UrlType};
+use crate::middleware::Next;
 use crate::response::{BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
-use pyo3::{intern, PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyType};
+use pyo3::{PyTraverseError, PyVisit, intern};
 use std::fmt::Display;
-use crate::client::Spawner;
-use crate::middleware::Next;
 
 #[pyclass(subclass)]
 pub struct Request {
@@ -218,7 +218,10 @@ impl Request {
             error_for_status = this.error_for_status;
             body_consume_config = this.body_consume_config;
 
-            let mut request = this.inner.take().ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
+            let mut request = this
+                .inner
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
 
             if let Some(py_headers) = this.py_headers.as_ref() {
                 *request.headers_mut() = py_headers.try_borrow_mut(py)?.try_take_inner()?;
@@ -241,7 +244,7 @@ impl Request {
         })?;
 
         let resp = spawner
-            .unwrap()  // Already checked above
+            .unwrap() // Already checked above
             .spawn_reqwest(inner_request.unwrap(), body_consume_config, extensions, cancel)
             .await?;
 

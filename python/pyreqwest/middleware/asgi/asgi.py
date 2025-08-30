@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Any, Self
 from urllib.parse import unquote
 
-from pyreqwest.client import Client
 from pyreqwest.http import Body
 from pyreqwest.middleware import Next
 from pyreqwest.request import Request

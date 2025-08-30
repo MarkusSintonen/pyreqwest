@@ -1,16 +1,16 @@
 use crate::asyncio::TaskLocal;
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Handle;
-use crate::http::{Url, UrlType};
+use crate::client::spawner::Spawner;
 use crate::http::{HeaderMap, Method};
+use crate::http::{Url, UrlType};
 use crate::middleware::Next;
 use crate::request::RequestBuilder;
 use pyo3::prelude::*;
+use pyo3::{PyTraverseError, PyVisit};
 use std::sync::Arc;
 use std::time::Duration;
-use pyo3::{PyTraverseError, PyVisit};
 use tokio_util::sync::CancellationToken;
-use crate::client::spawner::Spawner;
 
 #[pyclass]
 pub struct Client {
@@ -42,7 +42,8 @@ impl Client {
         };
 
         let reqwest_request_builder = self.client.request(method.0, url);
-        let mut builder = RequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
+        let mut builder =
+            RequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
 
         self.total_timeout
             .map(|timeout| builder.inner_timeout(timeout))
