@@ -31,7 +31,8 @@ dev = [
     "starlette==0.47.3",
     # Perf comparison
     "aiohttp==3.12.15",
-    "matplotlib>=3.7.0",
+    "httpx==0.28.1",
+    "matplotlib==3.10.6",
 ]
 
 [tool.maturin]
