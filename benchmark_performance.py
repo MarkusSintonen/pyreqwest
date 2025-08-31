@@ -3,10 +3,12 @@
 import asyncio
 import statistics
 import time
-from typing import Coroutine, Any, Callable
+from typing import Coroutine, Any, Callable, Iterable
 
 import aiohttp
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+
 from pyreqwest.client import ClientBuilder
 
 from tests.servers.echo_server import EchoServer
@@ -39,7 +41,7 @@ class PerformanceBenchmark:
         """Generate test body of specified size."""
         return b"x" * size
 
-    async def run_concurrency_limited(self, coros: list[Coroutine[Any, Any, None]], concurrency: int) -> None:
+    async def run_concurrency_limited(self, coros: Iterable[Coroutine[Any, Any, None]], concurrency: int) -> None:
         """Run tasks with a limit on concurrency."""
         semaphore = asyncio.Semaphore(concurrency)
 
@@ -49,17 +51,20 @@ class PerformanceBenchmark:
 
         await asyncio.gather(*(sem_task(coro) for coro in coros))
 
-    async def meas_concurrent_batch(self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int) -> float:
-        start_time = time.perf_counter()
-        tasks = [fn() for _ in range(self.requests)]
-        await self.run_concurrency_limited(tasks, concurrency)
-        end_time = time.perf_counter()
-        return (end_time - start_time) * 1000  # Convert to ms
+    async def meas_concurrent_batch(
+        self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int, timings: list[float]
+    ) -> None:
+        async def measured_fn() -> None:
+            start_time = time.perf_counter()
+            await fn()
+            timings.append((time.perf_counter() - start_time) * 1000)
+
+        await self.run_concurrency_limited((measured_fn() for _ in range(self.requests)), concurrency)
 
     async def benchmark_pyreqwest_concurrent(self, body_size: int, concurrency: int) -> list[float]:
         """Benchmark pyreqwest with specified body size and concurrency."""
         body = self.generate_body(body_size)
-        times = []
+        timings = []
 
         async with ClientBuilder().build() as client:
             async def post_read():
@@ -69,23 +74,20 @@ class PerformanceBenchmark:
             # Warmup rounds
             print(f"    Warming up ({self.warmup_iterations} batches with {concurrency} concurrent requests)...")
             for _ in range(self.warmup_iterations):
-                await self.meas_concurrent_batch(post_read, concurrency)
+                await self.meas_concurrent_batch(post_read, concurrency, [])
 
             # Actual benchmark rounds
             print(f"    Running benchmark ({self.iterations} batches with {concurrency} concurrent requests)...")
             for _ in range(self.iterations):
-                batch_time = await self.meas_concurrent_batch(post_read, concurrency)
-                # Calculate average time per request in the batch
-                avg_time_per_request = batch_time / concurrency
-                times.append(avg_time_per_request)
+                await self.meas_concurrent_batch(post_read, concurrency, timings)
 
-        return times
+        return timings
 
     async def benchmark_aiohttp_concurrent(self, body_size: int, concurrency: int) -> list[float]:
         """Benchmark aiohttp with specified body size and concurrency."""
         body = self.generate_body(body_size)
         url_str = str(self.url)
-        times = []
+        timings = []
 
         async with aiohttp.ClientSession() as session:
             async def post_read():
@@ -95,17 +97,14 @@ class PerformanceBenchmark:
             # Warmup rounds
             print(f"    Warming up ({self.warmup_iterations} batches with {concurrency} concurrent requests)...")
             for _ in range(self.warmup_iterations):
-                await self.meas_concurrent_batch(post_read, concurrency)
+                await self.meas_concurrent_batch(post_read, concurrency, [])
 
             # Actual benchmark rounds
             print(f"    Running benchmark ({self.iterations} batches with {concurrency} concurrent requests)...")
             for _ in range(self.iterations):
-                batch_time = await self.meas_concurrent_batch(post_read, concurrency)
-                # Calculate average time per request in the batch
-                avg_time_per_request = batch_time / concurrency
-                times.append(avg_time_per_request)
+                await self.meas_concurrent_batch(post_read, concurrency, timings)
 
-        return times
+        return timings
 
     async def run_benchmarks(self) -> None:
         """Run all benchmarks."""
@@ -147,38 +146,33 @@ class PerformanceBenchmark:
 
     def create_plot(self) -> None:
         # Create a grid layout - 4 rows × 3 columns for 12 subplots
-        fig, axes = plt.subplots(4, 3, figsize=(18, 16))
-        fig.suptitle("HTTP Client Performance: pyreqwest vs aiohttp\n(Separate Graphs for Each Body Size × Concurrency Combination)",
-                     fontsize=16, y=0.98)
+        fig, axes = plt.subplots(nrows=len(self.body_sizes), ncols=len(self.concurrency_levels), figsize=(18, 16))
+        fig.suptitle("pyreqwest vs aiohttp", fontsize=16, y=0.98)
+        legend_colors = {"pyreqwest": "lightblue", "aiohttp": "lightcoral"}
 
-        # Flatten axes for easier iteration
-        axes = axes.flatten()
-
-        plot_index = 0
         for i, body_size in enumerate(self.body_sizes):
             size_label = f"{body_size//1000}KB" if body_size < 1_000_000 else f"{body_size//1_000_000}MB"
 
             for j, concurrency in enumerate(self.concurrency_levels):
-                ax = axes[plot_index]
+                ax: Axes = axes[i][j]
 
                 # Prepare data for this specific combination
                 data_to_plot = [
                     self.results["pyreqwest"][body_size][concurrency],
                     self.results["aiohttp"][body_size][concurrency]
                 ]
-                labels = ["pyreqwest", "aiohttp"]
-                colors = ["lightblue", "lightcoral"]
 
                 # Create box plot for this specific body size and concurrency combination
                 box_plot = ax.boxplot(
                     data_to_plot,
                     patch_artist=True,
-                    tick_labels=labels,
+                    showfliers=False,
+                    tick_labels=[*legend_colors.keys()],
                     widths=0.6,
                 )
 
                 # Color the boxes
-                for patch, color in zip(box_plot["boxes"], colors):
+                for patch, color in zip(box_plot["boxes"], legend_colors.values()):
                     patch.set_facecolor(color)
 
                 # Customize subplot
@@ -187,16 +181,16 @@ class PerformanceBenchmark:
                 ax.grid(True, alpha=0.3)
 
                 # Calculate and add performance comparison
-                pyreqwest_avg = statistics.mean(self.results["pyreqwest"][body_size][concurrency])
-                aiohttp_avg = statistics.mean(self.results["aiohttp"][body_size][concurrency])
-                speedup = aiohttp_avg / pyreqwest_avg if pyreqwest_avg != 0 else 0
+                pyreqwest_median = statistics.median(self.results["pyreqwest"][body_size][concurrency])
+                aiohttp_median = statistics.median(self.results["aiohttp"][body_size][concurrency])
+                speedup = aiohttp_median / pyreqwest_median if pyreqwest_median != 0 else 0
 
                 if speedup > 1:
                     faster_lib = "pyreqwest"
-                    speedup_text = f"{speedup:.2f}x faster"
+                    speedup_text = f"{((speedup - 1) * 100):.1f}% faster"
                 else:
                     faster_lib = "aiohttp"
-                    speedup_text = f"{1/speedup:.2f}x faster"
+                    speedup_text = f"{((1/speedup - 1) * 100):.1f}% faster"
 
                 # Add performance annotation
                 ax.text(0.5, 0.95, f"{faster_lib}\n{speedup_text}",
@@ -204,113 +198,32 @@ class PerformanceBenchmark:
                        bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8),
                        fontsize=9, fontweight='bold')
 
-                # Add average time annotations
-                ax.text(1, pyreqwest_avg, f"{pyreqwest_avg:.3f}ms",
-                       ha='left', va='center', fontsize=8, color='blue', fontweight='bold')
-                ax.text(2, aiohttp_avg, f"{aiohttp_avg:.3f}ms",
-                       ha='right', va='center', fontsize=8, color='red', fontweight='bold')
-
-                plot_index += 1
-
-        # Hide any unused subplots
-        for i in range(plot_index, len(axes)):
-            axes[i].set_visible(False)
+                # Add median time annotations
+                ax.text(1, pyreqwest_median, f"{pyreqwest_median:.3f}ms",
+                       ha='left', va='center', fontsize=8, color='darkblue', fontweight='bold')
+                ax.text(2, aiohttp_median, f"{aiohttp_median:.3f}ms",
+                       ha='right', va='center', fontsize=8, color='darkred', fontweight='bold')
 
         # Add overall legend
-        blue_patch = plt.Rectangle((0, 0), 1, 1, facecolor="lightblue", label="pyreqwest")
-        coral_patch = plt.Rectangle((0, 0), 1, 1, facecolor="lightcoral", label="aiohttp")
-        fig.legend(handles=[blue_patch, coral_patch], loc='lower center',
-                  bbox_to_anchor=(0.5, 0.01), ncol=2)
+        legends = [
+            plt.Rectangle(xy=(0, 0), width=1, height=1, label=label, facecolor=color)
+            for label, color in legend_colors.items()
+        ]
+        fig.legend(handles=legends, loc='lower center', bbox_to_anchor=(0.5, 0.01), ncol=2)
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.94, bottom=0.06)  # Make room for suptitle and legend
 
         # Save the plot
         plt.savefig("performance_benchmark_boxplot.png", dpi=300, bbox_inches="tight")
-        print("Comprehensive plot saved as 'performance_benchmark_boxplot.png'")
-
-    def print_summary(self) -> None:
-        """Print comprehensive benchmark summary."""
-        print("\n" + "="*80)
-        print("PERFORMANCE BENCHMARK SUMMARY")
-        print("="*80)
-
-        for body_size in self.body_sizes:
-            size_label = f"{body_size//1000}KB" if body_size < 1_000_000 else f"{body_size//1_000_000}MB"
-            print(f"\n{size_label} Body Size:")
-            print("-" * 40)
-
-            for concurrency in self.concurrency_levels:
-                pyreqwest_times = self.results["pyreqwest"][body_size][concurrency]
-                aiohttp_times = self.results["aiohttp"][body_size][concurrency]
-
-                pyreqwest_stats = {
-                    "mean": statistics.mean(pyreqwest_times),
-                    "median": statistics.median(pyreqwest_times),
-                    "stdev": statistics.stdev(pyreqwest_times),
-                    "min": min(pyreqwest_times),
-                    "max": max(pyreqwest_times),
-                }
-
-                aiohttp_stats = {
-                    "mean": statistics.mean(aiohttp_times),
-                    "median": statistics.median(aiohttp_times),
-                    "stdev": statistics.stdev(aiohttp_times),
-                    "min": min(aiohttp_times),
-                    "max": max(aiohttp_times),
-                }
-
-                print(f"\n  Concurrency Level: {concurrency}")
-                print(f"    pyreqwest - Mean: {pyreqwest_stats['mean']:.4f}ms, "
-                      f"Median: {pyreqwest_stats['median']:.4f}ms, "
-                      f"StdDev: {pyreqwest_stats['stdev']:.4f}ms")
-                print(f"    aiohttp   - Mean: {aiohttp_stats['mean']:.4f}ms, "
-                      f"Median: {aiohttp_stats['median']:.4f}ms, "
-                      f"StdDev: {aiohttp_stats['stdev']:.4f}ms")
-
-                speedup = aiohttp_stats['mean'] / pyreqwest_stats['mean'] if pyreqwest_stats['mean'] != 0 else 0
-                if speedup > 1:
-                    print(f"    Winner: pyreqwest ({speedup:.2f}x faster)")
-                else:
-                    print(f"    Winner: aiohttp ({1/speedup:.2f}x faster)")
-
-        # Overall summary
-        print(f"\n{'='*80}")
-        print("OVERALL PERFORMANCE TRENDS")
-        print("="*80)
-
-        for concurrency in self.concurrency_levels:
-            pyreqwest_wins = 0
-            aiohttp_wins = 0
-
-            for body_size in self.body_sizes:
-                pyreqwest_avg = statistics.mean(self.results["pyreqwest"][body_size][concurrency])
-                aiohttp_avg = statistics.mean(self.results["aiohttp"][body_size][concurrency])
-
-                if pyreqwest_avg < aiohttp_avg:
-                    pyreqwest_wins += 1
-                else:
-                    aiohttp_wins += 1
-
-            print(f"\nConcurrency Level {concurrency}:")
-            print(f"  pyreqwest wins: {pyreqwest_wins}/{len(self.body_sizes)} body sizes")
-            print(f"  aiohttp wins: {aiohttp_wins}/{len(self.body_sizes)} body sizes")
+        print("Plot saved as 'performance_benchmark_boxplot.png'")
 
 
 async def main() -> None:
-    """Main benchmark function."""
-    # Start echo server using context manager
     async with EchoServer().serve_context() as echo_server:
-        # Wait a moment for server to be ready
-        await asyncio.sleep(0.1)
-
-        # Run benchmarks
         benchmark = PerformanceBenchmark(echo_server)
         await benchmark.run_benchmarks()
-
-        # Create visualizations and print summary
         benchmark.create_plot()
-        benchmark.print_summary()
 
 
 if __name__ == "__main__":
