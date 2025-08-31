@@ -28,12 +28,6 @@ def cert_authority() -> trustme.CA:
 
 
 @pytest.fixture(scope="session")
-def ca_pem_file(cert_authority: trustme.CA) -> Generator[Path, None, None]:
-    with cert_authority.cert_pem.tempfile() as tmp:
-        yield Path(tmp)
-
-
-@pytest.fixture(scope="session")
 def localhost_cert(cert_authority: trustme.CA) -> trustme.LeafCert:
     return cert_authority.issue_cert("127.0.0.1", "localhost")
 
@@ -52,13 +46,6 @@ def cert_private_key_file(localhost_cert: trustme.LeafCert) -> Generator[Path, N
 
 @pytest.fixture(scope="session")
 async def https_echo_server(cert_pem_file: Path, cert_private_key_file: Path) -> AsyncGenerator[EchoServer]:
-    async with EchoServer(ssl_key=cert_private_key_file, ssl_cert=cert_pem_file).serve_context() as server:
-        assert str(server.url).startswith("https://")
-        yield server
-
-
-@pytest.fixture(scope="session")
-async def https_echo_server_proxy(cert_pem_file: Path, cert_private_key_file: Path) -> AsyncGenerator[EchoServer]:
     async with EchoServer(ssl_key=cert_private_key_file, ssl_cert=cert_pem_file).serve_context() as server:
         assert str(server.url).startswith("https://")
         yield server

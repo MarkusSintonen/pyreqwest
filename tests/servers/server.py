@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Any, Protocol
 
-from granian.constants import Interfaces
+from granian.constants import Interfaces, HTTPModes
 from granian.server.embed import Server as GranianServer
 from pyreqwest.http import Url
 
@@ -28,6 +28,7 @@ class Server(GranianServer, ABC):
         ssl_key_password: str | None = None,
         ssl_ca: Path | None = None,
         ssl_client_verify: bool = False,
+        http: HTTPModes = HTTPModes.auto,
     ) -> None:
         self.proto = "https" if ssl_key else "http"
         super().__init__(
@@ -39,6 +40,7 @@ class Server(GranianServer, ABC):
             ssl_key_password=ssl_key_password,
             ssl_ca=ssl_ca,
             ssl_client_verify=ssl_client_verify,
+            http=http,
         )
 
     @abstractmethod

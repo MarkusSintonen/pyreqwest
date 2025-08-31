@@ -2,25 +2,32 @@
 
 import argparse
 import asyncio
+import ssl
 import statistics
 import time
-from typing import Coroutine, Any, Callable, Iterable
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Coroutine, Any, Callable, AsyncGenerator
 
 import matplotlib.pyplot as plt
+import trustme
+from aiohttp import TCPConnector
+from granian.constants import HTTPModes
 from matplotlib.axes import Axes
 
 from pyreqwest.client import ClientBuilder
+from pyreqwest.http import Url
 from tests.servers.echo_server import EchoServer
 
 
 class PerformanceBenchmark:
     """Benchmark class for comparing HTTP client performance."""
 
-    def __init__(self, echo_server: EchoServer, comparison_lib: str) -> None:
+    def __init__(self, server_url: Url, comparison_lib: str, trust_cert_der: bytes) -> None:
         """Initialize benchmark with echo server and comparison library."""
-        self.echo_server = echo_server
+        self.url = server_url.with_query({"echo_only_body": "1"})
         self.comparison_lib = comparison_lib
-        self.url = echo_server.url.with_query({"echo_only_body": "1"})
+        self.trust_cert_der = trust_cert_der
         self.body_sizes = [
             1000,  # 1KB
             10_000,  # 10KB
@@ -28,7 +35,7 @@ class PerformanceBenchmark:
             1_000_000,  # 1MB
         ]
         self.requests = 100
-        self.concurrency_levels = [1, 10, 100]
+        self.concurrency_levels = [2, 10, 100]
         self.warmup_iterations = 20
         self.iterations = 100
         # Structure: {client: {body_size: {concurrency: [times]}}}
@@ -41,43 +48,34 @@ class PerformanceBenchmark:
         """Generate test body of specified size."""
         return b"x" * size
 
-    async def run_concurrency_limited(self, coros: Iterable[Coroutine[Any, Any, None]], concurrency: int) -> None:
-        """Run tasks with a limit on concurrency."""
+    async def meas_concurrent_batch(
+        self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int, timings: list[float]
+    ) -> None:
         semaphore = asyncio.Semaphore(concurrency)
 
         async def sem_task(coro: Coroutine[Any, Any, None]) -> None:
             async with semaphore:
                 await coro
 
-        await asyncio.gather(*(sem_task(coro) for coro in coros))
-
-    async def meas_concurrent_batch(
-        self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int, timings: list[float]
-    ) -> None:
-        async def measured_fn() -> None:
-            start_time = time.perf_counter()
-            await fn()
-            timings.append((time.perf_counter() - start_time) * 1000)
-
-        await self.run_concurrency_limited((measured_fn() for _ in range(self.requests)), concurrency)
+        start_time = time.perf_counter()
+        await asyncio.gather(*(sem_task(fn()) for _ in range(self.requests)))
+        timings.append((time.perf_counter() - start_time) * 1000)
 
     async def benchmark_pyreqwest_concurrent(self, body_size: int, concurrency: int) -> list[float]:
         """Benchmark pyreqwest with specified body size and concurrency."""
         body = self.generate_body(body_size)
         timings = []
 
-        async with ClientBuilder().build() as client:
+        async with ClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
             async def post_read():
                 response = await client.post(self.url).body_bytes(body).build_consumed().send()
                 assert len(await response.bytes()) == body_size
 
-            # Warmup rounds
-            print(f"    Warming up ({self.warmup_iterations} batches with {concurrency} concurrent requests)...")
+            print(f"    Warming up...")
             for _ in range(self.warmup_iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, [])
 
-            # Actual benchmark rounds
-            print(f"    Running benchmark ({self.iterations} batches with {concurrency} concurrent requests)...")
+            print(f"    Running benchmark...")
             for _ in range(self.iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, timings)
 
@@ -90,19 +88,18 @@ class PerformanceBenchmark:
         body = self.generate_body(body_size)
         url_str = str(self.url)
         timings = []
+        ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx)) as session:
             async def post_read():
                 async with session.post(url_str, data=body) as response:
                     assert len(await response.read()) == body_size
 
-            # Warmup rounds
-            print(f"    Warming up ({self.warmup_iterations} batches with {concurrency} concurrent requests)...")
+            print(f"    Warming up...")
             for _ in range(self.warmup_iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, [])
 
-            # Actual benchmark rounds
-            print(f"    Running benchmark ({self.iterations} batches with {concurrency} concurrent requests)...")
+            print(f"    Running benchmark...")
             for _ in range(self.iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, timings)
 
@@ -121,13 +118,11 @@ class PerformanceBenchmark:
                 response = await client.post(url_str, content=body)
                 assert len(await response.aread()) == body_size
 
-            # Warmup rounds
-            print(f"    Warming up ({self.warmup_iterations} batches with {concurrency} concurrent requests)...")
+            print(f"    Warming up...")
             for _ in range(self.warmup_iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, [])
 
-            # Actual benchmark rounds
-            print(f"    Running benchmark ({self.iterations} batches with {concurrency} concurrent requests)...")
+            print(f"    Running benchmark...")
             for _ in range(self.iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, timings)
 
@@ -216,6 +211,7 @@ class PerformanceBenchmark:
                 # Customize subplot
                 ax.set_title(f"{size_label} @ {concurrency} concurrent", fontweight='bold', pad=10)
                 ax.set_ylabel("Response Time (ms)")
+                ax.set_ylim(ymin=0)
                 ax.grid(True, alpha=0.3)
 
                 # Calculate and add performance comparison
@@ -258,23 +254,31 @@ class PerformanceBenchmark:
         print(f"Plot saved as '{filename}'")
 
 
+def cert_pem_to_der_bytes(cert_pem: bytes) -> bytes:
+    return ssl.PEM_cert_to_DER_cert(cert_pem.decode())
+
+
+@asynccontextmanager
+async def server() -> AsyncGenerator[tuple[EchoServer, bytes], None]:
+    ca = trustme.CA()
+    cert_der = ssl.PEM_cert_to_DER_cert(ca.cert_pem.bytes().decode())
+    cert = ca.issue_cert("127.0.0.1", "localhost")
+    with cert.cert_chain_pems[0].tempfile() as cert_tmp, cert.private_key_pem.tempfile() as pk_tmp:
+        cert_file = Path(cert_tmp)
+        pk_file = Path(pk_tmp)
+
+        async with EchoServer(ssl_key=pk_file, ssl_cert=cert_file, http=HTTPModes.http1).serve_context() as echo_server:
+            yield echo_server, cert_der
+
+
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Performance benchmark for HTTP client libraries.")
-    parser.add_argument(
-        "--comparison-lib",
-        type=str,
-        choices=["aiohttp", "httpx"],
-        default="aiohttp",
-        help="The HTTP client library to compare against (choices: aiohttp, httpx)",
-    )
+    parser = argparse.ArgumentParser(description="Performance benchmark")
+    parser.add_argument("--lib", type=str, choices=["aiohttp", "httpx"], default="aiohttp")
 
     args = parser.parse_args()
 
-    async with EchoServer().serve_context() as echo_server:
-        # Wait a moment for server to be ready
-        await asyncio.sleep(0.1)
-
-        benchmark = PerformanceBenchmark(echo_server, args.comparison_lib)
+    async with server() as (echo_server, trust_cert_der):
+        benchmark = PerformanceBenchmark(echo_server.url, args.lib, trust_cert_der)
         await benchmark.run_benchmarks()
         benchmark.create_plot()
 

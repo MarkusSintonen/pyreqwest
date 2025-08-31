@@ -28,6 +28,7 @@ url = { version = "=2.5.4", features = ["serde"] }
 mime = "=0.3.17"
 encoding_rs = "=0.8.35"
 http-body-util = "=0.1.3"
+tikv-jemallocator = { version = "0.6.0", default-features = false, features = ["disable_initial_exec_tls"] }
 
 [build-dependencies]
 pyo3-build-config = "=0.25.1"
