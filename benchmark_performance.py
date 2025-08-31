@@ -185,6 +185,7 @@ class PerformanceBenchmark:
 
         for i, body_size in enumerate(self.body_sizes):
             size_label = f"{body_size//1000}KB" if body_size < 1_000_000 else f"{body_size//1_000_000}MB"
+            ymax = 0
 
             for j, concurrency in enumerate(self.concurrency_levels):
                 ax: Axes = axes[i][j]
@@ -203,6 +204,7 @@ class PerformanceBenchmark:
                     tick_labels=["pyreqwest", self.comparison_lib],
                     widths=0.6,
                 )
+                ymax = max(ymax, ax.get_ylim()[1])
 
                 # Color the boxes
                 for patch, color in zip(box_plot["boxes"], legend_colors.values()):
@@ -211,7 +213,6 @@ class PerformanceBenchmark:
                 # Customize subplot
                 ax.set_title(f"{size_label} @ {concurrency} concurrent", fontweight='bold', pad=10)
                 ax.set_ylabel("Response Time (ms)")
-                ax.set_ylim(ymin=0)
                 ax.grid(True, alpha=0.3)
 
                 # Calculate and add performance comparison
@@ -237,6 +238,9 @@ class PerformanceBenchmark:
                        ha='left', va='center', fontsize=8, color='darkblue', fontweight='bold')
                 ax.text(2, comparison_median, f"{comparison_median:.3f}ms",
                        ha='right', va='center', fontsize=8, color='darkred', fontweight='bold')
+
+            for j, _ in enumerate(self.concurrency_levels):
+                axes[i][j].set_ylim(ymin=0, ymax=ymax * 1.01)  # Uniform y-axis per row
 
         # Add overall legend
         legends = [
