@@ -29,15 +29,15 @@ class PerformanceBenchmark:
         self.comparison_lib = comparison_lib
         self.trust_cert_der = trust_cert_der
         self.body_sizes = [
-            1000,  # 1KB
             10_000,  # 10KB
             100_000,  # 100KB
             1_000_000,  # 1MB
+            10_000_000,  # 10MB
         ]
-        self.requests = 100
+        self.requests = 50
         self.concurrency_levels = [2, 10, 100]
-        self.warmup_iterations = 20
-        self.iterations = 100
+        self.warmup_iterations = 5
+        self.iterations = 50
         # Structure: {client: {body_size: {concurrency: [times]}}}
         self.results: dict[str, dict[int, dict[int, list[float]]]] = {
             "pyreqwest": {},
@@ -68,8 +68,16 @@ class PerformanceBenchmark:
 
         async with ClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
             async def post_read():
-                response = await client.post(self.url).body_bytes(body).build_consumed().send()
-                assert len(await response.bytes()) == body_size
+                if body_size <= 1_000_000:
+                    response = await client.post(self.url).body_bytes(body).build_consumed().send()
+                    assert len(await response.bytes()) == body_size
+                else:
+                    async with client.post(self.url).body_bytes(body).build_streamed() as response:
+                        tot = 0
+                        while chunk := await response.read(1024 * 1024):
+                            assert len(chunk) <= 1024 * 1024
+                            tot += len(chunk)
+                        assert tot == body_size
 
             print(f"    Warming up...")
             for _ in range(self.warmup_iterations):
@@ -92,8 +100,16 @@ class PerformanceBenchmark:
 
         async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx)) as session:
             async def post_read():
-                async with session.post(url_str, data=body) as response:
-                    assert len(await response.read()) == body_size
+                if body_size <= 1_000_000:
+                    async with session.post(url_str, data=body) as response:
+                        assert len(await response.read()) == body_size
+                else:
+                    async with session.post(url_str, data=body) as response:
+                        tot = 0
+                        async for chunk in response.content.iter_chunked(1024 * 1024):
+                            assert len(chunk) <= 1024 * 1024
+                            tot += len(chunk)
+                        assert tot == body_size
 
             print(f"    Warming up...")
             for _ in range(self.warmup_iterations):

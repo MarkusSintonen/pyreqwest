@@ -164,7 +164,7 @@ impl Request {
         }
     }
 
-    pub async fn send_inner(slf: Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
+    pub async fn send_inner(slf: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
         let mut error_for_status = false;
         let mut middleware_coro = None;
 
@@ -204,7 +204,7 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
 
-    pub async fn spawn_request(request: Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
+    pub async fn spawn_request(request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
         let mut inner_request = None;
         let mut spawner = None;
         let mut extensions = None;

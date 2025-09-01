@@ -7,7 +7,7 @@ use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
-use crate::response::BodyConsumeConfig;
+use crate::response::{BodyConsumeConfig, PartialReadConfig};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
@@ -31,8 +31,11 @@ impl RequestBuilder {
     }
 
     fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
-        let init_read = StreamRequest::default_initial_read_size();
-        StreamRequest::new_py(self.inner_build(BodyConsumeConfig::Partially(init_read))?)
+        let config = PartialReadConfig {
+            initial_read_size: StreamRequest::default_initial_read_size(),
+            read_buffer_size: StreamRequest::default_read_buffer_size(),
+        };
+        StreamRequest::new_py(self.inner_build(BodyConsumeConfig::Partially(config))?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {

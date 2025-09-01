@@ -7,7 +7,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3::{PyTraverseError, PyVisit};
 
-const DEFAULT_INITIAL_READ_SIZE: usize = 65536;
+const DEFAULT_READ_INIT_SIZE: usize = 65536;
+const DEFAULT_READ_BUFFER_SIZE: usize = 65536 * 2;
 
 #[pyclass(extends=Request)]
 pub struct StreamRequest {
@@ -17,9 +18,7 @@ pub struct StreamRequest {
 #[pymethods]
 impl StreamRequest {
     async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let req = Python::with_gil(|py| slf.clone_ref(py));
-
-        let resp = Request::send_inner(req.into_any(), cancel).await?;
+        let resp = Request::send_inner(slf.as_any(), cancel).await?;
 
         Python::with_gil(|py| {
             slf.try_borrow_mut(py)?.ctx_response = Some(resp.clone_ref(py));
@@ -27,13 +26,14 @@ impl StreamRequest {
         })
     }
 
-    async fn __aexit__(&mut self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) -> PyResult<()> {
-        let ctx_response = self
-            .ctx_response
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?;
+    async fn __aexit__(slf: Py<Self>, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) -> PyResult<()> {
         Python::with_gil(|py| {
-            ctx_response.try_borrow_mut(py)?.inner_close();
+            let ctx_response = &slf.try_borrow(py)?.ctx_response;
+            ctx_response
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
+                .try_borrow_mut(py)?
+                .inner_close();
             Ok(())
         })
     }
@@ -41,7 +41,7 @@ impl StreamRequest {
     #[getter]
     fn get_initial_read_size(slf: PyRef<Self>) -> PyResult<usize> {
         match slf.as_super().body_consume_config() {
-            BodyConsumeConfig::Partially(size) => Ok(*size),
+            BodyConsumeConfig::Partially(conf) => Ok(conf.initial_read_size),
             BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
         }
     }
@@ -49,8 +49,27 @@ impl StreamRequest {
     #[setter]
     fn set_initial_read_size(mut slf: PyRefMut<Self>, init_size: usize) -> PyResult<()> {
         match slf.as_super().body_consume_config_mut() {
-            BodyConsumeConfig::Partially(size) => {
-                *size = init_size;
+            BodyConsumeConfig::Partially(conf) => {
+                conf.initial_read_size = init_size;
+                Ok(())
+            }
+            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+        }
+    }
+
+    #[getter]
+    fn get_read_buffer_size(slf: PyRef<Self>) -> PyResult<usize> {
+        match slf.as_super().body_consume_config() {
+            BodyConsumeConfig::Partially(conf) => Ok(conf.read_buffer_size),
+            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+        }
+    }
+
+    #[setter]
+    fn set_read_buffer_size(mut slf: PyRefMut<Self>, init_size: usize) -> PyResult<()> {
+        match slf.as_super().body_consume_config_mut() {
+            BodyConsumeConfig::Partially(conf) => {
+                conf.read_buffer_size = init_size;
                 Ok(())
             }
             BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
@@ -63,7 +82,12 @@ impl StreamRequest {
 
     #[staticmethod]
     pub fn default_initial_read_size() -> usize {
-        DEFAULT_INITIAL_READ_SIZE
+        DEFAULT_READ_INIT_SIZE
+    }
+
+    #[staticmethod]
+    pub fn default_read_buffer_size() -> usize {
+        DEFAULT_READ_BUFFER_SIZE
     }
 
     #[classmethod]

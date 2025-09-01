@@ -24,7 +24,7 @@ impl Next {
         if let Some(coro) = Python::with_gil(|py| Self::next_coro(slf.bind(py), &request))? {
             Self::coro_result(coro, false).await
         } else {
-            Request::spawn_request(request, cancel).await // No more middleware, execute the request
+            Request::spawn_request(&request, cancel).await // No more middleware, execute the request
         }
     }
 
