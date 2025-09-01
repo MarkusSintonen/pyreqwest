@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Any, Protocol
 
-from granian.constants import Interfaces, HTTPModes
+from granian.constants import HTTPModes, Interfaces
 from granian.server.embed import Server as GranianServer
 from pyreqwest.http import Url
 

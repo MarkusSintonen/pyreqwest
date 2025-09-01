@@ -180,7 +180,7 @@ impl Request {
             }
 
             if let Some(middlewares_next) = this.middlewares_next.as_ref() {
-                middleware_coro = Next::next_coro(middlewares_next.bind(py), &slf)?;
+                middleware_coro = Next::next_coro(middlewares_next.bind(py), slf)?;
             }
 
             Ok(())

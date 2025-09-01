@@ -2,6 +2,7 @@ use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
+use crate::response::bytes_channel::{Receiver, bytes_channel};
 use bytes::{Bytes, BytesMut};
 use encoding_rs::{Encoding, UTF_8};
 use http_body_util::BodyExt;
@@ -13,7 +14,6 @@ use pyo3_bytes::PyBytes;
 use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
-use crate::response::bytes_channel::{bytes_channel, Receiver};
 
 #[pyclass(subclass)]
 pub struct Response {
@@ -180,7 +180,7 @@ impl Response {
                 // Release the semaphore right away without waiting for user to do it (by consuming or closing).
                 _ = request_semaphore_permit.take();
 
-                let (head, _body) = Self::response_parts(response);  // Body was fully read, drops it
+                let (head, _body) = Self::response_parts(response); // Body was fully read, drops it
 
                 (head, init_chunks, None)
             }
@@ -197,19 +197,19 @@ impl Response {
                             match body.frame().await.transpose().map_err(map_read_error) {
                                 Err(e) => {
                                     let _ = tx.send(Err(e)).await;
-                                    break;  // Stop on error
-                                },
+                                    break; // Stop on error
+                                }
                                 Ok(None) => {
                                     tx.finalize().await;
                                     break; // All was consumed
-                                },
+                                }
                                 Ok(Some(frame)) => {
                                     if let Ok(chunk) = frame.into_data() {
                                         if !tx.send(Ok(chunk)).await {
-                                            break // Receiver was dropped
+                                            break; // Receiver was dropped
                                         }
                                     }
-                                },
+                                }
                             }
                         }
                         _ = request_semaphore_permit.take();
@@ -242,7 +242,7 @@ impl Response {
             Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
             Some(RespHeaders::PyHeaders(ref py_headers)) => {
                 Python::with_gil(|py| py_headers.try_borrow(py)?.get_one(name))
-            },
+            }
             None => Err(PyRuntimeError::new_err("Expected headers")),
         }
     }
@@ -342,7 +342,7 @@ impl Response {
     }
 
     pub fn inner_close(&mut self) {
-        self.body_rx.as_mut().map(|rx| rx.close()); // Close the receiver to stop the reader background task
+        if let Some(rx) = self.body_rx.as_mut() { rx.close() } // Close the receiver to stop the reader background task
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {

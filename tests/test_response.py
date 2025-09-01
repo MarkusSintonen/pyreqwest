@@ -119,7 +119,7 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
 
 async def test_read(client: Client, echo_body_parts_server: Server) -> None:
     chars = string.ascii_letters + string.digits
-    body = b''.join(chars[v % len(chars)].encode() for v in range(0, 131072))
+    body = b"".join(chars[v % len(chars)].encode() for v in range(131072))
 
     async def stream_gen() -> AsyncGenerator[bytes, None]:
         yield body
@@ -127,14 +127,14 @@ async def test_read(client: Client, echo_body_parts_server: Server) -> None:
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
     assert (await resp.read()) == body[:65536]
     assert (await resp.read()) == body[65536:]
-    assert (await resp.read()) == b''
+    assert (await resp.read()) == b""
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
-    assert (await resp.read(0)) == b''
+    assert (await resp.read(0)) == b""
     assert (await resp.read(100)) == body[:100]
     assert (await resp.read(100)) == body[100:200]
     assert (await resp.read(131072)) == body[200:]
-    assert (await resp.read(10)) == b''
+    assert (await resp.read(10)) == b""
 
 
 ASCII_TEST = b"""

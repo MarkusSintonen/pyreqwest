@@ -26,7 +26,12 @@ impl StreamRequest {
         })
     }
 
-    async fn __aexit__(slf: Py<Self>, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) -> PyResult<()> {
+    async fn __aexit__(
+        slf: Py<Self>,
+        _exc_type: Py<PyAny>,
+        _exc_val: Py<PyAny>,
+        _traceback: Py<PyAny>,
+    ) -> PyResult<()> {
         Python::with_gil(|py| {
             let ctx_response = &slf.try_borrow(py)?.ctx_response;
             ctx_response

@@ -14,17 +14,25 @@ pub struct Receiver {
 
 pub fn bytes_channel(buffer_size: usize) -> (Sender, Receiver) {
     let (tx, rx) = tokio::sync::mpsc::channel(1);
-    (Sender { buffer: Some(Vec::new()), tot_bytes: 0, buffer_size, tx }, Receiver { rx })
+    (
+        Sender {
+            buffer: Some(Vec::new()),
+            tot_bytes: 0,
+            buffer_size,
+            tx,
+        },
+        Receiver { rx },
+    )
 }
 
 impl Sender {
     pub async fn send(&mut self, chunk_res: PyResult<Bytes>) -> bool {
         if self.tx.is_closed() {
-            return false
+            return false;
         }
 
         let Some(buffer) = self.buffer.as_mut() else {
-            return false // Already finalized
+            return false; // Already finalized
         };
 
         match chunk_res {
@@ -34,24 +42,24 @@ impl Sender {
                 buffer.push(chunk);
 
                 if self.tot_bytes < self.buffer_size {
-                    return true
+                    return true;
                 }
 
                 self.tot_bytes = 0;
-                self.tx.send(Ok(buffer.drain(..).collect())).await.is_ok()
+                self.tx.send(Ok(std::mem::take(buffer))).await.is_ok()
             }
         }
     }
 
     pub async fn finalize(&mut self) {
         let Some(buffer) = self.buffer.take() else {
-            return // Already finalized
+            return; // Already finalized
         };
         if buffer.is_empty() {
-            return
+            return;
         }
         if self.tx.is_closed() {
-            return // Closed
+            return; // Closed
         }
         _ = self.tx.send(Ok(buffer)).await;
     }

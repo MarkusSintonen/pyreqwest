@@ -72,6 +72,8 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+[tool.ruff.lint.pylint]
+max-args = 8
 
 [tool.ruff.lint.per-file-ignores]
 "./python/pyreqwest/pytest_plugin/*" = ["SLF001", "PLC0415"]
