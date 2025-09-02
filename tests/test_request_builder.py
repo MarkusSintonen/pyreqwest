@@ -7,7 +7,7 @@ import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import BuilderError, ConnectTimeoutError, StatusError
 from pyreqwest.http import HeaderMap
-from pyreqwest.request import RequestBuilder, StreamRequest
+from pyreqwest.request import RequestBuilder
 
 from .servers.server import Server
 
@@ -20,13 +20,13 @@ async def client(cert_authority: trustme.CA) -> AsyncGenerator[Client, None]:
 
 
 async def test_build_consumed(client: Client, echo_body_parts_server: Server):
-    sent = "a" * (StreamRequest.default_initial_read_size() * 3)
+    sent = "a" * (RequestBuilder.default_streamed_read_buffer_limit() * 3)
     resp = await client.post(echo_body_parts_server.url).body_text(sent).build_consumed().send()
     assert (await resp.text()) == sent
 
 
 async def test_build_streamed(client: Client, echo_body_parts_server: Server):
-    sent = "a" * (StreamRequest.default_initial_read_size() * 3)
+    sent = "a" * (RequestBuilder.default_streamed_read_buffer_limit() * 3)
     async with client.post(echo_body_parts_server.url).body_text(sent).build_streamed() as resp:
         assert (await resp.text()) == sent
 

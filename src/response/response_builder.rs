@@ -1,6 +1,6 @@
 use crate::http::{Body, HeaderMap, HeaderName, HeaderValue, JsonValue};
 use crate::http::{Extensions, StatusCode, Version};
-use crate::response::{BodyConsumeConfig, Response};
+use crate::response::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, Response, StreamedReadConfig};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
@@ -11,6 +11,7 @@ pub struct ResponseBuilder {
     inner: Option<http::response::Builder>,
     body: Option<Body>,
     extensions: Option<Extensions>,
+    streamed_read_buffer_limit: Option<usize>,
 }
 #[pymethods]
 impl ResponseBuilder {
@@ -39,8 +40,13 @@ impl ResponseBuilder {
 
         self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
 
-        let resp = reqwest::Response::from(resp);
-        Response::initialize(resp, None, BodyConsumeConfig::Fully).await
+        let inner_resp = reqwest::Response::from(resp);
+
+        let config = StreamedReadConfig {
+            read_buffer_limit: self.streamed_read_buffer_limit.unwrap_or(DEFAULT_READ_BUFFER_LIMIT),
+        };
+
+        Response::initialize(inner_resp, None, BodyConsumeConfig::Streamed(config)).await
     }
 
     fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {
@@ -96,6 +102,11 @@ impl ResponseBuilder {
         Ok(slf)
     }
 
+    fn streamed_read_buffer_limit(mut slf: PyRefMut<'_, Self>, value: usize) -> PyResult<PyRefMut<'_, Self>> {
+        slf.streamed_read_buffer_limit = Some(value);
+        Ok(slf)
+    }
+
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(ext) = &self.extensions {
             visit.call(&ext.0)?;
@@ -123,6 +134,7 @@ impl ResponseBuilder {
             inner: Some(http::response::Builder::new()),
             body: None,
             extensions: None,
+            streamed_read_buffer_limit: None,
         }
     }
 

@@ -34,7 +34,7 @@ class PerformanceBenchmark:
             1_000_000,  # 1MB
             10_000_000,  # 10MB
         ]
-        self.requests = 50
+        self.requests = 100
         self.concurrency_levels = [2, 10, 100]
         self.warmup_iterations = 5
         self.iterations = 50
@@ -72,7 +72,8 @@ class PerformanceBenchmark:
                     response = await client.post(self.url).body_bytes(body).build_consumed().send()
                     assert len(await response.bytes()) == body_size
                 else:
-                    async with client.post(self.url).body_bytes(body).build_streamed() as response:
+                    buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
+                    async with client.post(self.url).body_bytes(body).streamed_read_buffer_limit(buffer_size).build_streamed() as response:
                         tot = 0
                         while chunk := await response.read(1024 * 1024):
                             assert len(chunk) <= 1024 * 1024

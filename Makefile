@@ -11,6 +11,7 @@ build:
 
 .PHONY: test
 test:
+	uv run maturin develop
 	uv run pytest
 
 .PHONY: lint
@@ -36,6 +37,11 @@ static-checks: lint type-check
 
 .PHONY: check
 check: static-checks test
+
+.PHONY: bench
+bench:
+	uv run maturin develop --release
+	uv run python benchmark_performance.py --lib aiohttp
 
 .PHONY: clean
 clean:

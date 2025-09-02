@@ -7,7 +7,7 @@ use crate::multipart::Form;
 use crate::request::Request;
 use crate::request::consumed_request::ConsumedRequest;
 use crate::request::stream_request::StreamRequest;
-use crate::response::{BodyConsumeConfig, PartialReadConfig};
+use crate::response::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, StreamedReadConfig};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
@@ -23,19 +23,27 @@ pub struct RequestBuilder {
     extensions: Option<Extensions>,
     middlewares_next: Option<Py<Next>>,
     error_for_status: bool,
+    streamed_read_buffer_limit: Option<usize>,
 }
 #[pymethods]
 impl RequestBuilder {
     fn build_consumed(&mut self) -> PyResult<Py<ConsumedRequest>> {
-        ConsumedRequest::new_py(self.inner_build(BodyConsumeConfig::Fully)?)
+        if self.streamed_read_buffer_limit.is_some() {
+            return Err(BuilderError::from_causes(
+                "Can not set streamed_read_buffer_limit when building a fully consumed request",
+                vec![],
+            ));
+        }
+        ConsumedRequest::new_py(self.inner_build(BodyConsumeConfig::FullyConsumed)?)
     }
 
     fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
-        let config = PartialReadConfig {
-            initial_read_size: StreamRequest::default_initial_read_size(),
-            read_buffer_size: StreamRequest::default_read_buffer_size(),
+        let config = StreamedReadConfig {
+            read_buffer_limit: self
+                .streamed_read_buffer_limit
+                .unwrap_or(Self::default_streamed_read_buffer_limit()),
         };
-        StreamRequest::new_py(self.inner_build(BodyConsumeConfig::Partially(config))?)
+        StreamRequest::new_py(self.inner_build(BodyConsumeConfig::Streamed(config))?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
@@ -113,6 +121,17 @@ impl RequestBuilder {
         Ok(slf)
     }
 
+    fn streamed_read_buffer_limit(mut slf: PyRefMut<'_, Self>, value: usize) -> PyResult<PyRefMut<'_, Self>> {
+        slf.check_inner()?;
+        slf.streamed_read_buffer_limit = Some(value);
+        Ok(slf)
+    }
+
+    #[staticmethod]
+    fn default_streamed_read_buffer_limit() -> usize {
+        DEFAULT_READ_BUFFER_LIMIT
+    }
+
     fn _set_interceptor<'py>(
         mut slf: PyRefMut<'py, Self>,
         interceptor: Bound<'py, PyAny>,
@@ -161,6 +180,7 @@ impl RequestBuilder {
             extensions: None,
             middlewares_next,
             error_for_status,
+            streamed_read_buffer_limit: None,
         }
     }
 

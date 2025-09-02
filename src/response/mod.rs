@@ -1,6 +1,6 @@
-mod bytes_channel;
+mod body_read_channel;
 mod response;
 mod response_builder;
 
-pub use response::{BodyConsumeConfig, PartialReadConfig, Response};
+pub use response::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, Response, StreamedReadConfig};
 pub use response_builder::ResponseBuilder;

@@ -2,10 +2,9 @@ use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
-use crate::response::bytes_channel::{Receiver, bytes_channel};
+use crate::response::body_read_channel::{Receiver, body_read_channel};
 use bytes::{Bytes, BytesMut};
 use encoding_rs::{Encoding, UTF_8};
-use http_body_util::BodyExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -15,7 +14,7 @@ use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 
-#[pyclass(subclass)]
+#[pyclass]
 pub struct Response {
     #[pyo3(get, set)]
     status: StatusCode,
@@ -27,8 +26,8 @@ pub struct Response {
 
     chunks: VecDeque<Bytes>,
     body_consuming_started: bool,
-    read_body: Option<Bytes>,
-    body_rx: Option<Receiver>,
+    fully_consumed_body: Option<Bytes>,
+    body_receiver: Option<Receiver>,
 }
 
 #[pymethods]
@@ -100,7 +99,7 @@ impl Response {
         Ok(text.into_owned())
     }
 
-    #[pyo3(signature = (amount=65536))]
+    #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
     async fn read(&mut self, amount: usize) -> PyResult<PyBytes> {
         let mut collected = BytesMut::with_capacity(amount);
         let mut remaining = amount;
@@ -172,55 +171,33 @@ impl Response {
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
         consume_body: BodyConsumeConfig,
     ) -> PyResult<Response> {
-        let (head, init_chunks, rx) = match consume_body {
-            BodyConsumeConfig::Fully => {
-                let (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
+        let (init_chunks, has_more);
+        let head: http::response::Parts;
+
+        let body_receiver = match consume_body {
+            BodyConsumeConfig::FullyConsumed => {
+                (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
                 assert!(!has_more, "Should have fully consumed the response");
 
                 // Release the semaphore right away without waiting for user to do it (by consuming or closing).
                 _ = request_semaphore_permit.take();
 
-                let (head, _body) = Self::response_parts(response); // Body was fully read, drops it
-
-                (head, init_chunks, None)
+                (head, _) = Self::response_parts(response); // Body was fully read, drops it
+                None
             }
-            BodyConsumeConfig::Partially(conf) => {
-                let (init_chunks, has_more) = Self::read_limit(&mut response, Some(conf.initial_read_size)).await?;
+            BodyConsumeConfig::Streamed(conf) => {
+                (init_chunks, has_more) = Self::read_limit(&mut response, Some(conf.read_buffer_limit)).await?;
 
-                let (head, mut body) = Self::response_parts(response);
-
-                let (mut tx, rx) = bytes_channel(conf.read_buffer_size);
+                let body;
+                (head, body) = Self::response_parts(response);
 
                 if has_more {
-                    tokio::runtime::Handle::current().spawn(async move {
-                        loop {
-                            match body.frame().await.transpose().map_err(map_read_error) {
-                                Err(e) => {
-                                    let _ = tx.send(Err(e)).await;
-                                    break; // Stop on error
-                                }
-                                Ok(None) => {
-                                    tx.finalize().await;
-                                    break; // All was consumed
-                                }
-                                Ok(Some(frame)) => {
-                                    if let Ok(chunk) = frame.into_data() {
-                                        if !tx.send(Ok(chunk)).await {
-                                            break; // Receiver was dropped
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ = request_semaphore_permit.take();
-                        drop(body);
-                    });
+                    Some(body_read_channel(body, request_semaphore_permit, conf.read_buffer_limit))
                 } else {
                     _ = request_semaphore_permit.take();
                     drop(body); // Was already read
-                };
-
-                (head, init_chunks, Some(rx))
+                    None
+                }
             }
         };
 
@@ -231,8 +208,8 @@ impl Response {
             extensions: Some(RespExtensions::Extensions(head.extensions)),
             chunks: init_chunks,
             body_consuming_started: false,
-            read_body: None,
-            body_rx: rx,
+            fully_consumed_body: None,
+            body_receiver,
         };
         Ok(resp)
     }
@@ -254,7 +231,7 @@ impl Response {
             return Ok(Some(chunk));
         }
 
-        let Some(body_rx) = self.body_rx.as_mut() else {
+        let Some(body_rx) = self.body_receiver.as_mut() else {
             return Ok(None); // No body receiver, fully consumed
         };
 
@@ -274,8 +251,8 @@ impl Response {
     }
 
     async fn bytes_inner(&mut self) -> PyResult<Bytes> {
-        if let Some(read_body) = self.read_body.as_ref() {
-            return Ok(read_body.clone()); // Zero-copy clone
+        if let Some(fully_consumed_body) = self.fully_consumed_body.as_ref() {
+            return Ok(fully_consumed_body.clone()); // Zero-copy clone
         }
 
         if self.body_consuming_started {
@@ -292,7 +269,7 @@ impl Response {
         }
 
         let bytes = bytes.freeze();
-        self.read_body = Some(bytes.clone()); // Zero-copy clone
+        self.fully_consumed_body = Some(bytes.clone()); // Zero-copy clone
         Ok(bytes)
     }
 
@@ -342,7 +319,9 @@ impl Response {
     }
 
     pub fn inner_close(&mut self) {
-        if let Some(rx) = self.body_rx.as_mut() { rx.close() } // Close the receiver to stop the reader background task
+        if let Some(rx) = self.body_receiver.as_mut() {
+            rx.close()
+        } // Close the receiver to stop the reader background task
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
@@ -383,14 +362,15 @@ impl Drop for Response {
 
 #[derive(Debug, Clone, Copy)]
 pub enum BodyConsumeConfig {
-    Fully,
-    Partially(PartialReadConfig),
+    FullyConsumed,
+    Streamed(StreamedReadConfig),
 }
 
+pub const DEFAULT_READ_BUFFER_LIMIT: usize = 65536;
+
 #[derive(Debug, Clone, Copy)]
-pub struct PartialReadConfig {
-    pub initial_read_size: usize,
-    pub read_buffer_size: usize,
+pub struct StreamedReadConfig {
+    pub read_buffer_limit: usize,
 }
 
 enum RespHeaders {

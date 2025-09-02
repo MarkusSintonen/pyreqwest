@@ -25,7 +25,7 @@ from .servers.server import find_free_port
 async def test_base_url(echo_server: EchoServer):
     async def echo_path(client: Client, path: str) -> str:
         resp = await (await client.get(path).build_consumed().send()).json()
-        return resp["path"]
+        return str(resp["path"])
 
     async with ClientBuilder().base_url(echo_server.url).error_for_status(True).build() as client:
         assert await echo_path(client, "") == "/"

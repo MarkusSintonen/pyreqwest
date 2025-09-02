@@ -8,7 +8,7 @@ import orjson
 import pytest
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import ConnectTimeoutError, ReadTimeoutError
-from pyreqwest.request import StreamRequest
+from pyreqwest.request import RequestBuilder
 from pyreqwest.response import Response
 
 from .servers.echo_body_parts_server import EchoBodyPartsServer
@@ -26,13 +26,13 @@ async def read_chunks(resp: Response):
         yield chunk
 
 
-@pytest.mark.parametrize("initial_read_size", [None, 0, 10, 999999])
+@pytest.mark.parametrize("read_buffer_limit", [None, 0, 10, 999999])
 @pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
 @pytest.mark.parametrize("yield_empty", [False, True])
-async def test_body_stream__initial_read_size(
+async def test_body_stream__read_buffer_limit(
     client: Client,
     echo_body_parts_server: EchoBodyPartsServer,
-    initial_read_size: int | None,
+    read_buffer_limit: int | None,
     read: str,
     yield_empty: bool,
 ):
@@ -44,12 +44,16 @@ async def test_body_stream__initial_read_size(
             else:
                 yield f"part {i}".encode()
 
-    req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
-    if initial_read_size is not None:
-        req.initial_read_size = initial_read_size
-        assert req.initial_read_size == initial_read_size
+    req_builder = client.post(echo_body_parts_server.url).body_stream(stream_gen())
+    if read_buffer_limit is not None:
+        req_builder = req_builder.streamed_read_buffer_limit(read_buffer_limit)
+
+    req = req_builder.build_streamed()
+
+    if read_buffer_limit is not None:
+        assert req.read_buffer_limit == read_buffer_limit
     else:
-        assert req.initial_read_size == 65536
+        assert req.read_buffer_limit == RequestBuilder.default_streamed_read_buffer_limit()
 
     expected = [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
     if yield_empty:
@@ -109,12 +113,12 @@ async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_serve
             pytest.fail("Should have raised")
 
 
-@pytest.mark.parametrize("initial_read_size", [None, 0, 5, 999999])
+@pytest.mark.parametrize("read_buffer_limit", [None, 0, 5, 999999])
 @pytest.mark.parametrize("sleep_kind", ["server", "stream"])
 async def test_body_stream__timeout(
     client: Client,
     echo_body_parts_server: EchoBodyPartsServer,
-    initial_read_size: int | None,
+    read_buffer_limit: int | None,
     sleep_kind: str,
 ):
     async def stream_gen() -> AsyncGenerator[bytes]:
@@ -128,18 +132,20 @@ async def test_body_stream__timeout(
             await asyncio.sleep(0.1)
             yield orjson.dumps({"sleep": 0.0})
 
-    req = (
-        client.post(echo_body_parts_server.url)
-        .timeout(timedelta(seconds=0.05))
-        .body_stream(stream_gen())
-        .build_streamed()
-    )
-    if initial_read_size is not None:
-        req.initial_read_size = initial_read_size
+    req_builder = client.post(echo_body_parts_server.url).timeout(timedelta(seconds=0.05)).body_stream(stream_gen())
+    if read_buffer_limit is not None:
+        req_builder = req_builder.streamed_read_buffer_limit(read_buffer_limit)
 
-    default_initial_read = StreamRequest.default_initial_read_size()
+    req = req_builder.build_streamed()
 
-    if initial_read_size is None or initial_read_size >= default_initial_read or sleep_kind == "stream":
+    if read_buffer_limit is not None:
+        assert req.read_buffer_limit == read_buffer_limit
+    else:
+        assert req.read_buffer_limit == RequestBuilder.default_streamed_read_buffer_limit()
+
+    default_initial_read = RequestBuilder.default_streamed_read_buffer_limit()
+
+    if read_buffer_limit is None or read_buffer_limit >= default_initial_read or sleep_kind == "stream":
         error = ConnectTimeoutError if sleep_kind == "stream" else ReadTimeoutError
         with pytest.raises(error):
             async with req as _:
@@ -151,12 +157,12 @@ async def test_body_stream__timeout(
                 await resp.next_chunk()
 
 
-@pytest.mark.parametrize("initial_read_size", [None, 0, 5, 999999])
+@pytest.mark.parametrize("read_buffer_limit", [None, 0, 5, 999999])
 @pytest.mark.parametrize("partial_body", [False, True])
 async def test_body_stream__gen_error(
     client: Client,
     echo_body_parts_server: EchoBodyPartsServer,
-    initial_read_size: int | None,
+    read_buffer_limit: int | None,
     partial_body: bool,
 ):
     class MyError(Exception): ...
@@ -167,9 +173,20 @@ async def test_body_stream__gen_error(
             yield b"part 0"
         raise MyError("Test error")
 
-    req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
-    if initial_read_size is not None:
-        req.initial_read_size = initial_read_size
+    if read_buffer_limit is not None:
+        req = (
+            client.post(echo_body_parts_server.url)
+            .body_stream(stream_gen())
+            .streamed_read_buffer_limit(read_buffer_limit)
+            .build_streamed()
+        )
+    else:
+        req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
+
+    if read_buffer_limit is not None:
+        assert req.read_buffer_limit == read_buffer_limit
+    else:
+        assert req.read_buffer_limit == RequestBuilder.default_streamed_read_buffer_limit()
 
     with pytest.raises(MyError, match="Test error") as e:
         async with req as _:

@@ -7,9 +7,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3::{PyTraverseError, PyVisit};
 
-const DEFAULT_READ_INIT_SIZE: usize = 65536;
-const DEFAULT_READ_BUFFER_SIZE: usize = 65536 * 2;
-
 #[pyclass(extends=Request)]
 pub struct StreamRequest {
     ctx_response: Option<Py<Response>>,
@@ -44,55 +41,15 @@ impl StreamRequest {
     }
 
     #[getter]
-    fn get_initial_read_size(slf: PyRef<Self>) -> PyResult<usize> {
+    fn get_read_buffer_limit(slf: PyRef<Self>) -> PyResult<usize> {
         match slf.as_super().body_consume_config() {
-            BodyConsumeConfig::Partially(conf) => Ok(conf.initial_read_size),
-            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
-        }
-    }
-
-    #[setter]
-    fn set_initial_read_size(mut slf: PyRefMut<Self>, init_size: usize) -> PyResult<()> {
-        match slf.as_super().body_consume_config_mut() {
-            BodyConsumeConfig::Partially(conf) => {
-                conf.initial_read_size = init_size;
-                Ok(())
-            }
-            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
-        }
-    }
-
-    #[getter]
-    fn get_read_buffer_size(slf: PyRef<Self>) -> PyResult<usize> {
-        match slf.as_super().body_consume_config() {
-            BodyConsumeConfig::Partially(conf) => Ok(conf.read_buffer_size),
-            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
-        }
-    }
-
-    #[setter]
-    fn set_read_buffer_size(mut slf: PyRefMut<Self>, init_size: usize) -> PyResult<()> {
-        match slf.as_super().body_consume_config_mut() {
-            BodyConsumeConfig::Partially(conf) => {
-                conf.read_buffer_size = init_size;
-                Ok(())
-            }
-            BodyConsumeConfig::Fully => Err(PyRuntimeError::new_err("Unexpected config")),
+            BodyConsumeConfig::Streamed(conf) => Ok(conf.read_buffer_limit),
+            BodyConsumeConfig::FullyConsumed => Err(PyRuntimeError::new_err("Unexpected config")),
         }
     }
 
     fn __copy__(slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {
         Self::new_py(slf.into_super().try_clone_inner(py)?)
-    }
-
-    #[staticmethod]
-    pub fn default_initial_read_size() -> usize {
-        DEFAULT_READ_INIT_SIZE
-    }
-
-    #[staticmethod]
-    pub fn default_read_buffer_size() -> usize {
-        DEFAULT_READ_BUFFER_SIZE
     }
 
     #[classmethod]

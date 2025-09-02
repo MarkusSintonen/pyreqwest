@@ -209,14 +209,14 @@ impl Request {
         let mut spawner = None;
         let mut extensions = None;
         let mut error_for_status = false;
-        let mut body_consume_config = BodyConsumeConfig::Fully;
+        let mut body_consume_config = None;
 
         Python::with_gil(|py| -> PyResult<_> {
             let mut this = request.downcast_bound::<Request>(py)?.try_borrow_mut()?;
             spawner = this.spawner.clone();
             extensions = this.extensions.take();
             error_for_status = this.error_for_status;
-            body_consume_config = this.body_consume_config;
+            body_consume_config = Some(this.body_consume_config);
 
             let mut request = this
                 .inner
@@ -245,7 +245,7 @@ impl Request {
 
         let resp = spawner
             .unwrap() // Already checked above
-            .spawn_reqwest(inner_request.unwrap(), body_consume_config, extensions, cancel)
+            .spawn_reqwest(inner_request.unwrap(), body_consume_config.unwrap(), extensions, cancel)
             .await?;
 
         error_for_status.then(|| resp.error_for_status()).transpose()?;
