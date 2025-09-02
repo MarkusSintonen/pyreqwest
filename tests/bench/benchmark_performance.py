@@ -129,8 +129,9 @@ class PerformanceBenchmark:
         body = self.generate_body(body_size)
         url_str = str(self.url)
         timings = []
+        ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=ssl_ctx) as client:
             async def post_read():
                 response = await client.post(url_str, content=body)
                 assert len(await response.aread()) == body_size
@@ -178,18 +179,17 @@ class PerformanceBenchmark:
 
                 print(f"    Running pyreqwest benchmark...")
                 pyreqwest_times = await self.benchmark_pyreqwest_concurrent(body_size, concurrency)
+                pyreqwest_avg = statistics.mean(pyreqwest_times)
+                print(f"    pyreqwest average: {pyreqwest_avg:.4f}ms")
                 self.results["pyreqwest"][body_size][concurrency] = pyreqwest_times
 
                 print(f"    Running {self.comparison_lib} benchmark...")
-                comparison_times = await self.benchmark_comparison_lib_concurrent(body_size, concurrency)
-                self.results[self.comparison_lib][body_size][concurrency] = comparison_times
+                lib_times = await self.benchmark_comparison_lib_concurrent(body_size, concurrency)
+                lib_avg = statistics.mean(lib_times)
+                print(f"    {self.comparison_lib} average: {lib_avg:.4f}ms")
+                self.results[self.comparison_lib][body_size][concurrency] = lib_times
 
-                # Print summary for this body size and concurrency level
-                pyreqwest_avg = statistics.mean(pyreqwest_times)
-                comparison_avg = statistics.mean(comparison_times)
-                print(f"    pyreqwest average: {pyreqwest_avg:.4f}ms")
-                print(f"    {self.comparison_lib} average: {comparison_avg:.4f}ms")
-                speedup = comparison_avg / pyreqwest_avg if pyreqwest_avg != 0 else 0
+                speedup = lib_avg / pyreqwest_avg if pyreqwest_avg != 0 else 0
                 print(f"    Speedup: {speedup:.2f}x")
                 print()
 
