@@ -41,7 +41,7 @@ check: static-checks test
 .PHONY: bench
 bench:
 	uv run maturin develop --release
-	uv run python benchmark_performance.py --lib aiohttp
+	uv run python -m tests.bench.benchmark_performance --lib aiohttp
 
 .PHONY: clean
 clean:

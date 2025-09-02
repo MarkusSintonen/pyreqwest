@@ -17,7 +17,7 @@ from matplotlib.axes import Axes
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.http import Url
-from tests.servers.echo_server import EchoServer
+from ..servers.echo_server import EchoServer
 
 
 class PerformanceBenchmark:
@@ -270,9 +270,9 @@ class PerformanceBenchmark:
         plt.subplots_adjust(top=0.94, bottom=0.06)  # Make room for suptitle and legend
 
         # Save the plot
-        filename = f"benchmark_{self.comparison_lib}.png"
-        plt.savefig(filename, dpi=300, bbox_inches="tight")
-        print(f"Plot saved as '{filename}'")
+        img_path = Path(__file__).parent / f"benchmark_{self.comparison_lib}.png"
+        plt.savefig(str(img_path), dpi=300, bbox_inches="tight")
+        print(f"Plot saved as '{img_path}'")
 
 
 def cert_pem_to_der_bytes(cert_pem: bytes) -> bytes:
