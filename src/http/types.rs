@@ -181,7 +181,7 @@ impl Extensions {
     }
 
     pub fn into_response(self, response_extensions: &mut http::Extensions) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let result_ext = self.0.into_bound(py);
             if let Some(resp_ext) = response_extensions.remove::<Extensions>() {
                 let resp_ext = resp_ext.0.into_bound(py);
@@ -194,7 +194,7 @@ impl Extensions {
 }
 impl Clone for Extensions {
     fn clone(&self) -> Self {
-        Extensions(Python::with_gil(|py| self.0.clone_ref(py)))
+        Extensions(Python::attach(|py| self.0.clone_ref(py)))
     }
 }
 

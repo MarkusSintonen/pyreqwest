@@ -74,7 +74,7 @@ pub fn error_causes_iter<'a>(err: &'a (dyn Error + 'static)) -> impl Iterator<It
 fn inner_py_err(err: &(dyn Error + 'static)) -> Option<PyErr> {
     for e in error_causes_iter(err) {
         if let Some(py_err) = e.downcast_ref::<PyErr>() {
-            return Some(Python::with_gil(|py| py_err.clone_ref(py)));
+            return Some(Python::attach(|py| py_err.clone_ref(py)));
         }
     }
     None

@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyEllipsis, PyList, PyMapping, PySequence, PyTuple};
 
 pub fn ellipsis() -> Py<PyEllipsis> {
-    Python::with_gil(|py| PyEllipsis::get(py).to_owned().unbind())
+    Python::attach(|py| PyEllipsis::get(py).to_owned().unbind())
 }
 
 #[derive(FromPyObject)]

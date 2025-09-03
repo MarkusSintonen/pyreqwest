@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Spawner {
     client: reqwest::Client,
-    runtime: runtime::Handle,
+    pub runtime: runtime::Handle,
     connection_limiter: Option<ConnectionLimiter>,
     close_cancellation: CancellationToken,
 }

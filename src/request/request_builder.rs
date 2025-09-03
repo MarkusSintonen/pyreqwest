@@ -27,23 +27,23 @@ pub struct RequestBuilder {
 }
 #[pymethods]
 impl RequestBuilder {
-    fn build_consumed(&mut self) -> PyResult<Py<ConsumedRequest>> {
+    fn build_consumed(&mut self, py: Python) -> PyResult<Py<ConsumedRequest>> {
         if self.streamed_read_buffer_limit.is_some() {
             return Err(BuilderError::from_causes(
                 "Can not set streamed_read_buffer_limit when building a fully consumed request",
                 vec![],
             ));
         }
-        ConsumedRequest::new_py(self.inner_build(BodyConsumeConfig::FullyConsumed)?)
+        ConsumedRequest::new_py(py, self.inner_build(BodyConsumeConfig::FullyConsumed)?)
     }
 
-    fn build_streamed(&mut self) -> PyResult<Py<StreamRequest>> {
+    fn build_streamed(&mut self, py: Python) -> PyResult<Py<StreamRequest>> {
         let config = StreamedReadConfig {
             read_buffer_limit: self
                 .streamed_read_buffer_limit
                 .unwrap_or(Self::default_streamed_read_buffer_limit()),
         };
-        StreamRequest::new_py(self.inner_build(BodyConsumeConfig::Streamed(config))?)
+        StreamRequest::new_py(py, self.inner_build(BodyConsumeConfig::Streamed(config))?)
     }
 
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
@@ -88,7 +88,9 @@ impl RequestBuilder {
 
     fn body_json(mut slf: PyRefMut<'_, Self>, data: JsonValue) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
-        let bytes = serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let bytes = slf
+            .py()
+            .detach(|| serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string())))?;
         slf.body = Some(bytes.into());
         Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
     }
@@ -104,20 +106,23 @@ impl RequestBuilder {
     }
 
     fn multipart<'py>(slf: PyRefMut<'py, Self>, multipart: Bound<'_, Form>) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.multipart(multipart.try_borrow_mut()?.build()?)))
+        let multipart = multipart.try_borrow_mut()?.build()?;
+        Self::apply(slf, |builder| Ok(builder.multipart(multipart)))
     }
 
     fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.query(&query.extract::<QueryParams>()?.0)))
+        let query = query.extract::<QueryParams>()?.0;
+        Self::apply(slf, |builder| Ok(builder.query(&query)))
     }
 
     fn form<'py>(slf: PyRefMut<'py, Self>, form: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.form(&form.extract::<FormParams>()?.0)))
+        let form = form.extract::<FormParams>()?.0;
+        Self::apply(slf, |builder| Ok(builder.form(&form)))
     }
 
     fn extensions(mut slf: PyRefMut<'_, Self>, extensions: Extensions) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
-        slf.extensions = Some(extensions);
+        slf.extensions = Some(extensions.copy(slf.py())?);
         Ok(slf)
     }
 
@@ -228,12 +233,13 @@ impl RequestBuilder {
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::RequestBuilder) -> PyResult<reqwest::RequestBuilder>,
+        F: Send,
     {
         let builder = slf
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?;
-        slf.inner = Some(fun(builder)?);
+        slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
 

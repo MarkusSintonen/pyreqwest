@@ -1,9 +1,11 @@
 import asyncio
+import queue
 import socket
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable, Awaitable, Callable
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
+from threading import Thread
 from typing import Any, Protocol
 
 from granian.constants import HTTPModes, Interfaces
@@ -57,12 +59,22 @@ class Server(GranianServer, ABC):
 
     @asynccontextmanager
     async def serve_context(self):
-        task = asyncio.create_task(self.serve())
+        server_loop_chan = queue.Queue(maxsize=1)
+
+        def server_runner() -> None:
+            with asyncio.Runner() as runner:
+                server_loop_chan.put_nowait(runner.get_loop())
+                runner.run(self.serve())
+
+        server_thread = Thread(target=server_runner, daemon=True)
+        server_thread.start()
+
         try:
             yield self
         finally:
-            self.stop()  # type: ignore[no-untyped-call]
-            await task
+            server_loop_chan.get(timeout=5).call_soon_threadsafe(self.stop)
+            server_thread.join(timeout=5)
+            assert not server_thread.is_alive()
 
 
 def find_free_port() -> int:

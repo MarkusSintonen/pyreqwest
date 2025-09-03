@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyEllipsis;
 use pyo3::{PyTraverseError, PyVisit, intern};
 use pyo3_bytes::PyBytes;
@@ -53,8 +53,8 @@ impl Body {
         }
     }
 
-    fn __copy__(&self, py: Python) -> PyResult<Self> {
-        self.try_clone(py)
+    fn __copy__(&self) -> PyResult<Self> {
+        self.try_clone()
     }
 
     pub fn __repr__(&self, py: Python) -> PyResult<String> {
@@ -81,10 +81,10 @@ impl Body {
     }
 }
 impl Body {
-    pub fn try_clone(&self, py: Python) -> PyResult<Self> {
+    pub fn try_clone(&self) -> PyResult<Self> {
         let body = match &self.body {
             Some(InnerBody::Bytes(bytes)) => InnerBody::Bytes(bytes.clone()),
-            Some(InnerBody::Stream(stream)) => InnerBody::Stream(stream.try_clone(py)?),
+            Some(InnerBody::Stream(stream)) => InnerBody::Stream(Python::attach(|py| stream.try_clone(py))?),
             None => return Err(PyRuntimeError::new_err("Body already consumed")),
         };
         Ok(Body { body: Some(body) })
@@ -97,10 +97,10 @@ impl Body {
         }
     }
 
-    pub fn set_task_local(&mut self, py: Python) -> PyResult<()> {
+    pub fn set_task_local(&mut self) -> PyResult<()> {
         match self.body.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
-            Some(InnerBody::Stream(stream)) => stream.set_task_local(py),
+            Some(InnerBody::Stream(stream)) => stream.set_task_local(),
             None => Err(PyRuntimeError::new_err("Body already consumed")),
         }
     }
@@ -150,7 +150,7 @@ impl Stream for BodyStream {
                 self.cur_waiter = None;
                 match res {
                     Ok(res) => {
-                        Python::with_gil(|py| {
+                        Python::attach(|py| {
                             if self.is_end_marker(py, &res) {
                                 Poll::Ready(None) // Stream ended
                             } else {
@@ -190,12 +190,12 @@ impl BodyStream {
         Ok(reqwest::Body::wrap_stream(self))
     }
 
-    pub fn set_task_local(&mut self, py: Python) -> PyResult<()> {
+    pub fn set_task_local(&mut self) -> PyResult<()> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
         }
         if self.task_local.is_none() {
-            self.task_local = Some(TaskLocal::current(py)?);
+            self.task_local = Some(Python::attach(TaskLocal::current)?);
         }
         Ok(())
     }
@@ -203,7 +203,7 @@ impl BodyStream {
     fn py_anext(&mut self) -> PyResult<PyCoroWaiter> {
         self.started = true;
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let aiter = self
                 .aiter
                 .as_ref()
@@ -219,17 +219,17 @@ impl BodyStream {
     }
 
     fn get_aiter<'py>(py: Python<'py>, stream: &Py<PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        static AITER: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        static AITER: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
         AITER.import(py, "builtins", "aiter")?.call1((stream,))
     }
 
     fn anext_coro<'py>(&self, py: Python<'py>, aiter: &Py<PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        static ANEXT: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        static ANEXT: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
         ANEXT.import(py, "builtins", "anext")?.call1((aiter, self.ellipsis(py)))
     }
 
     fn ellipsis(&self, py: Python) -> &Py<PyEllipsis> {
-        static ONCE_ELLIPSIS: GILOnceCell<Py<PyEllipsis>> = GILOnceCell::new();
+        static ONCE_ELLIPSIS: PyOnceLock<Py<PyEllipsis>> = PyOnceLock::new();
         ONCE_ELLIPSIS.get_or_init(py, || PyEllipsis::get(py).into())
     }
 

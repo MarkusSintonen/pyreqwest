@@ -1,3 +1,4 @@
+use crate::allow_threads::AllowThreads;
 use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use crate::request::Request;
 use crate::response::Response;
@@ -21,10 +22,11 @@ impl Next {
         request: Py<PyAny>,
         #[pyo3(cancel_handle)] cancel: CancelHandle,
     ) -> PyResult<Py<Response>> {
-        if let Some(coro) = Python::with_gil(|py| Self::next_coro(slf.bind(py), &request))? {
-            Self::coro_result(coro, false).await
+        if let Some(coro) = Python::attach(|py| Self::next_coro(slf.bind(py), &request))? {
+            AllowThreads(Self::coro_result(coro, false)).await
         } else {
-            Request::spawn_request(&request, cancel).await // No more middleware, execute the request
+            // No more middleware, execute the request
+            AllowThreads(Request::spawn_request(&request, cancel)).await
         }
     }
 
@@ -99,7 +101,7 @@ impl Next {
     pub async fn coro_result(coro: PyCoroWaiter, error_for_status: bool) -> PyResult<Py<Response>> {
         let resp = coro.await?;
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let resp = resp.into_bound(py).downcast_into_exact::<Response>()?;
             error_for_status
                 .then(|| resp.try_borrow()?.error_for_status())

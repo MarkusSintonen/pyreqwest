@@ -1,3 +1,4 @@
+use crate::allow_threads::AllowThreads;
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
@@ -76,67 +77,6 @@ impl Response {
         self.extensions = Some(RespExtensions::PyExtensions(extensions.0));
     }
 
-    async fn bytes(&mut self) -> PyResult<PyBytes> {
-        Ok(PyBytes::new(self.bytes_inner().await?))
-    }
-
-    async fn json(&mut self) -> PyResult<JsonValue> {
-        let bytes = self.bytes_inner().await?;
-        match serde_json::from_slice(&bytes) {
-            Ok(v) => Ok(v),
-            Err(e) => Err(self.json_error(&e).await?),
-        }
-    }
-
-    async fn text(&mut self) -> PyResult<String> {
-        let bytes = self.bytes_inner().await?;
-        let encoding = self
-            .content_type_mime()?
-            .and_then(|mime| mime.get_param("charset").map(String::from))
-            .and_then(|charset| Encoding::for_label(charset.as_bytes()))
-            .unwrap_or(UTF_8);
-        let (text, _, _) = encoding.decode(&bytes);
-        Ok(text.into_owned())
-    }
-
-    #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
-    async fn read(&mut self, amount: usize) -> PyResult<PyBytes> {
-        let mut collected = BytesMut::with_capacity(amount);
-        let mut remaining = amount;
-
-        while remaining > 0 {
-            if let Some(mut chunk) = self.next_chunk_inner().await? {
-                if chunk.len() > remaining {
-                    let extra = chunk.split_off(remaining);
-                    self.chunks.push_front(extra);
-                }
-                collected.extend_from_slice(&chunk);
-                remaining -= chunk.len();
-            } else {
-                break; // No more data
-            }
-        }
-
-        Ok(PyBytes::new(collected.freeze()))
-    }
-
-    async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
-        Ok(self.next_chunk_inner().await?.map(PyBytes::from))
-    }
-
-    fn content_type_mime(&self) -> PyResult<Option<Mime>> {
-        let Some(content_type) = self.get_header("content-type")? else {
-            return Ok(None);
-        };
-        let mime = content_type
-            .0
-            .to_str()
-            .map_err(|e| RequestError::from_err("Invalid Content-Type header", &e))?
-            .parse::<mime::Mime>()
-            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
-        Ok(Some(Mime::new(mime)))
-    }
-
     pub fn error_for_status(&self) -> PyResult<()> {
         if self.status.0.is_success() {
             return Ok(());
@@ -148,6 +88,79 @@ impl Response {
             "HTTP status server error"
         };
         Err(StatusError::from_custom(msg, json!({"status": self.status.0.as_u16()})))
+    }
+
+    fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
+        py.detach(|| self.get_header_inner(name))
+    }
+
+    fn get_header_all(&self, py: Python, name: &str) -> PyResult<Vec<HeaderValue>> {
+        py.detach(|| self.get_header_all_inner(name))
+    }
+
+    fn content_type_mime(&self, py: Python) -> PyResult<Option<Mime>> {
+        py.detach(|| self.content_type_mime_inner())
+    }
+
+    async fn bytes(&mut self) -> PyResult<PyBytes> {
+        AllowThreads(async {
+            let bytes = self.bytes_inner().await?;
+            Ok(PyBytes::new(bytes))
+        })
+        .await
+    }
+
+    async fn json(&mut self) -> PyResult<JsonValue> {
+        AllowThreads(async {
+            let bytes = self.bytes_inner().await?;
+            match serde_json::from_slice(&bytes) {
+                Ok(v) => Ok(v),
+                Err(e) => Err(self.json_error(&e).await?),
+            }
+        })
+        .await
+    }
+
+    async fn text(&mut self) -> PyResult<String> {
+        AllowThreads(async {
+            let bytes = self.bytes_inner().await?;
+            let encoding = self
+                .content_type_mime_inner()?
+                .and_then(|mime| mime.get_param("charset").map(String::from))
+                .and_then(|charset| Encoding::for_label(charset.as_bytes()))
+                .unwrap_or(UTF_8);
+            let (text, _, _) = encoding.decode(&bytes);
+            Ok(text.into_owned())
+        })
+        .await
+    }
+
+    #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
+    async fn read(&mut self, amount: usize) -> PyResult<PyBytes> {
+        AllowThreads(async {
+            let mut collected = BytesMut::with_capacity(amount);
+            let mut remaining = amount;
+
+            while remaining > 0 {
+                if let Some(mut chunk) = self.next_chunk_inner().await? {
+                    if chunk.len() > remaining {
+                        let extra = chunk.split_off(remaining);
+                        self.chunks.push_front(extra);
+                    }
+                    collected.extend_from_slice(&chunk);
+                    remaining -= chunk.len();
+                } else {
+                    break; // No more data
+                }
+            }
+
+            Ok(PyBytes::new(collected.freeze()))
+        })
+        .await
+    }
+
+    async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
+        AllowThreads(async { Ok(self.next_chunk_inner().await?.map(PyBytes::from)) }).await
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -214,14 +227,37 @@ impl Response {
         Ok(resp)
     }
 
-    fn get_header(&self, name: &str) -> PyResult<Option<HeaderValue>> {
+    fn get_header_inner(&self, name: &str) -> PyResult<Option<HeaderValue>> {
         match self.headers {
             Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
             Some(RespHeaders::PyHeaders(ref py_headers)) => {
-                Python::with_gil(|py| py_headers.try_borrow(py)?.get_one(name))
+                Python::attach(|py| py_headers.try_borrow(py)?.get_one(name))
             }
             None => Err(PyRuntimeError::new_err("Expected headers")),
         }
+    }
+
+    fn get_header_all_inner(&self, name: &str) -> PyResult<Vec<HeaderValue>> {
+        match self.headers {
+            Some(RespHeaders::Headers(ref headers)) => headers.get_all(name),
+            Some(RespHeaders::PyHeaders(ref py_headers)) => {
+                Python::attach(|py| py_headers.try_borrow(py)?.get_all(name))
+            }
+            None => Err(PyRuntimeError::new_err("Expected headers")),
+        }
+    }
+
+    fn content_type_mime_inner(&self) -> PyResult<Option<Mime>> {
+        let Some(content_type) = self.get_header_inner("content-type")? else {
+            return Ok(None);
+        };
+        let mime = content_type
+            .0
+            .to_str()
+            .map_err(|e| RequestError::from_err("Invalid Content-Type header", &e))?
+            .parse::<mime::Mime>()
+            .map_err(|e| RequestError::from_err("Failed to parse Content-Type header as MIME", &e))?;
+        Ok(Some(Mime::new(mime)))
     }
 
     async fn next_chunk_inner(&mut self) -> PyResult<Option<Bytes>> {
@@ -274,10 +310,10 @@ impl Response {
     }
 
     fn content_length(&self) -> PyResult<Option<usize>> {
-        let Some(content_type) = self.get_header("content-length")? else {
+        let Some(content_length) = self.get_header_inner("content-length")? else {
             return Ok(None);
         };
-        content_type
+        content_length
             .0
             .to_str()
             .map_err(|e| RequestError::from_err("Invalid Content-Length header", &e))?
@@ -318,10 +354,10 @@ impl Response {
         Ok((init_chunks, has_more))
     }
 
-    pub fn inner_close(&mut self) {
-        if let Some(rx) = self.body_receiver.as_mut() {
-            rx.close()
-        } // Close the receiver to stop the reader background task
+    pub fn inner_close(&self) {
+        if let Some(rx) = self.body_receiver.as_ref() {
+            rx.close() // Close the receiver to stop the reader background task
+        }
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {

@@ -1,3 +1,4 @@
+use crate::allow_threads::AllowThreads;
 use crate::client::Runtime;
 use crate::multipart::Part;
 use pyo3::coroutine::CancelHandle;
@@ -33,10 +34,9 @@ impl Form {
         path: PathBuf,
         #[pyo3(cancel_handle)] cancel: CancelHandle,
     ) -> PyResult<Py<Self>> {
-        let part = Runtime::global_handle()?
-            .spawn(reqwest::multipart::Part::file(path), cancel)
-            .await??;
-        Python::with_gil(|py| {
+        let fut = Runtime::global_handle()?.spawn(reqwest::multipart::Part::file(path), cancel);
+        let part = AllowThreads(fut).await??;
+        Python::attach(|py| {
             Self::apply(slf.try_borrow_mut(py)?, |builder| Ok(builder.part(name, part)))?;
             Ok(slf)
         })
@@ -63,12 +63,13 @@ impl Form {
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::multipart::Form) -> PyResult<reqwest::multipart::Form>,
+        F: Send,
     {
         let builder = slf
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))?;
-        slf.inner = Some(fun(builder)?);
+        slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
 

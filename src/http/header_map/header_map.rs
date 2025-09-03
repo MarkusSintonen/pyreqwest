@@ -185,7 +185,7 @@ impl HeaderMap {
     }
 
     fn getall(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
-        self.ref_map(|map| Ok(map.get_all(key).into_iter().map(|v| HeaderValue(v.clone())).collect()))
+        self.get_all(key)
     }
 
     #[pyo3(signature = (key, value, *, is_sensitive=false))]
@@ -274,6 +274,10 @@ impl HeaderMap {
 
     pub fn get_one(&self, key: &str) -> PyResult<Option<HeaderValue>> {
         self.ref_map(|map| Ok(map.get(key).map(|v| HeaderValue(v.clone()))))
+    }
+
+    pub fn get_all(&self, key: &str) -> PyResult<Vec<HeaderValue>> {
+        self.ref_map(|map| Ok(map.get_all(key).into_iter().map(|v| HeaderValue(v.clone())).collect()))
     }
 
     pub fn try_clone(&self) -> PyResult<Self> {

@@ -2,7 +2,7 @@ use crate::http::QueryParams;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::sync::{GILOnceCell, OnceLockExt};
+use pyo3::sync::{OnceLockExt, PyOnceLock};
 use pyo3::types::{PyDict, PyIterator, PyList, PyString, PyTuple};
 use pyo3::{IntoPyObjectExt, intern};
 use serde::Serialize;
@@ -306,7 +306,7 @@ impl Url {
     }
 
     fn __reversed__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        static REVERSED: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        static REVERSED: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
         REVERSED.import(py, "builtins", "reversed")?.call1((self.__str__(py),))
     }
 

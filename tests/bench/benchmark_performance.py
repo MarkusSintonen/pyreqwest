@@ -1,23 +1,22 @@
-"""Performance benchmark comparing pyreqwest against other HTTP client libraries with different body sizes and concurrency levels."""
-
 import argparse
 import asyncio
 import ssl
 import statistics
 import time
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Coroutine, Any, Callable, AsyncGenerator
+from typing import Any
 
 import matplotlib.pyplot as plt
 import trustme
 from aiohttp import TCPConnector
 from granian.constants import HTTPModes
 from matplotlib.axes import Axes
-
 from pyreqwest.client import ClientBuilder
 from pyreqwest.http import Url
-from ..servers.echo_server import EchoServer
+
+from tests.servers.echo_server import EchoServer
 
 
 class PerformanceBenchmark:
@@ -38,7 +37,7 @@ class PerformanceBenchmark:
         self.concurrency_levels = [2, 10, 100]
         self.warmup_iterations = 5
         self.iterations = 50
-        # Structure: {client: {body_size: {concurrency: [times]}}}
+        # Structure {client: {body_size: {concurrency: [times]}}}
         self.results: dict[str, dict[int, dict[int, list[float]]]] = {
             "pyreqwest": {},
             self.comparison_lib: {},
@@ -67,24 +66,30 @@ class PerformanceBenchmark:
         timings = []
 
         async with ClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
-            async def post_read():
+
+            async def post_read() -> None:
                 if body_size <= 1_000_000:
                     response = await client.post(self.url).body_bytes(body).build_consumed().send()
                     assert len(await response.bytes()) == body_size
                 else:
                     buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
-                    async with client.post(self.url).body_bytes(body).streamed_read_buffer_limit(buffer_size).build_streamed() as response:
+                    async with (
+                        client.post(self.url)
+                        .body_bytes(body)
+                        .streamed_read_buffer_limit(buffer_size)
+                        .build_streamed() as response
+                    ):
                         tot = 0
                         while chunk := await response.read(1024 * 1024):
                             assert len(chunk) <= 1024 * 1024
                             tot += len(chunk)
                         assert tot == body_size
 
-            print(f"    Warming up...")
+            print("    Warming up...")
             for _ in range(self.warmup_iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, [])
 
-            print(f"    Running benchmark...")
+            print("    Running benchmark...")
             for _ in range(self.iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, timings)
 
@@ -100,7 +105,8 @@ class PerformanceBenchmark:
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
         async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx)) as session:
-            async def post_read():
+
+            async def post_read() -> None:
                 if body_size <= 1_000_000:
                     async with session.post(url_str, data=body) as response:
                         assert len(await response.read()) == body_size
@@ -112,11 +118,11 @@ class PerformanceBenchmark:
                             tot += len(chunk)
                         assert tot == body_size
 
-            print(f"    Warming up...")
+            print("    Warming up...")
             for _ in range(self.warmup_iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, [])
 
-            print(f"    Running benchmark...")
+            print("    Running benchmark...")
             for _ in range(self.iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, timings)
 
@@ -132,15 +138,16 @@ class PerformanceBenchmark:
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
         async with httpx.AsyncClient(verify=ssl_ctx) as client:
-            async def post_read():
+
+            async def post_read() -> None:
                 response = await client.post(url_str, content=body)
                 assert len(await response.aread()) == body_size
 
-            print(f"    Warming up...")
+            print("    Warming up...")
             for _ in range(self.warmup_iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, [])
 
-            print(f"    Running benchmark...")
+            print("    Running benchmark...")
             for _ in range(self.iterations):
                 await self.meas_concurrent_batch(post_read, concurrency, timings)
 
@@ -150,24 +157,27 @@ class PerformanceBenchmark:
         """Dispatch to the appropriate benchmark method based on comparison library."""
         if self.comparison_lib == "aiohttp":
             return await self.benchmark_aiohttp_concurrent(body_size, concurrency)
-        elif self.comparison_lib == "httpx":
+        if self.comparison_lib == "httpx":
             return await self.benchmark_httpx_concurrent(body_size, concurrency)
-        else:
-            raise ValueError(f"Unsupported comparison library: {self.comparison_lib}")
+        raise ValueError(f"Unsupported comparison library: {self.comparison_lib}")
 
     async def run_benchmarks(self) -> None:
         """Run all benchmarks."""
         print("Starting performance benchmarks...")
         print(f"Comparing pyreqwest vs {self.comparison_lib}")
         print(f"Echo server URL: {self.url}")
-        print(f"Body sizes: {[f'{size//1000}KB' if size < 1_000_000 else f'{size//1_000_000}MB' for size in self.body_sizes]}")
+        print(
+            f"Body sizes: {
+                [f'{size // 1000}KB' if size < 1_000_000 else f'{size // 1_000_000}MB' for size in self.body_sizes]
+            }"
+        )
         print(f"Concurrency levels: {self.concurrency_levels}")
         print(f"Warmup iterations: {self.warmup_iterations}")
         print(f"Benchmark iterations: {self.iterations}")
         print()
 
         for body_size in self.body_sizes:
-            size_label = f"{body_size//1000}KB" if body_size < 1_000_000 else f"{body_size//1_000_000}MB"
+            size_label = f"{body_size // 1000}KB" if body_size < 1_000_000 else f"{body_size // 1_000_000}MB"
             print(f"Benchmarking {size_label} body size...")
 
             # Initialize nested dictionaries for this body size
@@ -177,7 +187,7 @@ class PerformanceBenchmark:
             for concurrency in self.concurrency_levels:
                 print(f"  Testing concurrency level: {concurrency}")
 
-                print(f"    Running pyreqwest benchmark...")
+                print("    Running pyreqwest benchmark...")
                 pyreqwest_times = await self.benchmark_pyreqwest_concurrent(body_size, concurrency)
                 pyreqwest_avg = statistics.mean(pyreqwest_times)
                 print(f"    pyreqwest average: {pyreqwest_avg:.4f}ms")
@@ -195,13 +205,13 @@ class PerformanceBenchmark:
 
     def create_plot(self) -> None:
         """Create performance comparison plots."""
-        # Create a grid layout - 4 rows × 3 columns for 12 subplots
+        # Create a grid layout - 4 rows * 3 columns for 12 subplots
         fig, axes = plt.subplots(nrows=len(self.body_sizes), ncols=len(self.concurrency_levels), figsize=(18, 16))
         fig.suptitle(f"pyreqwest vs {self.comparison_lib}", fontsize=16, y=0.98)
         legend_colors = {"pyreqwest": "lightblue", self.comparison_lib: "lightcoral"}
 
         for i, body_size in enumerate(self.body_sizes):
-            size_label = f"{body_size//1000}KB" if body_size < 1_000_000 else f"{body_size//1_000_000}MB"
+            size_label = f"{body_size // 1000}KB" if body_size < 1_000_000 else f"{body_size // 1_000_000}MB"
             ymax = 0
 
             for j, concurrency in enumerate(self.concurrency_levels):
@@ -210,7 +220,7 @@ class PerformanceBenchmark:
                 # Prepare data for this specific combination
                 data_to_plot = [
                     self.results["pyreqwest"][body_size][concurrency],
-                    self.results[self.comparison_lib][body_size][concurrency]
+                    self.results[self.comparison_lib][body_size][concurrency],
                 ]
 
                 # Create box plot for this specific body size and concurrency combination
@@ -224,11 +234,11 @@ class PerformanceBenchmark:
                 ymax = max(ymax, ax.get_ylim()[1])
 
                 # Color the boxes
-                for patch, color in zip(box_plot["boxes"], legend_colors.values()):
+                for patch, color in zip(box_plot["boxes"], legend_colors.values(), strict=False):
                     patch.set_facecolor(color)
 
                 # Customize subplot
-                ax.set_title(f"{size_label} @ {concurrency} concurrent", fontweight='bold', pad=10)
+                ax.set_title(f"{size_label} @ {concurrency} concurrent", fontweight="bold", pad=10)
                 ax.set_ylabel("Response Time (ms)")
                 ax.grid(True, alpha=0.3)
 
@@ -242,19 +252,42 @@ class PerformanceBenchmark:
                     speedup_text = f"{((speedup - 1) * 100):.1f}% faster"
                 else:
                     faster_lib = self.comparison_lib
-                    speedup_text = f"{((1/speedup - 1) * 100):.1f}% faster"
+                    speedup_text = f"{((1 / speedup - 1) * 100):.1f}% faster"
 
                 # Add performance annotation
-                ax.text(0.5, 0.95, f"{faster_lib}\n{speedup_text}",
-                       transform=ax.transAxes, ha='center', va='top',
-                       bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8),
-                       fontsize=9, fontweight='bold')
+                ax.text(
+                    0.5,
+                    0.95,
+                    f"{faster_lib}\n{speedup_text}",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    bbox={"boxstyle": "round,pad=0.3", "facecolor": "wheat", "alpha": 0.8},
+                    fontsize=9,
+                    fontweight="bold",
+                )
 
                 # Add median time annotations
-                ax.text(1, pyreqwest_median, f"{pyreqwest_median:.3f}ms",
-                       ha='left', va='center', fontsize=8, color='darkblue', fontweight='bold')
-                ax.text(2, comparison_median, f"{comparison_median:.3f}ms",
-                       ha='right', va='center', fontsize=8, color='darkred', fontweight='bold')
+                ax.text(
+                    1,
+                    pyreqwest_median,
+                    f"{pyreqwest_median:.3f}ms",
+                    ha="left",
+                    va="center",
+                    fontsize=8,
+                    color="darkblue",
+                    fontweight="bold",
+                )
+                ax.text(
+                    2,
+                    comparison_median,
+                    f"{comparison_median:.3f}ms",
+                    ha="right",
+                    va="center",
+                    fontsize=8,
+                    color="darkred",
+                    fontweight="bold",
+                )
 
             for j, _ in enumerate(self.concurrency_levels):
                 axes[i][j].set_ylim(ymin=0, ymax=ymax * 1.01)  # Uniform y-axis per row
@@ -264,7 +297,7 @@ class PerformanceBenchmark:
             plt.Rectangle(xy=(0, 0), width=1, height=1, label=label, facecolor=color)
             for label, color in legend_colors.items()
         ]
-        fig.legend(handles=legends, loc='lower center', bbox_to_anchor=(0.5, 0.01), ncol=2)
+        fig.legend(handles=legends, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=2)
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.94, bottom=0.06)  # Make room for suptitle and legend

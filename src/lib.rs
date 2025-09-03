@@ -1,3 +1,4 @@
+mod allow_threads;
 mod asyncio;
 mod client;
 mod exceptions;
@@ -12,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3::{PyTypeInfo, intern};
 
-#[pymodule(name = "_pyreqwest")]
+#[pymodule(name = "_pyreqwest", gil_used = false)]
 mod pyreqwest {
     use super::*;
 

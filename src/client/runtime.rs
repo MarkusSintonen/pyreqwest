@@ -13,7 +13,7 @@ static GLOBAL_HANDLE: LazyLock<PyResult<InnerRuntime>> = LazyLock::new(|| {
 });
 
 #[derive(Clone)]
-pub struct Handle(tokio::runtime::Handle);
+pub struct Handle(pub tokio::runtime::Handle);
 impl Handle {
     pub async fn spawn<F, T>(&self, future: F, mut cancel: CancelHandle) -> PyResult<T>
     where
@@ -61,7 +61,7 @@ impl Runtime {
     pub fn global_handle() -> PyResult<&'static Handle> {
         let inner = GLOBAL_HANDLE
             .as_ref()
-            .map_err(|e| Python::with_gil(|py| e.clone_ref(py)))?;
+            .map_err(|e| Python::attach(|py| e.clone_ref(py)))?;
         Ok(&inner.handle)
     }
 

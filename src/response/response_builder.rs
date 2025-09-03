@@ -1,3 +1,4 @@
+use crate::allow_threads::AllowThreads;
 use crate::http::{Body, HeaderMap, HeaderName, HeaderValue, JsonValue};
 use crate::http::{Extensions, StatusCode, Version};
 use crate::response::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, Response, StreamedReadConfig};
@@ -21,32 +22,7 @@ impl ResponseBuilder {
     }
 
     async fn build(&mut self) -> PyResult<Response> {
-        let body: reqwest::Body = self
-            .body
-            .take()
-            .map(|mut b| {
-                Python::with_gil(|py| b.set_task_local(py))?;
-                b.into_reqwest()
-            })
-            .transpose()?
-            .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));
-
-        let mut resp = self
-            .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?
-            .body(body)
-            .map_err(|e| PyValueError::new_err(format!("Failed to build response: {}", e)))?;
-
-        self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
-
-        let inner_resp = reqwest::Response::from(resp);
-
-        let config = StreamedReadConfig {
-            read_buffer_limit: self.streamed_read_buffer_limit.unwrap_or(DEFAULT_READ_BUFFER_LIMIT),
-        };
-
-        Response::initialize(inner_resp, None, BodyConsumeConfig::Streamed(config)).await
+        AllowThreads(self.build_inner()).await
     }
 
     fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {
@@ -92,7 +68,9 @@ impl ResponseBuilder {
     }
 
     fn body_json(mut slf: PyRefMut<'_, Self>, data: JsonValue) -> PyResult<PyRefMut<'_, Self>> {
-        let bytes = serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let bytes = slf
+            .py()
+            .detach(|| serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string())))?;
         slf.body = Some(bytes.into());
         Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
     }
@@ -138,15 +116,45 @@ impl ResponseBuilder {
         }
     }
 
+    async fn build_inner(&mut self) -> PyResult<Response> {
+        let body: reqwest::Body = self
+            .body
+            .take()
+            .map(|mut b| {
+                b.set_task_local()?;
+                b.into_reqwest()
+            })
+            .transpose()?
+            .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));
+
+        let mut resp = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?
+            .body(body)
+            .map_err(|e| PyValueError::new_err(format!("Failed to build response: {}", e)))?;
+
+        self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
+
+        let inner_resp = reqwest::Response::from(resp);
+
+        let config = StreamedReadConfig {
+            read_buffer_limit: self.streamed_read_buffer_limit.unwrap_or(DEFAULT_READ_BUFFER_LIMIT),
+        };
+
+        Response::initialize(inner_resp, None, BodyConsumeConfig::Streamed(config)).await
+    }
+
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(http::response::Builder) -> PyResult<http::response::Builder>,
+        F: Send,
     {
         let builder = slf
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?;
-        slf.inner = Some(fun(builder)?);
+        slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
 }

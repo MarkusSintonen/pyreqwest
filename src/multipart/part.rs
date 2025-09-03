@@ -1,3 +1,4 @@
+use crate::allow_threads::AllowThreads;
 use crate::client::Runtime;
 use crate::http::{BodyStream, HeaderMap};
 use pyo3::coroutine::CancelHandle;
@@ -13,34 +14,33 @@ pub struct Part {
 #[pymethods]
 impl Part {
     #[staticmethod]
-    fn from_text(value: String) -> Self {
-        reqwest::multipart::Part::text(value).into()
+    fn from_text(py: Python, value: String) -> Self {
+        py.detach(|| reqwest::multipart::Part::text(value).into())
     }
 
     #[staticmethod]
-    fn from_bytes(value: PyBytes) -> Self {
-        reqwest::multipart::Part::bytes(Vec::from(value.into_inner())).into()
+    fn from_bytes(py: Python, value: PyBytes) -> Self {
+        py.detach(|| reqwest::multipart::Part::bytes(Vec::from(value.into_inner())).into())
     }
 
     #[staticmethod]
     fn from_stream(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
         let mut stream = BodyStream::new(py, stream)?;
-        stream.set_task_local(py)?;
-        Ok(reqwest::multipart::Part::stream(stream.into_reqwest()?).into())
+        stream.set_task_local()?;
+        py.detach(|| Ok(reqwest::multipart::Part::stream(stream.into_reqwest()?).into()))
     }
 
     #[staticmethod]
     fn from_stream_with_length(py: Python, async_gen: Py<PyAny>, length: u64) -> PyResult<Self> {
         let mut stream = BodyStream::new(py, async_gen)?;
-        stream.set_task_local(py)?;
-        Ok(reqwest::multipart::Part::stream_with_length(stream.into_reqwest()?, length).into())
+        stream.set_task_local()?;
+        py.detach(|| Ok(reqwest::multipart::Part::stream_with_length(stream.into_reqwest()?, length).into()))
     }
 
     #[staticmethod]
     async fn from_file(path: PathBuf, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Self> {
-        let part = Runtime::global_handle()?
-            .spawn(reqwest::multipart::Part::file(path), cancel)
-            .await??;
+        let fut = Runtime::global_handle()?.spawn(reqwest::multipart::Part::file(path), cancel);
+        let part = AllowThreads(fut).await??;
         Ok(part.into())
     }
 
@@ -60,12 +60,13 @@ impl Part {
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::multipart::Part) -> PyResult<reqwest::multipart::Part>,
+        F: Send,
     {
         let builder = slf
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Part was already consumed"))?;
-        slf.inner = Some(fun(builder)?);
+        slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
 

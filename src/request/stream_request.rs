@@ -1,3 +1,4 @@
+use crate::allow_threads::AllowThreads;
 use crate::http::Body;
 use crate::request::Request;
 use crate::response::{BodyConsumeConfig, Response};
@@ -15,9 +16,9 @@ pub struct StreamRequest {
 #[pymethods]
 impl StreamRequest {
     async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let resp = Request::send_inner(slf.as_any(), cancel).await?;
+        let resp = AllowThreads(Request::send_inner(slf.as_any(), cancel)).await?;
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             slf.try_borrow_mut(py)?.ctx_response = Some(resp.clone_ref(py));
             Ok(resp)
         })
@@ -29,12 +30,12 @@ impl StreamRequest {
         _exc_val: Py<PyAny>,
         _traceback: Py<PyAny>,
     ) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let ctx_response = &slf.try_borrow(py)?.ctx_response;
             ctx_response
                 .as_ref()
                 .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
-                .try_borrow_mut(py)?
+                .try_borrow(py)?
                 .inner_close();
             Ok(())
         })
@@ -48,8 +49,8 @@ impl StreamRequest {
         }
     }
 
-    fn __copy__(slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(slf.into_super().try_clone_inner(py)?)
+    fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
+        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
     }
 
     #[classmethod]
@@ -59,7 +60,7 @@ impl StreamRequest {
         request: Bound<PyAny>,
         body: Option<Bound<Body>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(Request::inner_from_request_and_body(py, request, body)?)
+        Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -71,8 +72,8 @@ impl StreamRequest {
     }
 }
 impl StreamRequest {
-    pub fn new_py(inner: Request) -> PyResult<Py<Self>> {
+    pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
         let initializer = PyClassInitializer::from(inner).add_subclass(Self { ctx_response: None });
-        Python::with_gil(|py| Py::new(py, initializer))
+        Py::new(py, initializer)
     }
 }

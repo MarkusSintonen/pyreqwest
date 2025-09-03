@@ -28,31 +28,35 @@ pub struct Client {
 #[pymethods]
 impl Client {
     fn request(&self, method: Method, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        let middlewares_next = self.init_middleware_next(url.py())?;
-        let spawner = Spawner::new(
-            self.client.clone(),
-            self.runtime.clone(),
-            self.connection_limiter.clone(),
-            self.close_cancellation.child_token(),
-        );
+        let py = url.py();
+        let middlewares_next = self.init_middleware_next(py)?;
 
         let url: reqwest::Url = match self.base_url.as_ref() {
             Some(base_url) => base_url.join(url.extract()?)?.into(),
             None => url.extract::<UrlType>()?.0,
         };
 
-        let reqwest_request_builder = self.client.request(method.0, url);
-        let mut builder =
-            RequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
+        py.detach(|| {
+            let spawner = Spawner::new(
+                self.client.clone(),
+                self.runtime.clone(),
+                self.connection_limiter.clone(),
+                self.close_cancellation.child_token(),
+            );
 
-        self.total_timeout
-            .map(|timeout| builder.inner_timeout(timeout))
-            .transpose()?;
-        self.default_headers
-            .as_ref()
-            .map(|default_headers| builder.inner_headers(default_headers))
-            .transpose()?;
-        Ok(builder)
+            let reqwest_request_builder = self.client.request(method.0, url);
+            let mut builder =
+                RequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
+
+            self.total_timeout
+                .map(|timeout| builder.inner_timeout(timeout))
+                .transpose()?;
+            self.default_headers
+                .as_ref()
+                .map(|default_headers| builder.inner_headers(default_headers))
+                .transpose()?;
+            Ok(builder)
+        })
     }
 
     pub fn get(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
@@ -87,7 +91,20 @@ impl Client {
         self.close().await;
     }
 
+    fn __enter__(slf: Py<Self>) -> Py<Self> {
+        slf
+    }
+
+    fn __exit__(&self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) {
+        self.close_no_wait();
+    }
+
     async fn close(&self) {
+        // Currently, does not wait for resources to be released.
+        self.close_cancellation.cancel();
+    }
+
+    fn close_no_wait(&self) {
         self.close_cancellation.cancel();
     }
 

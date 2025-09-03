@@ -12,7 +12,7 @@ use std::fmt::Display;
 #[pyclass(subclass)]
 pub struct Request {
     inner: Option<reqwest::Request>,
-    spawner: Option<Spawner>,
+    pub spawner: Spawner,
     body: Option<ReqBody>,
     py_headers: Option<Py<HeaderMap>>,
     extensions: Option<Extensions>,
@@ -82,7 +82,7 @@ impl Request {
     #[getter]
     fn get_extensions(&mut self) -> &Py<PyDict> {
         if self.extensions.is_none() {
-            self.extensions = Some(Extensions(Python::with_gil(|py| PyDict::new(py).unbind())));
+            self.extensions = Some(Extensions(Python::attach(|py| PyDict::new(py).unbind())));
         }
         &self.extensions.as_ref().unwrap().0
     }
@@ -135,7 +135,6 @@ impl Request {
 
     fn __clear__(&mut self) {
         self.inner = None;
-        self.spawner = None;
         self.body = None;
         self.py_headers = None;
         self.extensions = None;
@@ -154,7 +153,7 @@ impl Request {
     ) -> Self {
         Request {
             inner: Some(request),
-            spawner: Some(spawner),
+            spawner,
             extensions,
             body: body.map(ReqBody::Body),
             py_headers: None,
@@ -168,14 +167,14 @@ impl Request {
         let mut error_for_status = false;
         let mut middleware_coro = None;
 
-        Python::with_gil(|py| -> PyResult<()> {
+        Python::attach(|py| -> PyResult<()> {
             let req = slf.bind(py).downcast::<Self>()?;
             let mut this = req.try_borrow_mut()?;
             error_for_status = this.error_for_status;
 
             match this.body.as_mut() {
-                Some(ReqBody::Body(body)) => body.set_task_local(py)?,
-                Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local(py)?,
+                Some(ReqBody::Body(body)) => body.set_task_local()?,
+                Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local()?,
                 None => {}
             }
 
@@ -211,9 +210,9 @@ impl Request {
         let mut error_for_status = false;
         let mut body_consume_config = None;
 
-        Python::with_gil(|py| -> PyResult<_> {
+        Python::attach(|py| -> PyResult<_> {
             let mut this = request.downcast_bound::<Request>(py)?.try_borrow_mut()?;
-            spawner = this.spawner.clone();
+            spawner = Some(this.spawner.clone());
             extensions = this.extensions.take();
             error_for_status = this.error_for_status;
             body_consume_config = Some(this.body_consume_config);
@@ -229,12 +228,12 @@ impl Request {
 
             match this.body.take() {
                 Some(ReqBody::Body(mut body)) => {
-                    body.set_task_local(py)?;
+                    body.set_task_local()?;
                     *request.body_mut() = Some(body.into_reqwest()?)
                 }
                 Some(ReqBody::PyBody(py_body)) => {
                     let mut py_body = py_body.try_borrow_mut(py)?;
-                    py_body.set_task_local(py)?;
+                    py_body.set_task_local()?;
                     *request.body_mut() = Some(py_body.into_reqwest()?)
                 }
                 None => {}
@@ -250,22 +249,22 @@ impl Request {
 
         error_for_status.then(|| resp.error_for_status()).transpose()?;
 
-        Python::with_gil(|py| Py::new(py, resp))
+        Python::attach(|py| Py::new(py, resp))
     }
 
-    pub fn try_clone_inner(&mut self, py: Python) -> PyResult<Self> {
-        let inner = self
+    pub fn try_clone_inner(&self, py: Python) -> PyResult<Self> {
+        let new_inner = self
             .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
-        let new_inner = inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?
             .try_clone()
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
-        self.inner = Some(inner);
 
         let body = match self.body.as_ref() {
-            Some(ReqBody::Body(body)) => Some(body.try_clone(py)?),
-            Some(ReqBody::PyBody(py_body)) => Some(py_body.borrow_mut(py).try_clone(py)?),
+            Some(ReqBody::Body(body)) => Some(body.try_clone()?),
+            Some(ReqBody::PyBody(py_body)) => {
+                Some(Python::attach(|py| py_body.try_borrow(py)?.try_clone())?)
+            }
             None => None,
         };
 

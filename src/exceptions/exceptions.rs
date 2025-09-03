@@ -2,7 +2,7 @@ use crate::exceptions::utils::error_causes_iter;
 use crate::http::JsonValue;
 use pyo3::prelude::*;
 use pyo3::pyobject_native_type_core;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyType;
 use serde_json::json;
 use std::any::Any;
@@ -18,7 +18,7 @@ macro_rules! define_exception {
 
         impl $name {
             fn type_object_raw(py: Python<'_>) -> *mut pyo3::ffi::PyTypeObject {
-                static TYPE_OBJECT: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+                static TYPE_OBJECT: PyOnceLock<Py<PyType>> = PyOnceLock::new();
                 TYPE_OBJECT
                     .import(py, "pyreqwest.exceptions", stringify!($name))
                     .unwrap_or_else(|e| panic!("failed to import exception {}: {}", stringify!($name), e))

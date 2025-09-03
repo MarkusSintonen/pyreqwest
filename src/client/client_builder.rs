@@ -35,34 +35,34 @@ impl ClientBuilder {
         }
     }
 
-    fn build(&mut self) -> PyResult<Client> {
-        let builder = self
-            .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?;
-
-        let inner = builder
-            .use_rustls_tls()
-            .build()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
+    fn build(&mut self, py: Python) -> PyResult<Client> {
         let runtime = match self.runtime.take() {
-            Some(runtime) => Python::with_gil(|py| Ok::<_, PyErr>(runtime.try_borrow(py)?.handle().clone()))?,
+            Some(runtime) => runtime.try_borrow(py)?.handle().clone(),
             None => Runtime::global_handle()?.clone(),
         };
 
-        let client = Client::new(
-            inner,
-            runtime,
-            self.middlewares.take(),
-            self.total_timeout,
-            self.max_connections
-                .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
-            self.error_for_status,
-            self.default_headers.take(),
-            self.base_url.take(),
-        );
-        Ok(client)
+        py.detach(|| {
+            let inner_client = self
+                .inner
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?
+                .use_rustls_tls()
+                .build()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+            let client = Client::new(
+                inner_client,
+                runtime,
+                self.middlewares.take(),
+                self.total_timeout,
+                self.max_connections
+                    .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
+                self.error_for_status,
+                self.default_headers.take(),
+                self.base_url.take(),
+            );
+            Ok(client)
+        })
     }
 
     fn base_url(mut slf: PyRefMut<Self>, base_url: UrlType) -> PyResult<PyRefMut<Self>> {
@@ -140,7 +140,8 @@ impl ClientBuilder {
     }
 
     fn proxy<'py>(slf: PyRefMut<'py, Self>, proxy: Bound<'_, Proxy>) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| Ok(builder.proxy(proxy.borrow_mut().build()?)))
+        let proxy = proxy.borrow_mut().build()?;
+        Self::apply(slf, |builder| Ok(builder.proxy(proxy)))
     }
 
     fn no_proxy(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
@@ -373,12 +374,13 @@ impl ClientBuilder {
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::ClientBuilder) -> PyResult<reqwest::ClientBuilder>,
+        F: Send,
     {
         let builder = slf
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?;
-        slf.inner = Some(fun(builder)?);
+        slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
 

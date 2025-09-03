@@ -95,6 +95,7 @@ max-args = 8
     "C414",
     "C901",
 ]
+"./tests/bench/*" = ["T201", "EM102", "PLC0415", "TC002"]
 
 [tool.mypy]
 strict = true

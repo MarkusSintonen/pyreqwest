@@ -1,14 +1,14 @@
 use futures_util::FutureExt;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyDict;
 use pyo3::{Bound, Py, PyAny, PyResult, PyTraverseError, PyVisit, Python, intern, pyclass, pymethods};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
-    static GET_EV_LOOP: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+    static GET_EV_LOOP: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
     GET_EV_LOOP.import(py, "asyncio", "get_running_loop")?.call0()
 }
 
@@ -126,7 +126,7 @@ pub struct TaskLocal {
 }
 impl TaskLocal {
     pub fn current(py: Python) -> PyResult<Self> {
-        static ONCE_CTX_VARS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+        static ONCE_CTX_VARS: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 
         Ok(TaskLocal {
             event_loop: Some(get_running_loop(py)?.unbind()),

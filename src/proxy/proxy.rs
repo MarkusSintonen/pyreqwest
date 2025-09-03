@@ -13,21 +13,30 @@ pub struct Proxy {
 #[pymethods]
 impl Proxy {
     #[staticmethod]
-    fn http(url: UrlType) -> PyResult<Self> {
-        let proxy = reqwest::Proxy::http(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
-        Ok(Proxy { inner: Some(proxy) })
+    fn http(py: Python, url: UrlType) -> PyResult<Self> {
+        py.detach(|| {
+            let proxy =
+                reqwest::Proxy::http(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
+            Ok(Proxy { inner: Some(proxy) })
+        })
     }
 
     #[staticmethod]
-    fn https(url: UrlType) -> PyResult<Self> {
-        let proxy = reqwest::Proxy::https(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
-        Ok(Proxy { inner: Some(proxy) })
+    fn https(py: Python, url: UrlType) -> PyResult<Self> {
+        py.detach(|| {
+            let proxy =
+                reqwest::Proxy::https(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
+            Ok(Proxy { inner: Some(proxy) })
+        })
     }
 
     #[staticmethod]
-    fn all(url: UrlType) -> PyResult<Self> {
-        let proxy = reqwest::Proxy::all(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
-        Ok(Proxy { inner: Some(proxy) })
+    fn all(py: Python, url: UrlType) -> PyResult<Self> {
+        py.detach(|| {
+            let proxy =
+                reqwest::Proxy::all(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
+            Ok(Proxy { inner: Some(proxy) })
+        })
     }
 
     #[staticmethod]
@@ -66,7 +75,7 @@ impl Proxy {
     }
 
     fn handle_custom_proxy(fun: &Py<PyAny>, url: &reqwest::Url) -> PyResult<Option<reqwest::Url>> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             Ok(fun
                 .call1(py, (Url::from(url.clone()),))?
                 .extract::<Option<UrlType>>(py)?
@@ -77,12 +86,13 @@ impl Proxy {
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::Proxy) -> PyResult<reqwest::Proxy>,
+        F: Send,
     {
         let builder = slf
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Proxy was already built"))?;
-        slf.inner = Some(fun(builder)?);
+        slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
 }
