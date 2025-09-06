@@ -19,7 +19,7 @@ pub struct Inner {
 impl HeaderMap {
     #[new]
     #[pyo3(signature = (other=None))]
-    fn py_new(other: Option<KeyValPairs>) -> PyResult<Self> {
+    fn new_py(other: Option<KeyValPairs>) -> PyResult<Self> {
         let mut inner = http::HeaderMap::new();
         if let Some(other) = other {
             HeaderMap::extend_inner(&mut inner, other)?;
@@ -430,7 +430,7 @@ impl<'py> FromPyObject<'py> for HeaderMap {
         if let Ok(map) = ob.downcast_exact::<HeaderMap>() {
             Ok(map.try_borrow()?.try_clone()?)
         } else {
-            Ok(HeaderMap::py_new(Some(ob.extract::<KeyValPairs>()?))?)
+            Ok(HeaderMap::new_py(Some(ob.extract::<KeyValPairs>()?))?)
         }
     }
 }

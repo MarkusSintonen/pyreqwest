@@ -1,19 +1,18 @@
-use crate::asyncio::TaskLocal;
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Handle;
 use crate::client::spawner::Spawner;
 use crate::http::{HeaderMap, Method};
 use crate::http::{Url, UrlType};
-use crate::middleware::Next;
-use crate::request::RequestBuilder;
+use crate::middleware::NextInner;
+use crate::request::{BaseRequestBuilder, BlockingRequestBuilder, RequestBuilder};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-#[pyclass]
-pub struct Client {
+#[pyclass(subclass)]
+pub struct BaseClient {
     client: reqwest::Client,
     base_url: Option<Url>,
     runtime: Handle,
@@ -25,11 +24,53 @@ pub struct Client {
     close_cancellation: CancellationToken,
 }
 
+#[pyclass(extends=BaseClient)]
+pub struct Client;
+
+#[pyclass(extends=BaseClient)]
+pub struct BlockingClient;
+
 #[pymethods]
-impl Client {
-    fn request(&self, method: Method, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
+impl BaseClient {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(middlewares) = &self.middlewares {
+            for mw in middlewares.iter() {
+                visit.call(mw)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.middlewares = None;
+    }
+}
+impl BaseClient {
+    pub fn new(
+        client: reqwest::Client,
+        runtime: Handle,
+        middlewares: Option<Vec<Py<PyAny>>>,
+        total_timeout: Option<Duration>,
+        connection_limiter: Option<ConnectionLimiter>,
+        error_for_status: bool,
+        default_headers: Option<HeaderMap>,
+        base_url: Option<Url>,
+    ) -> Self {
+        BaseClient {
+            client,
+            runtime,
+            middlewares: middlewares.map(Arc::new),
+            total_timeout,
+            connection_limiter,
+            error_for_status,
+            default_headers,
+            base_url,
+            close_cancellation: CancellationToken::new(),
+        }
+    }
+
+    pub fn create_request_builder(&self, method: Method, url: Bound<PyAny>) -> PyResult<BaseRequestBuilder> {
         let py = url.py();
-        let middlewares_next = self.init_middleware_next(py)?;
 
         let url: reqwest::Url = match self.base_url.as_ref() {
             Some(base_url) => base_url.join(url.extract()?)?.into(),
@@ -45,8 +86,10 @@ impl Client {
             );
 
             let reqwest_request_builder = self.client.request(method.0, url);
+            let middlewares_next = self.init_middleware_next()?;
+
             let mut builder =
-                RequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
+                BaseRequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
 
             self.total_timeout
                 .map(|timeout| builder.inner_timeout(timeout))
@@ -59,99 +102,117 @@ impl Client {
         })
     }
 
-    pub fn get(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        self.request(http::Method::GET.into(), url)
+    pub fn init_middleware_next(&self) -> PyResult<Option<NextInner>> {
+        self.middlewares
+            .as_ref()
+            .map(|middlewares| NextInner::new(middlewares.clone()))
+            .transpose()
+    }
+}
+
+#[pymethods]
+impl Client {
+    pub fn request(slf: PyRef<Self>, method: Method, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        let builder = slf.as_super().create_request_builder(method, url)?;
+        RequestBuilder::new_py(slf.py(), builder)
     }
 
-    pub fn post(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        self.request(http::Method::POST.into(), url)
+    pub fn get(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        Self::request(slf, http::Method::GET.into(), url)
     }
 
-    pub fn put(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        self.request(http::Method::PUT.into(), url)
+    pub fn post(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        Self::request(slf, http::Method::POST.into(), url)
     }
 
-    pub fn patch(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        self.request(http::Method::PATCH.into(), url)
+    pub fn put(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        Self::request(slf, http::Method::PUT.into(), url)
     }
 
-    pub fn delete(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        self.request(http::Method::DELETE.into(), url)
+    pub fn patch(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        Self::request(slf, http::Method::PATCH.into(), url)
     }
 
-    pub fn head(&self, url: Bound<PyAny>) -> PyResult<RequestBuilder> {
-        self.request(http::Method::HEAD.into(), url)
+    pub fn delete(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        Self::request(slf, http::Method::DELETE.into(), url)
+    }
+
+    pub fn head(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
+        Self::request(slf, http::Method::HEAD.into(), url)
     }
 
     async fn __aenter__(slf: Py<Self>) -> Py<Self> {
         slf
     }
 
-    async fn __aexit__(&self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) {
-        self.close().await;
+    async fn __aexit__(
+        slf: Py<Self>,
+        _exc_type: Py<PyAny>,
+        _exc_val: Py<PyAny>,
+        _traceback: Py<PyAny>,
+    ) -> PyResult<()> {
+        Self::close(slf).await
+    }
+
+    async fn close(slf: Py<Self>) -> PyResult<()> {
+        // Currently, does not wait for resources to be released.
+        Python::attach(|py| {
+            slf.bind(py).as_super().try_borrow()?.close_cancellation.cancel();
+            Ok(())
+        })
+    }
+}
+impl Client {
+    pub fn new_py(py: Python, inner: BaseClient) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
+    }
+}
+
+#[pymethods]
+impl BlockingClient {
+    pub fn request(slf: PyRef<Self>, method: Method, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        let builder = slf.as_super().create_request_builder(method, url)?;
+        BlockingRequestBuilder::new_py(slf.py(), builder)
+    }
+
+    pub fn get(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        Self::request(slf, http::Method::GET.into(), url)
+    }
+
+    pub fn post(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        Self::request(slf, http::Method::POST.into(), url)
+    }
+
+    pub fn put(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        Self::request(slf, http::Method::PUT.into(), url)
+    }
+
+    pub fn patch(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        Self::request(slf, http::Method::PATCH.into(), url)
+    }
+
+    pub fn delete(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        Self::request(slf, http::Method::DELETE.into(), url)
+    }
+
+    pub fn head(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+        Self::request(slf, http::Method::HEAD.into(), url)
     }
 
     fn __enter__(slf: Py<Self>) -> Py<Self> {
         slf
     }
 
-    fn __exit__(&self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) {
-        self.close_no_wait();
+    fn __exit__(slf: PyRef<Self>, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>) {
+        Self::close(slf)
     }
 
-    async fn close(&self) {
-        // Currently, does not wait for resources to be released.
-        self.close_cancellation.cancel();
-    }
-
-    fn close_no_wait(&self) {
-        self.close_cancellation.cancel();
-    }
-
-    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        if let Some(middlewares) = &self.middlewares {
-            for mw in middlewares.iter() {
-                visit.call(mw)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        self.middlewares = None;
+    fn close(slf: PyRef<Self>) {
+        slf.as_super().close_cancellation.cancel();
     }
 }
-impl Client {
-    pub fn new(
-        client: reqwest::Client,
-        runtime: Handle,
-        middlewares: Option<Vec<Py<PyAny>>>,
-        total_timeout: Option<Duration>,
-        connection_limiter: Option<ConnectionLimiter>,
-        error_for_status: bool,
-        default_headers: Option<HeaderMap>,
-        base_url: Option<Url>,
-    ) -> Self {
-        Client {
-            client,
-            runtime,
-            middlewares: middlewares.map(Arc::new),
-            total_timeout,
-            connection_limiter,
-            error_for_status,
-            default_headers,
-            base_url,
-            close_cancellation: CancellationToken::new(),
-        }
-    }
-
-    pub fn init_middleware_next(&self, py: Python) -> PyResult<Option<Py<Next>>> {
-        if let Some(middlewares) = self.middlewares.as_ref() {
-            let task_local = TaskLocal::current(py)?;
-            let next = Next::new(middlewares.clone(), task_local);
-            Ok(Some(Py::new(py, next)?))
-        } else {
-            Ok(None)
-        }
+impl BlockingClient {
+    pub fn new_py(py: Python, inner: BaseClient) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
     }
 }

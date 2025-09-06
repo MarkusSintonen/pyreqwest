@@ -260,7 +260,7 @@ impl BodyStream {
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.stream)?;
         visit.call(&self.aiter)?;
-        self.task_local.as_ref().map(|v| v.__traverse__(visit)).transpose()?;
+        self.task_local.as_ref().map(|v| v.__traverse__(&visit)).transpose()?;
         Ok(())
     }
 

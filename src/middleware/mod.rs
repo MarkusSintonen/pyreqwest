@@ -1,3 +1,3 @@
 mod next;
 
-pub use next::Next;
+pub use next::{BlockingNext, Next, NextInner};

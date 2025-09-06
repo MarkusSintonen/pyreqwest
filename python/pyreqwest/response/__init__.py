@@ -1,5 +1,19 @@
 """Response classes and builders."""
 
-from pyreqwest._pyreqwest.response import Response, ResponseBuilder
+from pyreqwest._pyreqwest.response import (
+    BaseResponse,
+    BaseResponseBuilder,
+    BlockingResponse,
+    BlockingResponseBuilder,
+    Response,
+    ResponseBuilder,
+)
 
-__all__ = ["Response", "ResponseBuilder"]
+__all__ = [
+    "BaseResponse",
+    "BaseResponseBuilder",
+    "BlockingResponse",
+    "BlockingResponseBuilder",
+    "Response",
+    "ResponseBuilder",
+]

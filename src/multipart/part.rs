@@ -1,5 +1,5 @@
 use crate::allow_threads::AllowThreads;
-use crate::client::Runtime;
+use crate::client::Handle;
 use crate::http::{BodyStream, HeaderMap};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -39,7 +39,7 @@ impl Part {
 
     #[staticmethod]
     async fn from_file(path: PathBuf, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Self> {
-        let fut = Runtime::global_handle()?.spawn(reqwest::multipart::Part::file(path), cancel);
+        let fut = Handle::global_handle()?.spawn_handled(reqwest::multipart::Part::file(path), cancel);
         let part = AllowThreads(fut).await??;
         Ok(part.into())
     }

@@ -162,7 +162,7 @@ impl TaskLocal {
         })
     }
 
-    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+    pub fn __traverse__(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.event_loop)?;
         visit.call(&self.context)?;
         Ok(())

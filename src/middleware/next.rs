@@ -1,66 +1,127 @@
 use crate::allow_threads::AllowThreads;
 use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use crate::request::Request;
-use crate::response::Response;
+use crate::response::{BlockingResponse, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
 use std::sync::Arc;
 
-#[pyclass]
-pub struct Next {
+pub struct NextInner {
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
-    task_local: Option<TaskLocal>,
     current: usize,
     override_middlewares: Option<Vec<Py<PyAny>>>,
 }
+
+#[pyclass]
+pub struct Next {
+    inner: NextInner,
+    task_local: TaskLocal,
+}
+#[pyclass]
+pub struct BlockingNext(NextInner);
+
 #[pymethods]
 impl Next {
-    pub async fn run(
-        slf: Py<Self>,
-        request: Py<PyAny>,
-        #[pyo3(cancel_handle)] cancel: CancelHandle,
-    ) -> PyResult<Py<Response>> {
-        if let Some(coro) = Python::attach(|py| Self::next_coro(slf.bind(py), &request))? {
-            AllowThreads(Self::coro_result(coro, false)).await
-        } else {
-            // No more middleware, execute the request
-            AllowThreads(Request::spawn_request(&request, cancel)).await
-        }
+    pub async fn run(&self, request: Py<PyAny>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
+        self.run_inner(&request, cancel).await
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        if let Some(middlewares) = &self.middlewares {
-            for mw in middlewares.iter() {
-                visit.call(mw)?;
-            }
-        }
-        if let Some(middlewares) = &self.override_middlewares {
-            for mw in middlewares.iter() {
-                visit.call(mw)?;
-            }
-        }
-        if let Some(task_local) = &self.task_local {
-            task_local.__traverse__(visit)?;
-        }
-        Ok(())
+        self.inner.__traverse__(&visit)?;
+        self.task_local.__traverse__(&visit)
     }
 
     pub fn __clear__(&mut self) {
-        self.middlewares = None;
-        self.override_middlewares = None;
-        self.task_local = None;
+        self.inner.__clear__();
+        self.task_local.__clear__();
     }
 }
 impl Next {
-    pub fn new(middlewares: Arc<Vec<Py<PyAny>>>, task_local: TaskLocal) -> Self {
-        Next {
+    pub fn new(inner: NextInner, py: Python) -> PyResult<Self> {
+        Ok(Next {
+            inner,
+            task_local: TaskLocal::current(py)?,
+        })
+    }
+
+    pub async fn run_inner(&self, request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
+        let next_waiter = Python::attach(|py| self.call_next(request.bind(py)))?;
+
+        if let Some(next_waiter) = next_waiter {
+            let resp = AllowThreads(next_waiter).await?;
+            Python::attach(|py| Ok(resp.into_bound(py).downcast_into_exact::<Response>()?.unbind()))
+        } else {
+            // No more middleware, execute the request
+            AllowThreads(Request::spawn_request(request, cancel)).await
+        }
+    }
+
+    fn call_next(&self, request: &Bound<PyAny>) -> PyResult<Option<PyCoroWaiter>> {
+        let Some(middleware) = self.inner.current_middleware() else {
+            return Ok(None); // No more middlewares
+        };
+
+        let py = request.py();
+        let task_local = self.task_local.clone_ref(py)?;
+        let next = Next {
+            inner: self.inner.create_next(py)?,
+            task_local,
+        };
+
+        let coro = middleware.bind(py).call1((request, next))?;
+        py_coro_waiter(coro, &self.task_local).map(Some)
+    }
+}
+
+#[pymethods]
+impl BlockingNext {
+    pub fn run(&self, request: &Bound<PyAny>) -> PyResult<Py<BlockingResponse>> {
+        let resp = self.call_next(request)?;
+
+        if let Some(resp) = resp {
+            Ok(resp.downcast_into_exact::<BlockingResponse>()?.unbind())
+        } else {
+            // No more middleware, execute the request
+            Request::blocking_spawn_request(&request.clone().unbind())
+        }
+    }
+
+    fn call_next<'py>(&self, request: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let Some(middleware) = self.0.current_middleware() else {
+            return Ok(None); // No more middlewares
+        };
+
+        let py = request.py();
+        let next = BlockingNext(self.0.create_next(py)?);
+        middleware.bind(py).call1((request, next)).map(Some)
+    }
+
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.0.__traverse__(&visit)
+    }
+
+    pub fn __clear__(&mut self) {
+        self.0.__clear__()
+    }
+}
+impl BlockingNext {
+    pub fn new(inner: NextInner) -> PyResult<Self> {
+        Ok(BlockingNext(inner))
+    }
+}
+
+impl NextInner {
+    pub fn new(middlewares: Arc<Vec<Py<PyAny>>>) -> PyResult<Self> {
+        if middlewares.is_empty() {
+            return Err(PyRuntimeError::new_err("Expected at least one middleware"));
+        }
+        Ok(NextInner {
             middlewares: Some(middlewares),
-            task_local: Some(task_local),
             current: 0,
             override_middlewares: None,
-        }
+        })
     }
 
     fn current_middleware(&self) -> Option<&Py<PyAny>> {
@@ -71,52 +132,53 @@ impl Next {
         }
     }
 
-    pub fn next_coro(slf: &Bound<Self>, request: &Py<PyAny>) -> PyResult<Option<PyCoroWaiter>> {
-        let py = slf.py();
-        let this = slf.try_borrow()?;
-
-        let Some(middleware) = this.current_middleware() else {
-            return Ok(None); // No more middlewares
-        };
-
-        let task_local = this
-            .task_local
-            .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Expected task_local"))?;
-
-        let next = Next {
-            task_local: Some(task_local.clone_ref(py)?),
-            middlewares: this.middlewares.clone(),
-            current: this.current + 1,
-            override_middlewares: this
+    fn create_next(&self, py: Python) -> PyResult<NextInner> {
+        Ok(NextInner {
+            middlewares: self.middlewares.clone(),
+            current: self.current + 1,
+            override_middlewares: self
                 .override_middlewares
                 .as_ref()
                 .map(|m| m.iter().map(|v| v.clone_ref(py)).collect()),
-        };
-
-        let coro = middleware.bind(py).call1((request, next))?;
-        Ok(Some(py_coro_waiter(coro, task_local)?))
-    }
-
-    pub async fn coro_result(coro: PyCoroWaiter, error_for_status: bool) -> PyResult<Py<Response>> {
-        let resp = coro.await?;
-
-        Python::attach(|py| {
-            let resp = resp.into_bound(py).downcast_into_exact::<Response>()?;
-            error_for_status
-                .then(|| resp.try_borrow()?.error_for_status())
-                .transpose()?;
-            Ok(resp.unbind())
         })
     }
 
     pub fn add_middleware(&mut self, middleware: Bound<PyAny>) -> PyResult<()> {
-        let mut override_middlewares = Vec::new();
-        if let Some(middlewares) = self.middlewares.as_ref() {
-            override_middlewares.extend(middlewares.iter().map(|m| m.clone_ref(middleware.py())));
+        if let Some(orig) = self.middlewares.take() {
+            assert!(self.override_middlewares.is_none());
+            self.override_middlewares = Some(orig.iter().map(|m| m.clone_ref(middleware.py())).collect());
         }
-        override_middlewares.push(middleware.unbind());
-        self.override_middlewares = Some(override_middlewares);
+        self.override_middlewares.as_mut().unwrap().push(middleware.unbind());
         Ok(())
+    }
+
+    pub fn clone_ref(&self, py: Python) -> PyResult<Self> {
+        Ok(NextInner {
+            middlewares: self.middlewares.clone(),
+            current: self.current,
+            override_middlewares: self
+                .override_middlewares
+                .as_ref()
+                .map(|m| m.iter().map(|v| v.clone_ref(py)).collect()),
+        })
+    }
+
+    pub fn __traverse__(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(middlewares) = &self.middlewares {
+            for mw in middlewares.iter() {
+                visit.call(mw)?;
+            }
+        }
+        if let Some(middlewares) = &self.override_middlewares {
+            for mw in middlewares.iter() {
+                visit.call(mw)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn __clear__(&mut self) {
+        self.middlewares = None;
+        self.override_middlewares = None;
     }
 }

@@ -1,5 +1,5 @@
 use crate::allow_threads::AllowThreads;
-use crate::client::Runtime;
+use crate::client::Handle;
 use crate::multipart::Part;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
@@ -34,7 +34,7 @@ impl Form {
         path: PathBuf,
         #[pyo3(cancel_handle)] cancel: CancelHandle,
     ) -> PyResult<Py<Self>> {
-        let fut = Runtime::global_handle()?.spawn(reqwest::multipart::Part::file(path), cancel);
+        let fut = Handle::global_handle()?.spawn_handled(reqwest::multipart::Part::file(path), cancel);
         let part = AllowThreads(fut).await??;
         Python::attach(|py| {
             Self::apply(slf.try_borrow_mut(py)?, |builder| Ok(builder.part(name, part)))?;

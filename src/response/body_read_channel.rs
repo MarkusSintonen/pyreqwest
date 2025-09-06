@@ -1,3 +1,4 @@
+use crate::client::Handle;
 use crate::exceptions::utils::map_read_error;
 use bytes::Bytes;
 use http_body_util::BodyExt;
@@ -30,8 +31,9 @@ pub fn body_read_channel(
     body: reqwest::Body,
     request_semaphore_permit: Option<OwnedSemaphorePermit>,
     buffer_size: usize,
+    runtime: Option<Handle>,
 ) -> Receiver {
-    Reader::start(body, request_semaphore_permit, buffer_size)
+    Reader::start(body, request_semaphore_permit, buffer_size, runtime)
 }
 
 impl Reader {
@@ -39,6 +41,7 @@ impl Reader {
         mut body: reqwest::Body,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
         buffer_size: usize,
+        runtime: Option<Handle>,
     ) -> Receiver {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
         let close_token = CancellationToken::new();
@@ -50,8 +53,9 @@ impl Reader {
             buffer_size,
             tx,
         };
+        let runtime = runtime.unwrap_or_else(Handle::current);
 
-        tokio::runtime::Handle::current().spawn(async move {
+        runtime.0.spawn(async move {
             let fut = async move {
                 loop {
                     match body.frame().await.transpose().map_err(map_read_error) {

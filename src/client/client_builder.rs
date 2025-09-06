@@ -1,6 +1,7 @@
-use crate::client::Client;
+use crate::client::client::{BaseClient, BlockingClient};
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Runtime;
+use crate::client::{Client, Handle};
 use crate::http::{HeaderMap, Url, UrlType};
 use crate::proxy::Proxy;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -12,9 +13,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[pyclass]
 #[derive(Default)]
-pub struct ClientBuilder {
+#[pyclass(subclass)]
+pub struct BaseClientBuilder {
     inner: Option<reqwest::ClientBuilder>,
     middlewares: Option<Vec<Py<PyAny>>>,
     max_connections: Option<usize>,
@@ -25,46 +26,15 @@ pub struct ClientBuilder {
     runtime: Option<Py<Runtime>>,
     base_url: Option<Url>,
 }
+
+#[pyclass(extends=BaseClientBuilder)]
+pub struct ClientBuilder;
+
+#[pyclass(extends=BaseClientBuilder)]
+pub struct BlockingClientBuilder;
+
 #[pymethods]
-impl ClientBuilder {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: Some(reqwest::ClientBuilder::new()),
-            ..Default::default()
-        }
-    }
-
-    fn build(&mut self, py: Python) -> PyResult<Client> {
-        let runtime = match self.runtime.take() {
-            Some(runtime) => runtime.try_borrow(py)?.handle().clone(),
-            None => Runtime::global_handle()?.clone(),
-        };
-
-        py.detach(|| {
-            let inner_client = self
-                .inner
-                .take()
-                .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?
-                .use_rustls_tls()
-                .build()
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-            let client = Client::new(
-                inner_client,
-                runtime,
-                self.middlewares.take(),
-                self.total_timeout,
-                self.max_connections
-                    .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
-                self.error_for_status,
-                self.default_headers.take(),
-                self.base_url.take(),
-            );
-            Ok(client)
-        })
-    }
-
+impl BaseClientBuilder {
     fn base_url(mut slf: PyRefMut<Self>, base_url: UrlType) -> PyResult<PyRefMut<Self>> {
         if !base_url.0.as_str().ends_with('/') {
             return Err(PyValueError::new_err("base_url must end with a trailing slash '/'"));
@@ -370,7 +340,44 @@ impl ClientBuilder {
         self.runtime = None;
     }
 }
-impl ClientBuilder {
+impl BaseClientBuilder {
+    fn new() -> Self {
+        Self {
+            inner: Some(reqwest::ClientBuilder::new()),
+            ..Default::default()
+        }
+    }
+
+    fn build_client_base(&mut self, py: Python) -> PyResult<BaseClient> {
+        let runtime = match self.runtime.take() {
+            Some(runtime) => runtime.try_borrow(py)?.handle().clone(),
+            None => Handle::global_handle()?.clone(),
+        };
+
+        py.detach(|| {
+            let inner_client = self
+                .inner
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?
+                .use_rustls_tls()
+                .build()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+            let client = BaseClient::new(
+                inner_client,
+                runtime,
+                self.middlewares.take(),
+                self.total_timeout,
+                self.max_connections
+                    .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),
+                self.error_for_status,
+                self.default_headers.take(),
+                self.base_url.take(),
+            );
+            Ok(client)
+        })
+    }
+
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::ClientBuilder) -> PyResult<reqwest::ClientBuilder>,
@@ -401,5 +408,29 @@ impl ClientBuilder {
                 "Invalid TLS version. Use 'TLSv1.0', 'TLSv1.1', 'TLSv1.2', or 'TLSv1.3'",
             )),
         }
+    }
+}
+
+#[pymethods]
+impl ClientBuilder {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(BaseClientBuilder::new()).add_subclass(Self)
+    }
+
+    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Client>> {
+        Client::new_py(py, slf.as_super().build_client_base(py)?)
+    }
+}
+
+#[pymethods]
+impl BlockingClientBuilder {
+    #[new]
+    fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(BaseClientBuilder::new()).add_subclass(Self)
+    }
+
+    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingClient>> {
+        BlockingClient::new_py(py, slf.as_super().build_client_base(py)?)
     }
 }

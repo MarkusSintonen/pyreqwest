@@ -1,4 +1,5 @@
 use crate::allow_threads::AllowThreads;
+use crate::client::Handle;
 use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
@@ -15,8 +16,8 @@ use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 
-#[pyclass]
-pub struct Response {
+#[pyclass(subclass)]
+pub struct BaseResponse {
     #[pyo3(get, set)]
     status: StatusCode,
     #[pyo3(get, set)]
@@ -29,10 +30,16 @@ pub struct Response {
     body_consuming_started: bool,
     fully_consumed_body: Option<Bytes>,
     body_receiver: Option<Receiver>,
+    runtime: Option<Handle>,
 }
 
+#[pyclass(extends=BaseResponse)]
+pub struct Response;
+#[pyclass(extends=BaseResponse)]
+pub struct BlockingResponse;
+
 #[pymethods]
-impl Response {
+impl BaseResponse {
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
         if self.headers.is_none() {
@@ -178,12 +185,13 @@ impl Response {
         self.extensions = None;
     }
 }
-impl Response {
+impl BaseResponse {
     pub async fn initialize(
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
         consume_body: BodyConsumeConfig,
-    ) -> PyResult<Response> {
+        runtime: Option<Handle>,
+    ) -> PyResult<Self> {
         let (init_chunks, has_more);
         let head: http::response::Parts;
 
@@ -205,7 +213,7 @@ impl Response {
                 (head, body) = Self::response_parts(response);
 
                 if has_more {
-                    Some(body_read_channel(body, request_semaphore_permit, conf.read_buffer_limit))
+                    Some(body_read_channel(body, request_semaphore_permit, conf.read_buffer_limit, runtime.clone()))
                 } else {
                     _ = request_semaphore_permit.take();
                     drop(body); // Was already read
@@ -214,7 +222,7 @@ impl Response {
             }
         };
 
-        let resp = Response {
+        let resp = BaseResponse {
             status: StatusCode(head.status),
             version: Version(head.version),
             headers: Some(RespHeaders::Headers(HeaderMap::from(head.headers))),
@@ -223,6 +231,7 @@ impl Response {
             body_consuming_started: false,
             fully_consumed_body: None,
             body_receiver,
+            runtime,
         };
         Ok(resp)
     }
@@ -390,9 +399,51 @@ impl Response {
             .sum::<usize>()
     }
 }
-impl Drop for Response {
+impl Drop for BaseResponse {
     fn drop(&mut self) {
         self.inner_close()
+    }
+}
+
+impl Response {
+    pub fn new_py(py: Python, inner: BaseResponse) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
+    }
+}
+
+#[pymethods]
+impl BlockingResponse {
+    fn bytes(slf: PyRefMut<Self>) -> PyResult<PyBytes> {
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().bytes())
+    }
+
+    fn json(slf: PyRefMut<Self>) -> PyResult<JsonValue> {
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json())
+    }
+
+    fn text(slf: PyRefMut<Self>) -> PyResult<String> {
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().text())
+    }
+
+    #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
+    fn read(slf: PyRefMut<Self>, amount: usize) -> PyResult<PyBytes> {
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().read(amount))
+    }
+
+    fn next_chunk(slf: PyRefMut<Self>) -> PyResult<Option<PyBytes>> {
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().next_chunk())
+    }
+}
+impl BlockingResponse {
+    pub fn new_py(py: Python, inner: BaseResponse) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
+    }
+
+    fn runtime(slf: &BaseResponse) -> PyResult<Handle> {
+        match slf.runtime.clone() {
+            Some(r) => Ok(r),
+            None => Ok(Handle::global_handle()?.clone()),
+        }
     }
 }
 

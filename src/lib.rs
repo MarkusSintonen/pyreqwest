@@ -21,7 +21,9 @@ mod pyreqwest {
     mod client {
         use super::*;
         #[pymodule_export]
-        use crate::client::{Client, ClientBuilder, Runtime};
+        use crate::client::{
+            BaseClient, BaseClientBuilder, BlockingClient, BlockingClientBuilder, Client, ClientBuilder, Runtime,
+        };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "client")
@@ -32,7 +34,10 @@ mod pyreqwest {
     mod request {
         use super::*;
         #[pymodule_export]
-        use crate::request::{ConsumedRequest, Request, RequestBuilder, StreamRequest};
+        use crate::request::{
+            BaseRequestBuilder, BlockingConsumedRequest, BlockingRequestBuilder, BlockingStreamRequest,
+            ConsumedRequest, Request, RequestBuilder, StreamRequest,
+        };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "request")
@@ -43,7 +48,9 @@ mod pyreqwest {
     mod response {
         use super::*;
         #[pymodule_export]
-        use crate::response::{Response, ResponseBuilder};
+        use crate::response::{
+            BaseResponse, BaseResponseBuilder, BlockingResponse, BlockingResponseBuilder, Response, ResponseBuilder,
+        };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "response")
@@ -54,7 +61,7 @@ mod pyreqwest {
     mod middleware {
         use super::*;
         #[pymodule_export]
-        use crate::middleware::Next;
+        use crate::middleware::{BlockingNext, Next};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "middleware")

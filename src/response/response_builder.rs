@@ -1,30 +1,30 @@
 use crate::allow_threads::AllowThreads;
+use crate::client::Handle;
 use crate::http::{Body, HeaderMap, HeaderName, HeaderValue, JsonValue};
 use crate::http::{Extensions, StatusCode, Version};
-use crate::response::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, Response, StreamedReadConfig};
+use crate::response::{
+    BaseResponse, BlockingResponse, BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, Response, StreamedReadConfig,
+};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
 use pyo3_bytes::PyBytes;
 
-#[pyclass]
-pub struct ResponseBuilder {
+#[pyclass(subclass)]
+pub struct BaseResponseBuilder {
     inner: Option<http::response::Builder>,
     body: Option<Body>,
     extensions: Option<Extensions>,
-    streamed_read_buffer_limit: Option<usize>,
 }
+
+#[pyclass(extends=BaseResponseBuilder)]
+pub struct ResponseBuilder;
+
+#[pyclass(extends=BaseResponseBuilder)]
+pub struct BlockingResponseBuilder;
+
 #[pymethods]
-impl ResponseBuilder {
-    #[new]
-    fn py_new() -> Self {
-        Self::new()
-    }
-
-    async fn build(&mut self) -> PyResult<Response> {
-        AllowThreads(self.build_inner()).await
-    }
-
+impl BaseResponseBuilder {
     fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.status(value.0)))
     }
@@ -80,11 +80,6 @@ impl ResponseBuilder {
         Ok(slf)
     }
 
-    fn streamed_read_buffer_limit(mut slf: PyRefMut<'_, Self>, value: usize) -> PyResult<PyRefMut<'_, Self>> {
-        slf.streamed_read_buffer_limit = Some(value);
-        Ok(slf)
-    }
-
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(ext) = &self.extensions {
             visit.call(&ext.0)?;
@@ -100,23 +95,23 @@ impl ResponseBuilder {
         self.extensions = None;
     }
 }
-impl Default for ResponseBuilder {
+
+impl Default for BaseResponseBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ResponseBuilder {
+impl BaseResponseBuilder {
     pub fn new() -> Self {
         Self {
             inner: Some(http::response::Builder::new()),
             body: None,
             extensions: None,
-            streamed_read_buffer_limit: None,
         }
     }
 
-    async fn build_inner(&mut self) -> PyResult<Response> {
+    fn build_inner(&mut self) -> PyResult<reqwest::Response> {
         let body: reqwest::Body = self
             .body
             .take()
@@ -136,13 +131,7 @@ impl ResponseBuilder {
 
         self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
 
-        let inner_resp = reqwest::Response::from(resp);
-
-        let config = StreamedReadConfig {
-            read_buffer_limit: self.streamed_read_buffer_limit.unwrap_or(DEFAULT_READ_BUFFER_LIMIT),
-        };
-
-        Response::initialize(inner_resp, None, BodyConsumeConfig::Streamed(config)).await
+        Ok(reqwest::Response::from(resp))
     }
 
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
@@ -156,5 +145,43 @@ impl ResponseBuilder {
             .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?;
         slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
+    }
+}
+
+#[pymethods]
+impl ResponseBuilder {
+    #[new]
+    fn new_py() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(BaseResponseBuilder::new()).add_subclass(Self)
+    }
+
+    async fn build(slf: Py<Self>) -> PyResult<Py<Response>> {
+        let inner = Python::attach(|py| slf.bind(py).as_super().try_borrow_mut()?.build_inner())?;
+        let config = BodyConsumeConfig::Streamed(StreamedReadConfig {
+            read_buffer_limit: DEFAULT_READ_BUFFER_LIMIT,
+        });
+
+        let resp = AllowThreads(BaseResponse::initialize(inner, None, config, None)).await?;
+
+        Python::attach(|py| Response::new_py(py, resp))
+    }
+}
+
+#[pymethods]
+impl BlockingResponseBuilder {
+    #[new]
+    fn new_py() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(BaseResponseBuilder::new()).add_subclass(Self)
+    }
+
+    fn build(mut slf: PyRefMut<Self>) -> PyResult<Py<BlockingResponse>> {
+        let inner = slf.as_super().build_inner()?;
+        let config = BodyConsumeConfig::Streamed(StreamedReadConfig {
+            read_buffer_limit: DEFAULT_READ_BUFFER_LIMIT,
+        });
+
+        let resp = Handle::global_handle()?.blocking_spawn(BaseResponse::initialize(inner, None, config, None))?;
+
+        Python::attach(|py| BlockingResponse::new_py(py, resp))
     }
 }

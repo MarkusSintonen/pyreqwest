@@ -15,7 +15,7 @@ static GLOBAL_HANDLE: LazyLock<PyResult<InnerRuntime>> = LazyLock::new(|| {
 #[derive(Clone)]
 pub struct Handle(pub tokio::runtime::Handle);
 impl Handle {
-    pub async fn spawn<F, T>(&self, future: F, mut cancel: CancelHandle) -> PyResult<T>
+    pub async fn spawn_handled<F, T>(&self, future: F, mut cancel: CancelHandle) -> PyResult<T>
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
@@ -29,6 +29,25 @@ impl Handle {
             }),
             _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Request was cancelled")),
         }
+    }
+
+    pub fn blocking_spawn<F, T>(&self, future: F) -> T
+    where
+        F: Future<Output = T> + Send,
+        T: Send,
+    {
+        Python::attach(|py| py.detach(|| self.0.block_on(future)))
+    }
+
+    pub fn current() -> Self {
+        Self(tokio::runtime::Handle::current())
+    }
+
+    pub fn global_handle() -> PyResult<&'static Self> {
+        let inner = GLOBAL_HANDLE
+            .as_ref()
+            .map_err(|e| Python::attach(|py| e.clone_ref(py)))?;
+        Ok(&inner.handle)
     }
 }
 
@@ -58,13 +77,6 @@ impl Runtime {
     }
 }
 impl Runtime {
-    pub fn global_handle() -> PyResult<&'static Handle> {
-        let inner = GLOBAL_HANDLE
-            .as_ref()
-            .map_err(|e| Python::attach(|py| e.clone_ref(py)))?;
-        Ok(&inner.handle)
-    }
-
     pub fn handle(&self) -> &Handle {
         &self.0.handle
     }

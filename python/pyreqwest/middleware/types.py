@@ -3,7 +3,7 @@
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from pyreqwest.middleware import Next
+from pyreqwest.middleware import BlockingNext, Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response
 
@@ -22,3 +22,6 @@ Args:
 Returns:
     HTTP response from the next middleware or a custom response.
 """
+
+BlockingMiddleware = Callable[[Request, BlockingNext], Response]
+"""Blocking middleware handler which is used in blocking context."""

@@ -20,7 +20,7 @@ pub struct Url {
 #[pymethods]
 impl Url {
     #[new]
-    fn py_new(url: UrlType) -> Self {
+    fn new_py(url: UrlType) -> Self {
         Url::new(url.0)
     }
 

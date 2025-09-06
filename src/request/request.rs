@@ -1,7 +1,8 @@
-use crate::client::Spawner;
+use crate::allow_threads::AllowThreads;
+use crate::client::{SpawnRequestData, Spawner};
 use crate::http::{Body, Extensions, HeaderMap, Method, Url, UrlType};
-use crate::middleware::Next;
-use crate::response::{BodyConsumeConfig, Response};
+use crate::middleware::{BlockingNext, Next, NextInner};
+use crate::response::{BlockingResponse, BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::prelude::*;
@@ -12,11 +13,11 @@ use std::fmt::Display;
 #[pyclass(subclass)]
 pub struct Request {
     inner: Option<reqwest::Request>,
-    pub spawner: Spawner,
+    spawner: Spawner,
     body: Option<ReqBody>,
     py_headers: Option<Py<HeaderMap>>,
     extensions: Option<Extensions>,
-    middlewares_next: Option<Py<Next>>,
+    middlewares_next: Option<NextInner>,
     error_for_status: bool,
     body_consume_config: BodyConsumeConfig,
 }
@@ -109,6 +110,14 @@ impl Request {
         self.repr(py, false)
     }
 
+    #[getter]
+    fn get_read_buffer_limit(&self) -> PyResult<usize> {
+        match self.body_consume_config() {
+            BodyConsumeConfig::Streamed(conf) => Ok(conf.read_buffer_limit),
+            BodyConsumeConfig::FullyConsumed => Err(PyRuntimeError::new_err("Unexpected config")),
+        }
+    }
+
     #[classmethod]
     pub fn from_request_and_body(
         _cls: &Bound<'_, PyType>,
@@ -124,7 +133,9 @@ impl Request {
         if let Some(extensions) = &self.extensions {
             visit.call(&extensions.0)?;
         }
-        visit.call(&self.middlewares_next)?;
+        if let Some(middlewares_next) = &self.middlewares_next {
+            middlewares_next.__traverse__(&visit)?;
+        }
         match &self.body {
             Some(ReqBody::Body(body)) => body.__traverse__(visit)?,
             Some(ReqBody::PyBody(py_body)) => visit.call(py_body)?,
@@ -147,7 +158,7 @@ impl Request {
         spawner: Spawner,
         body: Option<Body>,
         extensions: Option<Extensions>,
-        middlewares_next: Option<Py<Next>>,
+        middlewares_next: Option<NextInner>,
         error_for_status: bool,
         body_consume_config: BodyConsumeConfig,
     ) -> Self {
@@ -163,60 +174,66 @@ impl Request {
         }
     }
 
-    pub async fn send_inner(slf: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let mut error_for_status = false;
-        let mut middleware_coro = None;
+    pub async fn send_inner(py_request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
+        let (middlewares_next, error_for_status) = Python::attach(|py| {
+            let mut this = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
+            this.body_set_task_local(py)?;
 
-        Python::attach(|py| -> PyResult<()> {
-            let req = slf.bind(py).downcast::<Self>()?;
-            let mut this = req.try_borrow_mut()?;
-            error_for_status = this.error_for_status;
-
-            match this.body.as_mut() {
-                Some(ReqBody::Body(body)) => body.set_task_local()?,
-                Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local()?,
-                None => {}
-            }
-
-            if let Some(middlewares_next) = this.middlewares_next.as_ref() {
-                middleware_coro = Next::next_coro(middlewares_next.bind(py), slf)?;
-            }
-
-            Ok(())
+            Ok::<_, PyErr>((this.middlewares_next.take().map(|m| Next::new(m, py)).transpose()?, this.error_for_status))
         })?;
 
-        match middleware_coro {
-            Some(middleware_coro) => Next::coro_result(middleware_coro, error_for_status).await,
-            None => Request::spawn_request(slf, cancel).await,
+        match middlewares_next {
+            Some(middlewares_next) => {
+                let middleware_resp = AllowThreads(middlewares_next.run_inner(py_request, cancel)).await?;
+
+                if error_for_status {
+                    Python::attach(|py| middleware_resp.bind(py).as_super().try_borrow()?.error_for_status())?;
+                }
+                Ok(middleware_resp)
+            }
+            None => Self::spawn_request(py_request, cancel).await,
         }
     }
 
-    fn inner_ref(&self) -> PyResult<&reqwest::Request> {
-        self.inner
-            .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
+    pub fn blocking_send_inner(py_request: &Py<PyAny>) -> PyResult<Py<BlockingResponse>> {
+        let (middlewares_next, error_for_status) = Python::attach(|py| {
+            let mut this = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
+            this.body_set_task_local(py)?;
+
+            Ok::<_, PyErr>((this.middlewares_next.take().map(BlockingNext::new).transpose()?, this.error_for_status))
+        })?;
+
+        match middlewares_next {
+            Some(middlewares_next) => Python::attach(|py| {
+                let middleware_resp = middlewares_next.run(py_request.bind(py))?;
+                if error_for_status {
+                    middleware_resp.bind(py).as_super().try_borrow()?.error_for_status()?;
+                }
+                Ok(middleware_resp)
+            }),
+            None => Self::blocking_spawn_request(py_request),
+        }
     }
 
-    fn inner_mut(&mut self) -> PyResult<&mut reqwest::Request> {
-        self.inner
-            .as_mut()
-            .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
+    fn body_set_task_local(&mut self, py: Python) -> PyResult<()> {
+        match self.body.as_mut() {
+            Some(ReqBody::Body(body)) => body.set_task_local(),
+            Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local(),
+            None => Ok(()),
+        }
     }
 
     pub async fn spawn_request(request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let mut inner_request = None;
-        let mut spawner = None;
-        let mut extensions = None;
-        let mut error_for_status = false;
-        let mut body_consume_config = None;
+        Spawner::spawn_reqwest(Self::prepare_spawn_request(request)?, cancel).await
+    }
 
+    pub fn blocking_spawn_request(request: &Py<PyAny>) -> PyResult<Py<BlockingResponse>> {
+        Spawner::blocking_spawn_reqwest(Self::prepare_spawn_request(request)?)
+    }
+
+    fn prepare_spawn_request(request: &Py<PyAny>) -> PyResult<SpawnRequestData> {
         Python::attach(|py| -> PyResult<_> {
-            let mut this = request.downcast_bound::<Request>(py)?.try_borrow_mut()?;
-            spawner = Some(this.spawner.clone());
-            extensions = this.extensions.take();
-            error_for_status = this.error_for_status;
-            body_consume_config = Some(this.body_consume_config);
-
+            let mut this = request.downcast_bound::<Self>(py)?.try_borrow_mut()?;
             let mut request = this
                 .inner
                 .take()
@@ -238,18 +255,15 @@ impl Request {
                 }
                 None => {}
             }
-            inner_request = Some(request);
-            Ok(())
-        })?;
 
-        let resp = spawner
-            .unwrap() // Already checked above
-            .spawn_reqwest(inner_request.unwrap(), body_consume_config.unwrap(), extensions, cancel)
-            .await?;
-
-        error_for_status.then(|| resp.error_for_status()).transpose()?;
-
-        Python::attach(|py| Py::new(py, resp))
+            Ok(SpawnRequestData {
+                request,
+                spawner: this.spawner.clone(),
+                extensions: this.extensions.take(),
+                error_for_status: this.error_for_status,
+                body_consume_config: this.body_consume_config,
+            })
+        })
     }
 
     pub fn try_clone_inner(&self, py: Python) -> PyResult<Self> {
@@ -262,9 +276,7 @@ impl Request {
 
         let body = match self.body.as_ref() {
             Some(ReqBody::Body(body)) => Some(body.try_clone()?),
-            Some(ReqBody::PyBody(py_body)) => {
-                Some(Python::attach(|py| py_body.try_borrow(py)?.try_clone())?)
-            }
+            Some(ReqBody::PyBody(py_body)) => Some(Python::attach(|py| py_body.try_borrow(py)?.try_clone())?),
             None => None,
         };
 
@@ -280,7 +292,11 @@ impl Request {
             body: body.map(ReqBody::Body),
             py_headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
-            middlewares_next: self.middlewares_next.as_ref().map(|next| next.clone_ref(py)),
+            middlewares_next: self
+                .middlewares_next
+                .as_ref()
+                .map(|next| next.clone_ref(py))
+                .transpose()?,
             error_for_status: self.error_for_status,
             body_consume_config: self.body_consume_config,
         })
@@ -315,7 +331,11 @@ impl Request {
             body: body.map(ReqBody::Body),
             py_headers,
             extensions: this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
-            middlewares_next: this.middlewares_next.as_ref().map(|next| next.clone_ref(py)),
+            middlewares_next: this
+                .middlewares_next
+                .as_ref()
+                .map(|next| next.clone_ref(py))
+                .transpose()?,
             error_for_status: this.error_for_status,
             body_consume_config: this.body_consume_config,
         })
@@ -349,6 +369,18 @@ impl Request {
             headers_dict.repr()?.to_str()?,
             body_repr
         ))
+    }
+
+    fn inner_ref(&self) -> PyResult<&reqwest::Request> {
+        self.inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
+    }
+
+    fn inner_mut(&mut self) -> PyResult<&mut reqwest::Request> {
+        self.inner
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
 }
 

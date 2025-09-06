@@ -1,12 +1,11 @@
-use crate::asyncio::TaskLocal;
 use crate::client::Spawner;
 use crate::exceptions::BuilderError;
 use crate::http::{Body, Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, JsonValue, QueryParams};
-use crate::middleware::Next;
+use crate::middleware::NextInner;
 use crate::multipart::Form;
 use crate::request::Request;
-use crate::request::consumed_request::ConsumedRequest;
-use crate::request::stream_request::StreamRequest;
+use crate::request::consumed_request::{BlockingConsumedRequest, ConsumedRequest};
+use crate::request::stream_request::{BlockingStreamRequest, StreamRequest};
 use crate::response::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, StreamedReadConfig};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -15,37 +14,65 @@ use pyo3_bytes::PyBytes;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[pyclass]
-pub struct RequestBuilder {
+#[pyclass(subclass)]
+pub struct BaseRequestBuilder {
     inner: Option<reqwest::RequestBuilder>,
     spawner: Option<Spawner>,
     body: Option<Body>,
     extensions: Option<Extensions>,
-    middlewares_next: Option<Py<Next>>,
+    middlewares_next: Option<NextInner>,
     error_for_status: bool,
     streamed_read_buffer_limit: Option<usize>,
 }
+
+#[pyclass(extends=BaseRequestBuilder)]
+pub struct RequestBuilder;
+
+#[pyclass(extends=BaseRequestBuilder)]
+pub struct BlockingRequestBuilder;
+
 #[pymethods]
 impl RequestBuilder {
-    fn build_consumed(&mut self, py: Python) -> PyResult<Py<ConsumedRequest>> {
-        if self.streamed_read_buffer_limit.is_some() {
-            return Err(BuilderError::from_causes(
-                "Can not set streamed_read_buffer_limit when building a fully consumed request",
-                vec![],
-            ));
-        }
-        ConsumedRequest::new_py(py, self.inner_build(BodyConsumeConfig::FullyConsumed)?)
+    fn build_consumed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<ConsumedRequest>> {
+        let slf_super = slf.as_super();
+        let body_config = slf_super.body_consume_config(false)?;
+        ConsumedRequest::new_py(py, slf_super.inner_build(body_config)?)
     }
 
-    fn build_streamed(&mut self, py: Python) -> PyResult<Py<StreamRequest>> {
-        let config = StreamedReadConfig {
-            read_buffer_limit: self
-                .streamed_read_buffer_limit
-                .unwrap_or(Self::default_streamed_read_buffer_limit()),
-        };
-        StreamRequest::new_py(py, self.inner_build(BodyConsumeConfig::Streamed(config))?)
+    fn build_streamed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<StreamRequest>> {
+        let slf_super = slf.as_super();
+        let body_config = slf_super.body_consume_config(true)?;
+        StreamRequest::new_py(py, slf_super.inner_build(body_config)?)
+    }
+}
+impl RequestBuilder {
+    pub fn new_py(py: Python, inner: BaseRequestBuilder) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
+    }
+}
+
+#[pymethods]
+impl BlockingRequestBuilder {
+    fn build_consumed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingConsumedRequest>> {
+        let slf_super = slf.as_super();
+        let body_config = slf_super.body_consume_config(false)?;
+        BlockingConsumedRequest::new_py(py, slf_super.inner_build(body_config)?)
     }
 
+    fn build_streamed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingStreamRequest>> {
+        let slf_super = slf.as_super();
+        let body_config = slf_super.body_consume_config(true)?;
+        BlockingStreamRequest::new_py(py, slf_super.inner_build(body_config)?)
+    }
+}
+impl BlockingRequestBuilder {
+    pub fn new_py(py: Python, inner: BaseRequestBuilder) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
+    }
+}
+
+#[pymethods]
+impl BaseRequestBuilder {
     fn error_for_status(mut slf: PyRefMut<Self>, value: bool) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
         slf.error_for_status = value;
@@ -141,13 +168,11 @@ impl RequestBuilder {
         mut slf: PyRefMut<'py, Self>,
         interceptor: Bound<'py, PyAny>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        let py = slf.py();
         if let Some(middlewares_next) = slf.middlewares_next.as_mut() {
-            middlewares_next.try_borrow_mut(py)?.add_middleware(interceptor)?;
+            middlewares_next.add_middleware(interceptor)?;
         } else {
             let middlewares = Arc::new(vec![interceptor.unbind()]);
-            let next = Next::new(middlewares, TaskLocal::current(py)?);
-            slf.middlewares_next = Some(Py::new(py, next)?);
+            slf.middlewares_next = Some(NextInner::new(middlewares)?);
         }
         Ok(slf)
     }
@@ -156,7 +181,9 @@ impl RequestBuilder {
         if let Some(extensions) = &self.extensions {
             visit.call(&extensions.0)?;
         }
-        visit.call(&self.middlewares_next)?;
+        if let Some(middlewares_next) = &self.middlewares_next {
+            middlewares_next.__traverse__(&visit)?;
+        }
         if let Some(body) = &self.body {
             body.__traverse__(visit)?;
         }
@@ -171,14 +198,14 @@ impl RequestBuilder {
         self.middlewares_next = None;
     }
 }
-impl RequestBuilder {
+impl BaseRequestBuilder {
     pub fn new(
         inner: reqwest::RequestBuilder,
         spawner: Spawner,
-        middlewares_next: Option<Py<Next>>,
+        middlewares_next: Option<NextInner>,
         error_for_status: bool,
     ) -> Self {
-        RequestBuilder {
+        BaseRequestBuilder {
             inner: Some(inner),
             spawner: Some(spawner),
             body: None,
@@ -215,11 +242,30 @@ impl RequestBuilder {
         Ok(request)
     }
 
-    pub fn inner_timeout(&mut self, timeout: Duration) -> PyResult<&mut RequestBuilder> {
+    fn body_consume_config(&self, is_streamed: bool) -> PyResult<BodyConsumeConfig> {
+        if is_streamed {
+            let config = StreamedReadConfig {
+                read_buffer_limit: self
+                    .streamed_read_buffer_limit
+                    .unwrap_or(BaseRequestBuilder::default_streamed_read_buffer_limit()),
+            };
+            Ok(BodyConsumeConfig::Streamed(config))
+        } else {
+            if self.streamed_read_buffer_limit.is_some() {
+                return Err(BuilderError::from_causes(
+                    "Can not set streamed_read_buffer_limit when building a fully consumed request",
+                    vec![],
+                ));
+            }
+            Ok(BodyConsumeConfig::FullyConsumed)
+        }
+    }
+
+    pub fn inner_timeout(&mut self, timeout: Duration) -> PyResult<&mut Self> {
         self.apply_inner(|b| Ok(b.timeout(timeout)))
     }
 
-    pub fn inner_headers(&mut self, headers: &HeaderMap) -> PyResult<&mut RequestBuilder> {
+    pub fn inner_headers(&mut self, headers: &HeaderMap) -> PyResult<&mut Self> {
         self.apply_inner(|b| Ok(b.headers(headers.try_clone_inner()?)))
     }
 
@@ -243,7 +289,7 @@ impl RequestBuilder {
         Ok(slf)
     }
 
-    fn apply_inner<F>(&mut self, fun: F) -> PyResult<&mut RequestBuilder>
+    fn apply_inner<F>(&mut self, fun: F) -> PyResult<&mut Self>
     where
         F: FnOnce(reqwest::RequestBuilder) -> PyResult<reqwest::RequestBuilder>,
     {

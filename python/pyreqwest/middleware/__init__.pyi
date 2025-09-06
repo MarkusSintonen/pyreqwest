@@ -3,3 +3,6 @@ from pyreqwest.response import Response
 
 class Next:
     async def run(self, request: Request) -> Response: ...
+
+class BlockingNext:
+    def run(self, request: Request) -> Response: ...
