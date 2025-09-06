@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Any, Self
 from urllib.parse import unquote
 
-from pyreqwest.http import Body
 from pyreqwest.middleware import Next
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
@@ -157,7 +156,7 @@ class ASGITestMiddleware:
                 for part in body_parts:
                     yield part
 
-            response_builder.body(Body.from_stream(body_stream()))
+            response_builder.body_stream(body_stream())
 
         elif len(body_parts) == 1:
             response_builder.body_bytes(body_parts[0])

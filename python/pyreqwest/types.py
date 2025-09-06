@@ -7,5 +7,6 @@ HeadersType = Mapping[str, str] | Sequence[tuple[str, str]]
 QueryParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
 FormParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
 ExtensionsType = Mapping[str, Any] | Sequence[tuple[str, Any]]
+
 BlockingStream = Iterable[bytes] | Iterable[bytearray] | Iterable[memoryview]
 Stream = AsyncIterable[bytes] | AsyncIterable[bytearray] | AsyncIterable[memoryview] | BlockingStream

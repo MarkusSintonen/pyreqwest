@@ -1,8 +1,8 @@
 from pyreqwest.request import Request
-from pyreqwest.response import Response
+from pyreqwest.response import BlockingResponse, Response
 
 class Next:
     async def run(self, request: Request) -> Response: ...
 
 class BlockingNext:
-    def run(self, request: Request) -> Response: ...
+    def run(self, request: Request) -> BlockingResponse: ...

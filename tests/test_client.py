@@ -6,7 +6,7 @@ import pytest
 import trustme
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
-from pyreqwest.client import Client, ClientBuilder, Runtime
+from pyreqwest.client import BaseClient, BaseClientBuilder, Client, ClientBuilder, Runtime
 from pyreqwest.exceptions import (
     BuilderError,
     ClientClosedError,
@@ -17,6 +17,8 @@ from pyreqwest.exceptions import (
     StatusError,
 )
 from pyreqwest.http import HeaderMap, Url
+from pyreqwest.request import BaseRequestBuilder, ConsumedRequest, Request, RequestBuilder
+from pyreqwest.response import BaseResponse, Response
 
 from .servers.echo_server import EchoServer
 from .servers.server import find_free_port
@@ -173,13 +175,15 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
 async def test_use_after_close(echo_server: EchoServer):
     async with ClientBuilder().error_for_status(True).build() as client:
         assert (await client.get(echo_server.url).build_consumed().send()).status == 200
+    req = client.get(echo_server.url).build_consumed()
     with pytest.raises(ClientClosedError, match="Client was closed"):
-        await client.get(echo_server.url).build_consumed().send()
+        await req.send()
 
     client = ClientBuilder().error_for_status(True).build()
     await client.close()
+    req = client.get(echo_server.url).build_consumed()
     with pytest.raises(ClientClosedError, match="Client was closed"):
-        await client.get(echo_server.url).build_consumed().send()
+        await req.send()
 
 
 async def test_close_in_request(echo_server: EchoServer):
@@ -262,3 +266,16 @@ async def test_different_runtimes(echo_server: EchoServer):
     del rt2
     with pytest.raises(ClientClosedError, match="Runtime was closed"):
         await client2.get(echo_server.url).build_consumed().send()
+
+
+async def test_types(echo_server: EchoServer) -> None:
+    builder = ClientBuilder().error_for_status(True)
+    assert type(builder) is ClientBuilder and isinstance(builder, BaseClientBuilder)
+    client = builder.build()
+    assert type(client) is Client and isinstance(client, BaseClient)
+    req_builder = client.get(echo_server.url)
+    assert type(req_builder) is RequestBuilder and isinstance(req_builder, BaseRequestBuilder)
+    req = req_builder.build_consumed()
+    assert type(req) is ConsumedRequest and isinstance(req, Request)
+    resp = await req.send()
+    assert type(resp) is Response and isinstance(resp, BaseResponse)

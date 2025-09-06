@@ -2,6 +2,7 @@ import asyncio
 import queue
 import socket
 from abc import ABC, abstractmethod
+from asyncio import AbstractEventLoop
 from collections.abc import AsyncIterable, Awaitable, Callable
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
@@ -59,7 +60,7 @@ class Server(GranianServer, ABC):
 
     @asynccontextmanager
     async def serve_context(self):
-        server_loop_chan = queue.Queue(maxsize=1)
+        server_loop_chan: queue.Queue[AbstractEventLoop] = queue.Queue(maxsize=1)
 
         def server_runner() -> None:
             with asyncio.Runner() as runner:

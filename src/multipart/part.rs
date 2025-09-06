@@ -24,15 +24,15 @@ impl Part {
     }
 
     #[staticmethod]
-    fn from_stream(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
-        let mut stream = BodyStream::new(py, stream)?;
+    fn from_stream(py: Python, stream: Bound<PyAny>) -> PyResult<Self> {
+        let mut stream = BodyStream::new(stream)?;
         stream.set_task_local()?;
         py.detach(|| Ok(reqwest::multipart::Part::stream(stream.into_reqwest()?).into()))
     }
 
     #[staticmethod]
-    fn from_stream_with_length(py: Python, async_gen: Py<PyAny>, length: u64) -> PyResult<Self> {
-        let mut stream = BodyStream::new(py, async_gen)?;
+    fn from_stream_with_length(py: Python, stream: Bound<PyAny>, length: u64) -> PyResult<Self> {
+        let mut stream = BodyStream::new(stream)?;
         stream.set_task_local()?;
         py.detach(|| Ok(reqwest::multipart::Part::stream_with_length(stream.into_reqwest()?, length).into()))
     }
@@ -41,6 +41,12 @@ impl Part {
     async fn from_file(path: PathBuf, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Self> {
         let fut = Handle::global_handle()?.spawn_handled(reqwest::multipart::Part::file(path), cancel);
         let part = AllowThreads(fut).await??;
+        Ok(part.into())
+    }
+
+    #[staticmethod]
+    fn blocking_from_file(path: PathBuf) -> PyResult<Self> {
+        let part = Handle::global_handle()?.blocking_spawn(reqwest::multipart::Part::file(path))?;
         Ok(part.into())
     }
 

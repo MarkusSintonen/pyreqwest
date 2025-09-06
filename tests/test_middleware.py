@@ -5,7 +5,7 @@ from contextvars import ContextVar
 
 import pytest
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.http import Body
+from pyreqwest.http import RequestBody
 from pyreqwest.middleware import Next
 from pyreqwest.middleware.types import Middleware
 from pyreqwest.request import Request
@@ -186,7 +186,7 @@ async def test_modify_body(echo_server: EchoServer) -> None:
         assert request.body is not None
         bytes_ = request.body.copy_bytes()
         assert bytes_ is not None and bytes_.to_bytes() == b"test"
-        request.body = Body.from_bytes(bytes_.to_bytes() + b" modified")
+        request.body = RequestBody.from_bytes(bytes_.to_bytes() + b" modified")
         return await next_handler.run(request)
 
     resp = await build_client(modify_body).post(echo_server.url).body_bytes(b"test").build_consumed().send()
@@ -201,7 +201,7 @@ async def test_stream_to_body_bytes(echo_server: EchoServer) -> None:
 
         body_parts = [bytes(part).decode() async for part in stream]
 
-        request.body = Body.from_bytes("---".join(body_parts).encode())
+        request.body = RequestBody.from_bytes("---".join(body_parts).encode())
         return await next_handler.run(request)
 
     async def stream_gen() -> AsyncGenerator[bytes]:
@@ -222,7 +222,7 @@ async def test_stream_modify_body(echo_server: EchoServer) -> None:
             async for part in stream:
                 yield (bytes(part).decode() + " modified").encode()
 
-        request.body = Body.from_stream(stream_gen2())
+        request.body = RequestBody.from_stream(stream_gen2())
         return await next_handler.run(request)
 
     async def stream_gen() -> AsyncGenerator[bytes]:
@@ -246,7 +246,7 @@ async def test_stream_context_var(echo_server: EchoServer) -> None:
             async for part in stream:
                 yield (bytes(part).decode() + " modified").encode()
 
-        request.body = Body.from_stream(stream_gen2())
+        request.body = RequestBody.from_stream(stream_gen2())
         return await next_handler.run(request)
 
     async def stream_gen() -> AsyncGenerator[bytes]:
@@ -262,17 +262,19 @@ async def test_stream_context_var(echo_server: EchoServer) -> None:
 @pytest.mark.parametrize("body_stream", [False, True])
 async def test_override_with_response_builder(body_stream: bool) -> None:
     async def override_response(_request: Request, _next_handler: Next) -> Response:
+        builder = ResponseBuilder().status(201)
+
         if body_stream:
 
             async def stream_gen() -> AsyncGenerator[bytes]:
                 yield b"test "
                 yield b"override"
 
-            body = Body.from_stream(stream_gen())
+            builder.body_stream(stream_gen())
         else:
-            body = Body.from_text("test override")
+            builder.body_text("test override")
 
-        return await ResponseBuilder().status(201).body(body).build()
+        return await builder.build()
 
     resp = await build_client(override_response).get("http://foo.invalid").build_consumed().send()
     assert resp.status == 201
@@ -288,7 +290,7 @@ async def test_response_builder_stream_context_var() -> None:
             yield b"test "
             yield b"override"
 
-        return await ResponseBuilder().status(201).body(Body.from_stream(stream_gen())).build()
+        return await ResponseBuilder().status(201).body_stream(stream_gen()).build()
 
     context_var.set("val1")
 
@@ -378,7 +380,7 @@ async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
 
         async def mock_request(request: Request, _next_handler: Next) -> Response:
             assert request.url == "http://foo.invalid" and request.method == "GET"
-            return await ResponseBuilder().status(202).body(Body.from_text("Mocked")).build()
+            return await ResponseBuilder().status(202).body_text("Mocked").build()
 
         mocked_ids.add(id(self))
         return self.with_middleware(mock_request).build()

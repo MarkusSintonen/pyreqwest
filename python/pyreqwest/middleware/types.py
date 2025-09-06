@@ -5,7 +5,7 @@ from typing import Any
 
 from pyreqwest.middleware import BlockingNext, Next
 from pyreqwest.request import Request
-from pyreqwest.response import Response
+from pyreqwest.response import BlockingResponse, Response
 
 Middleware = Callable[[Request, Next], Coroutine[Any, Any, Response]]
 """Middleware handler which is called with a request before sending it.
@@ -23,5 +23,5 @@ Returns:
     HTTP response from the next middleware or a custom response.
 """
 
-BlockingMiddleware = Callable[[Request, BlockingNext], Response]
+BlockingMiddleware = Callable[[Request, BlockingNext], BlockingResponse]
 """Blocking middleware handler which is used in blocking context."""

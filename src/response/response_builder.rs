@@ -1,10 +1,11 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::Handle;
-use crate::http::{Body, HeaderMap, HeaderName, HeaderValue, JsonValue};
 use crate::http::{Extensions, StatusCode, Version};
+use crate::http::{HeaderMap, HeaderName, HeaderValue, JsonValue, RequestBody};
 use crate::response::{
     BaseResponse, BlockingResponse, BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, Response, StreamedReadConfig,
 };
+use bytes::Bytes;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
@@ -13,7 +14,7 @@ use pyo3_bytes::PyBytes;
 #[pyclass(subclass)]
 pub struct BaseResponseBuilder {
     inner: Option<http::response::Builder>,
-    body: Option<Body>,
+    body: Option<RequestBody>,
     extensions: Option<Extensions>,
 }
 
@@ -52,18 +53,18 @@ impl BaseResponseBuilder {
         slf
     }
 
-    fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<Body>>) -> PyResult<PyRefMut<'py, Self>> {
+    fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<RequestBody>>) -> PyResult<PyRefMut<'py, Self>> {
         slf.body = body.map(|v| v.try_borrow_mut()?.take_inner()).transpose()?;
         Ok(slf)
     }
 
     fn body_bytes(mut slf: PyRefMut<Self>, body: PyBytes) -> PyResult<PyRefMut<Self>> {
-        slf.body = Some(Body::from_bytes(body));
+        slf.body = Some(RequestBody::from_bytes(body));
         Ok(slf)
     }
 
     fn body_text(mut slf: PyRefMut<Self>, body: String) -> PyResult<PyRefMut<Self>> {
-        slf.body = Some(Body::from_text(body));
+        slf.body = Some(RequestBody::from_text(body));
         Ok(slf)
     }
 
@@ -71,12 +72,12 @@ impl BaseResponseBuilder {
         let bytes = slf
             .py()
             .detach(|| serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string())))?;
-        slf.body = Some(bytes.into());
+        slf.body = Some(RequestBody::from(Bytes::from(bytes)));
         Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
     }
 
-    fn body_stream(mut slf: PyRefMut<Self>, stream: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
-        slf.body = Some(Body::from_stream(slf.py(), stream)?);
+    fn body_stream<'py>(mut slf: PyRefMut<'py, Self>, stream: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+        slf.body = Some(RequestBody::from_stream(stream)?);
         Ok(slf)
     }
 

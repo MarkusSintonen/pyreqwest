@@ -1,6 +1,6 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::{SpawnRequestData, Spawner};
-use crate::http::{Body, Extensions, HeaderMap, Method, Url, UrlType};
+use crate::http::{Extensions, HeaderMap, Method, RequestBody, Url, UrlType};
 use crate::middleware::{BlockingNext, Next, NextInner};
 use crate::response::{BlockingResponse, BodyConsumeConfig, Response};
 use pyo3::coroutine::CancelHandle;
@@ -62,7 +62,7 @@ impl Request {
     }
 
     #[getter]
-    fn get_body(&mut self, py: Python) -> PyResult<Option<Py<Body>>> {
+    fn get_body(&mut self, py: Python) -> PyResult<Option<Py<RequestBody>>> {
         match self.body.as_mut() {
             Some(ReqBody::Body(body)) => {
                 let py_body = Py::new(py, body.take_inner()?)?;
@@ -75,7 +75,7 @@ impl Request {
     }
 
     #[setter]
-    fn set_body(&mut self, body: Option<Py<Body>>) -> PyResult<()> {
+    fn set_body(&mut self, body: Option<Py<RequestBody>>) -> PyResult<()> {
         self.body = body.map(ReqBody::PyBody);
         Ok(())
     }
@@ -123,7 +123,7 @@ impl Request {
         _cls: &Bound<'_, PyType>,
         _py: Python,
         _request: Bound<PyAny>,
-        _body: Option<Bound<Body>>,
+        _body: Option<Bound<RequestBody>>,
     ) -> PyResult<Self> {
         Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
     }
@@ -156,7 +156,7 @@ impl Request {
     pub fn new(
         request: reqwest::Request,
         spawner: Spawner,
-        body: Option<Body>,
+        body: Option<RequestBody>,
         extensions: Option<Extensions>,
         middlewares_next: Option<NextInner>,
         error_for_status: bool,
@@ -310,7 +310,11 @@ impl Request {
         &mut self.body_consume_config
     }
 
-    pub fn inner_from_request_and_body(py: Python, request: Bound<PyAny>, body: Option<Bound<Body>>) -> PyResult<Self> {
+    pub fn inner_from_request_and_body(
+        py: Python,
+        request: Bound<PyAny>,
+        body: Option<Bound<RequestBody>>,
+    ) -> PyResult<Self> {
         let this = request.downcast::<Request>()?.try_borrow()?;
         let new_inner = this
             .inner_ref()?
@@ -385,6 +389,6 @@ impl Request {
 }
 
 enum ReqBody {
-    Body(Body),
-    PyBody(Py<Body>), // In Python heap
+    Body(RequestBody),
+    PyBody(Py<RequestBody>), // In Python heap
 }

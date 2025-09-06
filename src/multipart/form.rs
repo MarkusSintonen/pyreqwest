@@ -42,6 +42,11 @@ impl Form {
         })
     }
 
+    fn blocking_file(slf: PyRefMut<Self>, name: String, path: PathBuf) -> PyResult<PyRefMut<Self>> {
+        let part = Handle::global_handle()?.blocking_spawn(reqwest::multipart::Part::file(path))?;
+        Self::apply(slf, |builder| Ok(builder.part(name, part)))
+    }
+
     fn part<'py>(slf: PyRefMut<'py, Self>, name: String, mut part: PyRefMut<Part>) -> PyResult<PyRefMut<'py, Self>> {
         let part = part.take_inner()?;
         Self::apply(slf, |builder| Ok(builder.part(name, part)))

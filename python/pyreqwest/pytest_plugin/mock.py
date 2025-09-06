@@ -8,7 +8,7 @@ from typing import Any, Literal, Self, assert_never
 
 import pytest
 
-from pyreqwest.http import Body
+from pyreqwest.http import RequestBody
 from pyreqwest.middleware import Next
 from pyreqwest.middleware.types import Middleware
 from pyreqwest.pytest_plugin.internal.matcher import InternalMatcher
@@ -141,11 +141,6 @@ class Mock:
         self._response_builder.header(name, value)
         return self
 
-    def with_body(self, body: Body) -> Self:
-        """Set the mocked response body to the given Body."""
-        self._response_builder.body(body)
-        return self
-
     def with_body_bytes(self, body: bytes | bytearray | memoryview) -> Self:
         """Set the mocked response body to the given bytes."""
         self._response_builder.body_bytes(body)
@@ -156,9 +151,9 @@ class Mock:
         self._response_builder.body_text(body)
         return self
 
-    def with_body_json(self, json: Any) -> Self:
+    def with_body_json(self, json_body: Any) -> Self:
         """Set the mocked response body to the given JSON-serializable object."""
-        self._response_builder.body_json(json)
+        self._response_builder.body_json(json_body)
         return self
 
     def with_version(self, version: str) -> Self:
@@ -334,7 +329,7 @@ class ClientMocker:
         async def mock_middleware(request: Request, next_handler: Next) -> Response:
             if request.body is not None and (stream := request.body.get_stream()) is not None:
                 body = [bytes(chunk) async for chunk in stream]  # Read the body stream into bytes
-                request = request.from_request_and_body(request, Body.from_bytes(b"".join(body)))
+                request = request.from_request_and_body(request, RequestBody.from_bytes(b"".join(body)))
 
             for mock in self._mocks:
                 if (response := await mock._handle(request)) is not None:

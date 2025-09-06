@@ -1,5 +1,5 @@
 use crate::allow_threads::AllowThreads;
-use crate::http::Body;
+use crate::http::RequestBody;
 use crate::request::Request;
 use crate::response::{BlockingResponse, Response};
 use pyo3::coroutine::CancelHandle;
@@ -56,7 +56,7 @@ impl StreamRequest {
         _cls: &Bound<'_, PyType>,
         py: Python,
         request: Bound<PyAny>,
-        body: Option<Bound<Body>>,
+        body: Option<Bound<RequestBody>>,
     ) -> PyResult<Py<Self>> {
         Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
     }
@@ -104,7 +104,7 @@ impl BlockingStreamRequest {
         _cls: &Bound<'_, PyType>,
         py: Python,
         request: Bound<PyAny>,
-        body: Option<Bound<Body>>,
+        body: Option<Bound<RequestBody>>,
     ) -> PyResult<Py<Self>> {
         Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
     }

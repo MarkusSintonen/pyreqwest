@@ -10,6 +10,7 @@ from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import ConnectTimeoutError, ReadTimeoutError
 from pyreqwest.request import RequestBuilder
 from pyreqwest.response import Response
+from pyreqwest.types import Stream
 
 from .servers.echo_body_parts_server import EchoBodyPartsServer
 from .servers.echo_server import EchoServer
@@ -90,14 +91,31 @@ async def test_body_stream__consumed(client: Client, echo_body_parts_server: Ech
         assert (await resp.text()) == "part 0part 1part 2part 3part 4"
 
 
+@pytest.mark.parametrize("gen_type", ["async", "sync", "list"])
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
-async def test_body_stream__yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_type: type):
-    async def stream_gen() -> AsyncIterator[Any]:
-        for i in range(5):
-            await asyncio.sleep(0)  # Simulate some work
-            yield yield_type(f"part {i}".encode())
+async def test_body_stream__gen_type(
+    client: Client, echo_body_parts_server: EchoBodyPartsServer, gen_type: str, yield_type: type
+):
+    if gen_type == "async":
 
-    async with client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed() as resp:
+        async def async_gen() -> AsyncIterator[Any]:
+            for i in range(5):
+                await asyncio.sleep(0)  # Simulate some work
+                yield yield_type(f"part {i}".encode())
+
+        stream: Stream = async_gen()
+    elif gen_type == "sync":
+
+        def gen() -> Generator[Any, None, None]:
+            for i in range(5):
+                yield yield_type(f"part {i}".encode())
+
+        stream = gen()
+    else:
+        assert gen_type == "list"
+        stream = [yield_type(f"part {i}".encode()) for i in range(5)]
+
+    async with client.post(echo_body_parts_server.url).body_stream(stream).build_streamed() as resp:
         assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
 
 
@@ -198,16 +216,15 @@ async def test_body_stream__gen_error(
 
 
 async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: EchoBodyPartsServer):
-    def gen() -> Generator[int]:
-        yield 1
-
     async def async_gen() -> AsyncGenerator[int]:
         yield 1
 
-    cases = [gen(), gen, async_gen, b"123", [b"123"]]
-    for case in cases:
+    def gen() -> Generator[int]:
+        yield 1
+
+    for case in [async_gen, gen, 1]:
         req = client.post(echo_body_parts_server.url)
-        with pytest.raises(TypeError, match="object is not an async iterable"):
+        with pytest.raises(TypeError, match="object is not iterable"):
             req.body_stream(case)  # type: ignore[arg-type]
 
 

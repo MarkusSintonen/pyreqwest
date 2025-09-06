@@ -11,45 +11,38 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 #[pyclass]
-pub struct Body {
-    body: Option<InnerBody>,
-}
+pub struct RequestBody(Option<InnerBody>);
+
 #[pymethods]
-impl Body {
+impl RequestBody {
     #[staticmethod]
     pub fn from_text(body: String) -> Self {
-        Body {
-            body: Some(InnerBody::Bytes(body.into())),
-        }
+        Self(Some(InnerBody::Bytes(body.into())))
     }
 
     #[staticmethod]
     pub fn from_bytes(body: PyBytes) -> Self {
-        Body {
-            body: Some(InnerBody::Bytes(body.into_inner())),
-        }
+        Self(Some(InnerBody::Bytes(body.into_inner())))
     }
 
     #[staticmethod]
-    pub fn from_stream(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
-        Ok(Body {
-            body: Some(InnerBody::Stream(BodyStream::new(py, stream)?)),
-        })
+    pub fn from_stream(stream: Bound<PyAny>) -> PyResult<Self> {
+        Ok(Self(Some(InnerBody::Stream(BodyStream::new(stream)?))))
     }
 
     fn copy_bytes(&self) -> PyResult<Option<PyBytes>> {
-        match self.body.as_ref() {
+        match self.0.as_ref() {
             Some(InnerBody::Bytes(bytes)) => Ok(Some(PyBytes::from(bytes.clone()))),
             Some(InnerBody::Stream(_)) => Ok(None),
-            None => Err(PyRuntimeError::new_err("Body already consumed")),
+            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
 
     fn get_stream(&self) -> PyResult<Option<&Py<PyAny>>> {
-        match self.body.as_ref() {
+        match self.0.as_ref() {
             Some(InnerBody::Bytes(_)) => Ok(None),
             Some(InnerBody::Stream(stream)) => Ok(Some(stream.get_stream()?)),
-            None => Err(PyRuntimeError::new_err("Body already consumed")),
+            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
 
@@ -58,18 +51,19 @@ impl Body {
     }
 
     pub fn __repr__(&self, py: Python) -> PyResult<String> {
-        match &self.body {
-            Some(InnerBody::Bytes(bytes)) => Ok(format!("BodyBytes(len={})", bytes.len())),
+        let type_name = py.get_type::<Self>().name()?;
+        match &self.0 {
+            Some(InnerBody::Bytes(bytes)) => Ok(format!("{}(len={})", type_name, bytes.len())),
             Some(InnerBody::Stream(stream)) => {
                 let stream_repr = stream.get_stream()?.bind(py).repr()?;
-                Ok(format!("BodyStream(stream={})", stream_repr.to_str()?))
+                Ok(format!("{}(stream={})", type_name, stream_repr.to_str()?))
             }
-            None => Ok("Body(<already consumed>)".to_string()),
+            None => Ok(format!("{}(<already consumed>)", type_name)),
         }
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        match &self.body {
+        match &self.0 {
             Some(InnerBody::Bytes(_)) => Ok(()),
             Some(InnerBody::Stream(stream)) => stream.__traverse__(visit),
             None => Ok(()),
@@ -77,48 +71,51 @@ impl Body {
     }
 
     pub fn __clear__(&mut self) {
-        self.body = None;
+        self.0 = None;
     }
 }
-impl Body {
+impl RequestBody {
     pub fn try_clone(&self) -> PyResult<Self> {
-        let body = match &self.body {
+        let body = match &self.0 {
             Some(InnerBody::Bytes(bytes)) => InnerBody::Bytes(bytes.clone()),
             Some(InnerBody::Stream(stream)) => InnerBody::Stream(Python::attach(|py| stream.try_clone(py))?),
-            None => return Err(PyRuntimeError::new_err("Body already consumed")),
+            None => return Err(PyRuntimeError::new_err("RequestBody already consumed")),
         };
-        Ok(Body { body: Some(body) })
+        Ok(Self(Some(body)))
     }
 
-    pub fn take_inner(&mut self) -> PyResult<Body> {
-        match self.body.take() {
-            Some(inner) => Ok(Body { body: Some(inner) }),
-            None => Err(PyRuntimeError::new_err("Body already consumed")),
-        }
+    pub fn take_inner(&mut self) -> PyResult<Self> {
+        Ok(Self(Some(
+            self.0
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("RequestBody already consumed"))?,
+        )))
+    }
+
+    pub fn py_body(&mut self, py: Python) -> PyResult<Py<Self>> {
+        Py::new(py, self.take_inner()?)
     }
 
     pub fn set_task_local(&mut self) -> PyResult<()> {
-        match self.body.as_mut() {
+        match self.0.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
             Some(InnerBody::Stream(stream)) => stream.set_task_local(),
-            None => Err(PyRuntimeError::new_err("Body already consumed")),
+            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
 
     #[allow(clippy::wrong_self_convention)]
     pub fn into_reqwest(&mut self) -> PyResult<reqwest::Body> {
-        match self.body.take() {
+        match self.0.take() {
             Some(InnerBody::Bytes(bytes)) => Ok(reqwest::Body::from(bytes)),
             Some(InnerBody::Stream(stream)) => stream.into_reqwest(),
-            None => Err(PyRuntimeError::new_err("Body already consumed")),
+            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
 }
-impl From<Vec<u8>> for Body {
-    fn from(bytes: Vec<u8>) -> Self {
-        Body {
-            body: Some(InnerBody::Bytes(bytes.into())),
-        }
+impl From<Bytes> for RequestBody {
+    fn from(bytes: Bytes) -> Self {
+        Self(Some(InnerBody::Bytes(bytes)))
     }
 }
 
@@ -129,23 +126,32 @@ enum InnerBody {
 
 pub struct BodyStream {
     stream: Option<Py<PyAny>>,
-    aiter: Option<Py<PyAny>>,
+    py_iter: Option<Py<PyAny>>,
     task_local: Option<TaskLocal>,
-    cur_waiter: Option<PyCoroWaiter>,
+    cur_waiter: Option<StreamWaiter>,
     started: bool,
+    is_async: bool,
 }
 impl Stream for BodyStream {
     type Item = PyResult<PyBytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.cur_waiter.is_none() {
-            self.cur_waiter = match self.py_anext() {
+            self.cur_waiter = match self.py_next() {
                 Ok(waiter) => Some(waiter),
                 Err(e) => return Poll::Ready(Some(Err(e))),
             };
         }
 
-        match self.cur_waiter.as_mut().unwrap().poll_unpin(cx) {
+        let poll_res = match self.cur_waiter.as_mut().unwrap() {
+            StreamWaiter::Async(waiter) => waiter.poll_unpin(cx),
+            StreamWaiter::Sync(obj) => Poll::Ready(
+                obj.take()
+                    .ok_or_else(|| PyRuntimeError::new_err("Unexpected missing stream value")),
+            ),
+        };
+
+        match poll_res {
             Poll::Ready(res) => {
                 self.cur_waiter = None;
                 match res {
@@ -167,10 +173,12 @@ impl Stream for BodyStream {
     }
 }
 impl BodyStream {
-    pub fn new(py: Python, stream: Py<PyAny>) -> PyResult<Self> {
+    pub fn new(stream: Bound<PyAny>) -> PyResult<Self> {
+        let is_async = is_async_iter(&stream)?;
         Ok(BodyStream {
-            aiter: Some(Self::get_aiter(py, &stream)?.unbind()),
-            stream: Some(stream),
+            is_async,
+            py_iter: Some(Self::get_py_iter(&stream, is_async)?.unbind()),
+            stream: Some(stream.unbind()),
             task_local: None,
             cur_waiter: None,
             started: false,
@@ -194,38 +202,50 @@ impl BodyStream {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
         }
-        if self.task_local.is_none() {
+        if self.is_async && self.task_local.is_none() {
             self.task_local = Some(Python::attach(TaskLocal::current)?);
         }
         Ok(())
     }
 
-    fn py_anext(&mut self) -> PyResult<PyCoroWaiter> {
+    fn py_next(&mut self) -> PyResult<StreamWaiter> {
         self.started = true;
 
+        let py_iter = self
+            .py_iter
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected iterator"))?;
+
         Python::attach(|py| {
-            let aiter = self
-                .aiter
-                .as_ref()
-                .ok_or_else(|| PyRuntimeError::new_err("Expected aiter"))?;
+            if self.is_async {
+                let task_local = match self.task_local.as_ref() {
+                    Some(tl) => tl,
+                    None => &TaskLocal::current(py)?,
+                };
 
-            let task_local = self
-                .task_local
-                .as_ref()
-                .ok_or_else(|| PyRuntimeError::new_err("Expected task_local"))?;
-
-            py_coro_waiter(self.anext_coro(py, aiter)?, task_local)
+                static ANEXT: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+                let coro = ANEXT
+                    .import(py, "builtins", "anext")?
+                    .call1((py_iter, self.ellipsis(py)))?;
+                Ok(StreamWaiter::Async(py_coro_waiter(coro, task_local)?))
+            } else {
+                static NEXT: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+                let res = NEXT
+                    .import(py, "builtins", "next")?
+                    .call1((py_iter, self.ellipsis(py)))?;
+                Ok(StreamWaiter::Sync(Some(res.unbind())))
+            }
         })
     }
 
-    fn get_aiter<'py>(py: Python<'py>, stream: &Py<PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        static AITER: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
-        AITER.import(py, "builtins", "aiter")?.call1((stream,))
-    }
-
-    fn anext_coro<'py>(&self, py: Python<'py>, aiter: &Py<PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        static ANEXT: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
-        ANEXT.import(py, "builtins", "anext")?.call1((aiter, self.ellipsis(py)))
+    fn get_py_iter<'py>(stream: &Bound<'py, PyAny>, is_async: bool) -> PyResult<Bound<'py, PyAny>> {
+        if is_async {
+            static AITER: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+            AITER.import(stream.py(), "builtins", "aiter")?.call1((stream,))
+        } else {
+            static ITER: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+            ITER.import(stream.py(), "builtins", "iter")?.call1((stream,))
+        }
     }
 
     fn ellipsis(&self, py: Python) -> &Py<PyEllipsis> {
@@ -246,11 +266,13 @@ impl BodyStream {
             .stream
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("Expected stream"))?
-            .call_method0(py, intern!(py, "__copy__"))?;
+            .bind(py)
+            .call_method0(intern!(py, "__copy__"))?;
 
         Ok(BodyStream {
-            aiter: Some(Self::get_aiter(py, &new_stream)?.unbind()),
-            stream: Some(new_stream),
+            is_async: self.is_async,
+            py_iter: Some(Self::get_py_iter(&new_stream, self.is_async)?.unbind()),
+            stream: Some(new_stream.unbind()),
             task_local: None,
             cur_waiter: None,
             started: false,
@@ -259,15 +281,25 @@ impl BodyStream {
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.stream)?;
-        visit.call(&self.aiter)?;
+        visit.call(&self.py_iter)?;
         self.task_local.as_ref().map(|v| v.__traverse__(&visit)).transpose()?;
         Ok(())
     }
 
     fn __clear__(&mut self) {
         self.stream = None;
-        self.aiter = None;
+        self.py_iter = None;
         self.task_local = None;
         self.cur_waiter = None;
     }
+}
+
+fn is_async_iter(obj: &Bound<PyAny>) -> PyResult<bool> {
+    static ASYNC_TYPE: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+    obj.is_instance(ASYNC_TYPE.import(obj.py(), "collections.abc", "AsyncIterable")?)
+}
+
+enum StreamWaiter {
+    Async(PyCoroWaiter),
+    Sync(Option<Py<PyAny>>),
 }

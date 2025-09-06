@@ -13,6 +13,7 @@ import trustme
 from aiohttp import TCPConnector
 from granian.constants import HTTPModes
 from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 from pyreqwest.client import ClientBuilder
 from pyreqwest.http import Url
 
@@ -63,7 +64,7 @@ class PerformanceBenchmark:
     async def benchmark_pyreqwest_concurrent(self, body_size: int, concurrency: int) -> list[float]:
         """Benchmark pyreqwest with specified body size and concurrency."""
         body = self.generate_body(body_size)
-        timings = []
+        timings: list[float] = []
 
         async with ClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
 
@@ -101,7 +102,7 @@ class PerformanceBenchmark:
 
         body = self.generate_body(body_size)
         url_str = str(self.url)
-        timings = []
+        timings: list[float] = []
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
         async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx)) as session:
@@ -134,7 +135,7 @@ class PerformanceBenchmark:
 
         body = self.generate_body(body_size)
         url_str = str(self.url)
-        timings = []
+        timings: list[float] = []
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
         async with httpx.AsyncClient(verify=ssl_ctx) as client:
@@ -212,7 +213,7 @@ class PerformanceBenchmark:
 
         for i, body_size in enumerate(self.body_sizes):
             size_label = f"{body_size // 1000}KB" if body_size < 1_000_000 else f"{body_size // 1_000_000}MB"
-            ymax = 0
+            ymax = 0.0
 
             for j, concurrency in enumerate(self.concurrency_levels):
                 ax: Axes = axes[i][j]
@@ -294,7 +295,7 @@ class PerformanceBenchmark:
 
         # Add overall legend
         legends = [
-            plt.Rectangle(xy=(0, 0), width=1, height=1, label=label, facecolor=color)
+            Rectangle(xy=(0, 0), width=1, height=1, label=label, facecolor=color)
             for label, color in legend_colors.items()
         ]
         fig.legend(handles=legends, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=2)

@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.http import Body, HeaderMap
+from pyreqwest.http import HeaderMap, RequestBody
 from pyreqwest.request import ConsumedRequest, Request, StreamRequest
 from pyreqwest.types import Stream
 from syrupy import SnapshotAssertion  # type: ignore[attr-defined]
@@ -60,11 +60,11 @@ async def test_headers(client: Client, echo_server: Server) -> None:
 
 @pytest.mark.parametrize("kind", ["bytes", "text"])
 async def test_body__content(client: Client, echo_server: Server, kind: str) -> None:
-    def body() -> Body:
+    def body() -> RequestBody:
         if kind == "bytes":
-            return Body.from_bytes(b"test1")
+            return RequestBody.from_bytes(b"test1")
         assert kind == "text"
-        return Body.from_text("test1")
+        return RequestBody.from_text("test1")
 
     req = client.post(echo_server.url).build_consumed()
     assert req.body is None
@@ -95,7 +95,7 @@ async def test_body__stream_fn(
     stream = stream_gen()
     req = client.post(echo_server.url).build_consumed()
     assert req.body is None
-    req.body = Body.from_stream(stream)
+    req.body = RequestBody.from_stream(stream)
     assert req.body is not None and req.body.get_stream() is stream and req.body.copy_bytes() is None
     resp = await req.send()
     assert (await resp.json())["body_parts"] == ["test1", "test2"]
@@ -123,7 +123,7 @@ async def test_body__stream_class(client: Client, echo_server: Server) -> None:
     stream = StreamGen()
     req = client.post(echo_server.url).build_consumed()
     assert req.body is None
-    req.body = Body.from_stream(stream)
+    req.body = RequestBody.from_stream(stream)
     assert req.body is not None and req.body.get_stream() is stream and req.body.copy_bytes() is None
     resp = await req.send()
     assert (await resp.json())["body_parts"] == ["test1", "test2"]
@@ -143,7 +143,7 @@ async def test_body__stream_error_already_used(client: Client, echo_server: Serv
     async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"test1"
 
-    body = Body.from_stream(stream_gen())
+    body = RequestBody.from_stream(stream_gen())
     req = client.post(echo_server.url).build_consumed()
     req.body = body
     resp = await req.send()
@@ -151,7 +151,7 @@ async def test_body__stream_error_already_used(client: Client, echo_server: Serv
 
     req = client.post(echo_server.url).build_consumed()
     req.body = body
-    with pytest.raises(RuntimeError, match="Body already consumed"):
+    with pytest.raises(RuntimeError, match="RequestBody already consumed"):
         await req.send()
 
 
@@ -277,15 +277,15 @@ def test_repr(snapshot: SnapshotAssertion):
     assert repr(req) == snapshot(name="repr_sensitive")
     assert req.repr_full() == snapshot(name="repr_full")
 
-    req = client.get("https://example.com").body(Body.from_text("test")).build_consumed()
+    req = client.get("https://example.com").body_text("test").build_consumed()
     assert repr(req) == snapshot(name="repr_body")
     assert req.repr_full() == snapshot(name="repr_full_body")
 
-    req = client.get("https://example.com").body(Body.from_stream(StreamRepr())).build_consumed()
+    req = client.get("https://example.com").body_stream(StreamRepr()).build_consumed()
     assert repr(req) == snapshot(name="repr_stream_body")
     assert req.repr_full() == snapshot(name="repr_full_stream_body")
 
-    streamed = client.get("https://example.com").body(Body.from_stream(StreamRepr())).build_streamed()
+    streamed = client.get("https://example.com").body_stream(StreamRepr()).build_streamed()
     assert repr(streamed) == repr(req)
     assert streamed.repr_full() == req.repr_full()
 
@@ -311,7 +311,7 @@ def test_circular_reference_collected(echo_server: Server) -> None:
 
         stream = StreamHandler()
         ref = weakref.ref(stream)
-        request = client.post(echo_server.url).body(Body.from_stream(stream)).build_consumed()
+        request = client.post(echo_server.url).body_stream(stream).build_consumed()
         stream.request = request
 
     check()
