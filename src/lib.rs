@@ -1,6 +1,7 @@
 mod allow_threads;
 mod asyncio;
 mod client;
+mod cookie;
 mod exceptions;
 mod http;
 mod middleware;

@@ -2,6 +2,7 @@ use crate::client::client::{BaseClient, BlockingClient};
 use crate::client::connection_limiter::ConnectionLimiter;
 use crate::client::runtime::Runtime;
 use crate::client::{Client, Handle};
+use crate::cookie::CookieStore;
 use crate::http::{HeaderMap, Url, UrlType};
 use crate::proxy::Proxy;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -11,6 +12,7 @@ use pyo3_bytes::PyBytes;
 use reqwest::redirect;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Default)]
@@ -83,6 +85,10 @@ impl BaseClientBuilder {
 
     fn cookie_store(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.cookie_store(enable)))
+    }
+
+    fn cookie_provider(slf: PyRefMut<'_, Self>, provider: Py<PyAny>) -> PyResult<PyRefMut<'_, Self>> {
+        Self::apply(slf, |builder| Ok(builder.cookie_provider(Arc::new(CookieStore::new(provider)))))
     }
 
     fn gzip(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {

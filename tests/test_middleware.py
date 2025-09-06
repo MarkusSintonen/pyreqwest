@@ -1,6 +1,6 @@
 import gc
 import weakref
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterable
 from contextvars import ContextVar
 
 import pytest
@@ -197,7 +197,7 @@ async def test_stream_to_body_bytes(echo_server: EchoServer) -> None:
     async def stream_to_body(request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         stream = request.body.get_stream()
-        assert stream is not None
+        assert isinstance(stream, AsyncIterable)
 
         body_parts = [bytes(part).decode() async for part in stream]
 
@@ -216,7 +216,7 @@ async def test_stream_modify_body(echo_server: EchoServer) -> None:
     async def modify_stream(request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         stream = request.body.get_stream()
-        assert stream is not None
+        assert isinstance(stream, AsyncIterable)
 
         async def stream_gen2() -> AsyncGenerator[bytes]:
             async for part in stream:
@@ -239,7 +239,7 @@ async def test_stream_context_var(echo_server: EchoServer) -> None:
     async def modify_stream(request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         stream = request.body.get_stream()
-        assert stream is not None
+        assert isinstance(stream, AsyncIterable)
 
         async def stream_gen2() -> AsyncGenerator[bytes]:
             assert ctx_var.get() == "val1"
