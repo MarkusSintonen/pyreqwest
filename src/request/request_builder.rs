@@ -84,7 +84,7 @@ impl BaseRequestBuilder {
         Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
     }
 
-    fn headers(slf: PyRefMut<'_, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
+    fn headers(slf: PyRefMut<'_, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 
@@ -98,7 +98,7 @@ impl BaseRequestBuilder {
 
     fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<RequestBody>>) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
-        slf.body = body.map(|v| v.try_borrow_mut()?.take_inner()).transpose()?;
+        slf.body = body.map(|v| v.get().take_inner()).transpose()?;
         Ok(slf)
     }
 

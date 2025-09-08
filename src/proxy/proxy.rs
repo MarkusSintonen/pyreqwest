@@ -58,7 +58,7 @@ impl Proxy {
         Self::apply(slf, |builder| Ok(builder.custom_http_auth(header_value.0)))
     }
 
-    fn headers(slf: PyRefMut<'_, Self>, mut headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
+    fn headers(slf: PyRefMut<'_, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
         Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 

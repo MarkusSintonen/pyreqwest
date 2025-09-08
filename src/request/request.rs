@@ -15,7 +15,7 @@ pub struct Request {
     inner: Option<reqwest::Request>,
     spawner: Spawner,
     body: Option<ReqBody>,
-    py_headers: Option<Py<HeaderMap>>,
+    headers: Option<ReqHeaders>,
     extensions: Option<Extensions>,
     middlewares_next: Option<NextInner>,
     error_for_status: bool,
@@ -48,16 +48,23 @@ impl Request {
 
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
-        if self.py_headers.is_none() {
+        if self.headers.is_none() {
             let headers = HeaderMap::from(self.inner_ref()?.headers().clone());
-            self.py_headers = Some(Py::new(py, headers)?);
+            self.headers = Some(ReqHeaders::PyHeaders(Py::new(py, headers)?));
         }
-        Ok(self.py_headers.as_ref().unwrap())
+        if let Some(ReqHeaders::Headers(h)) = &self.headers {
+            let py_headers = Py::new(py, HeaderMap::from(h.try_take_inner()?))?;
+            self.headers = Some(ReqHeaders::PyHeaders(py_headers.clone_ref(py)));
+        }
+        match self.headers.as_ref() {
+            Some(ReqHeaders::PyHeaders(h)) => Ok(h),
+            _ => unreachable!(),
+        }
     }
 
     #[setter]
     fn set_headers(&mut self, py: Python, value: HeaderMap) -> PyResult<()> {
-        self.py_headers = Some(value.into_pyobject(py)?.unbind());
+        self.headers = Some(ReqHeaders::PyHeaders(Py::new(py, value)?));
         Ok(())
     }
 
@@ -129,7 +136,9 @@ impl Request {
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.py_headers)?;
+        if let Some(ReqHeaders::PyHeaders(py_headers)) = &self.headers {
+            visit.call(py_headers)?;
+        }
         if let Some(extensions) = &self.extensions {
             visit.call(&extensions.0)?;
         }
@@ -147,7 +156,7 @@ impl Request {
     fn __clear__(&mut self) {
         self.inner = None;
         self.body = None;
-        self.py_headers = None;
+        self.headers = None;
         self.extensions = None;
         self.middlewares_next = None;
     }
@@ -167,7 +176,7 @@ impl Request {
             spawner,
             extensions,
             body: body.map(ReqBody::Body),
-            py_headers: None,
+            headers: None,
             middlewares_next,
             error_for_status,
             body_consume_config,
@@ -177,7 +186,7 @@ impl Request {
     pub async fn send_inner(py_request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
         let (middlewares_next, error_for_status) = Python::attach(|py| {
             let mut this = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
-            this.body_set_task_local(py)?;
+            this.body_set_task_local()?;
 
             Ok::<_, PyErr>((this.middlewares_next.take().map(|m| Next::new(m, py)).transpose()?, this.error_for_status))
         })?;
@@ -198,7 +207,7 @@ impl Request {
     pub fn blocking_send_inner(py_request: &Py<PyAny>) -> PyResult<Py<BlockingResponse>> {
         let (middlewares_next, error_for_status) = Python::attach(|py| {
             let mut this = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
-            this.body_set_task_local(py)?;
+            this.body_set_task_local()?;
 
             Ok::<_, PyErr>((this.middlewares_next.take().map(BlockingNext::new).transpose()?, this.error_for_status))
         })?;
@@ -215,10 +224,10 @@ impl Request {
         }
     }
 
-    fn body_set_task_local(&mut self, py: Python) -> PyResult<()> {
-        match self.body.as_mut() {
+    fn body_set_task_local(&self) -> PyResult<()> {
+        match self.body.as_ref() {
             Some(ReqBody::Body(body)) => body.set_task_local(),
-            Some(ReqBody::PyBody(py_body)) => py_body.borrow_mut(py).set_task_local(),
+            Some(ReqBody::PyBody(py_body)) => py_body.get().set_task_local(),
             None => Ok(()),
         }
     }
@@ -239,17 +248,24 @@ impl Request {
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Request was already sent"))?;
 
-            if let Some(py_headers) = this.py_headers.as_ref() {
-                *request.headers_mut() = py_headers.try_borrow_mut(py)?.try_take_inner()?;
+            match this.headers.as_ref() {
+                Some(ReqHeaders::Headers(h)) => {
+                    *request.headers_mut() = h.try_take_inner()?;
+                    this.headers = None;
+                }
+                Some(ReqHeaders::PyHeaders(py_headers)) => {
+                    *request.headers_mut() = py_headers.get().try_take_inner()?;
+                }
+                None => {}
             }
 
             match this.body.take() {
-                Some(ReqBody::Body(mut body)) => {
+                Some(ReqBody::Body(body)) => {
                     body.set_task_local()?;
                     *request.body_mut() = Some(body.into_reqwest()?)
                 }
                 Some(ReqBody::PyBody(py_body)) => {
-                    let mut py_body = py_body.try_borrow_mut(py)?;
+                    let py_body = py_body.get();
                     py_body.set_task_local()?;
                     *request.body_mut() = Some(py_body.into_reqwest()?)
                 }
@@ -275,22 +291,22 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
 
         let body = match self.body.as_ref() {
-            Some(ReqBody::Body(body)) => Some(body.try_clone()?),
-            Some(ReqBody::PyBody(py_body)) => Some(Python::attach(|py| py_body.try_borrow(py)?.try_clone())?),
+            Some(ReqBody::Body(body)) => Some(body.try_clone(py)?),
+            Some(ReqBody::PyBody(py_body)) => Some(Python::attach(|py| py_body.get().try_clone(py))?),
             None => None,
         };
 
-        let py_headers = self
-            .py_headers
-            .as_ref()
-            .map(|h| Py::new(py, h.try_borrow(py)?.try_clone()?))
-            .transpose()?;
+        let headers = match self.headers.as_ref() {
+            Some(ReqHeaders::Headers(h)) => Some(ReqHeaders::Headers(h.try_clone()?)),
+            Some(ReqHeaders::PyHeaders(py_headers)) => Some(ReqHeaders::Headers(py_headers.get().try_clone()?)),
+            None => None,
+        };
 
         Ok(Request {
             inner: Some(new_inner),
             spawner: self.spawner.clone(),
             body: body.map(ReqBody::Body),
-            py_headers,
+            headers,
             extensions: self.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
             middlewares_next: self
                 .middlewares_next
@@ -321,19 +337,19 @@ impl Request {
             .try_clone()
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
 
-        let body = body.map(|b| b.try_borrow_mut()?.take_inner()).transpose()?;
+        let body = body.map(|b| b.get().take_inner()).transpose()?;
 
-        let py_headers = this
-            .py_headers
-            .as_ref()
-            .map(|h| Py::new(py, h.try_borrow(py)?.try_clone()?))
-            .transpose()?;
+        let headers = match this.headers.as_ref() {
+            Some(ReqHeaders::Headers(h)) => Some(ReqHeaders::Headers(h.try_clone()?)),
+            Some(ReqHeaders::PyHeaders(py_headers)) => Some(ReqHeaders::Headers(py_headers.get().try_clone()?)),
+            None => None,
+        };
 
         Ok(Request {
             inner: Some(new_inner),
             spawner: this.spawner.clone(),
             body: body.map(ReqBody::Body),
-            py_headers,
+            headers,
             extensions: this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
             middlewares_next: this
                 .middlewares_next
@@ -386,6 +402,11 @@ impl Request {
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
     }
+}
+
+enum ReqHeaders {
+    Headers(HeaderMap),
+    PyHeaders(Py<HeaderMap>), // In Python heap
 }
 
 enum ReqBody {

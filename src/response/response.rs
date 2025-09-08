@@ -239,9 +239,7 @@ impl BaseResponse {
     fn get_header_inner(&self, name: &str) -> PyResult<Option<HeaderValue>> {
         match self.headers {
             Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
-            Some(RespHeaders::PyHeaders(ref py_headers)) => {
-                Python::attach(|py| py_headers.try_borrow(py)?.get_one(name))
-            }
+            Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.get().get_one(name),
             None => Err(PyRuntimeError::new_err("Expected headers")),
         }
     }
@@ -249,9 +247,7 @@ impl BaseResponse {
     fn get_header_all_inner(&self, name: &str) -> PyResult<Vec<HeaderValue>> {
         match self.headers {
             Some(RespHeaders::Headers(ref headers)) => headers.get_all(name),
-            Some(RespHeaders::PyHeaders(ref py_headers)) => {
-                Python::attach(|py| py_headers.try_borrow(py)?.get_all(name))
-            }
+            Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.get().get_all(name),
             None => Err(PyRuntimeError::new_err("Expected headers")),
         }
     }

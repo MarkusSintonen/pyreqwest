@@ -10,7 +10,7 @@ use pyo3::{IntoPyObjectExt, intern};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct HeaderMap(Arc<Mutex<Inner>>);
 pub struct Inner {
     map: Option<http::HeaderMap>,
@@ -20,11 +20,13 @@ impl HeaderMap {
     #[new]
     #[pyo3(signature = (other=None))]
     fn new_py(other: Option<KeyValPairs>) -> PyResult<Self> {
-        let mut inner = http::HeaderMap::new();
         if let Some(other) = other {
+            let mut inner = http::HeaderMap::with_capacity(other.len()?);
             HeaderMap::extend_inner(&mut inner, other)?;
+            Ok(HeaderMap::from(inner))
+        } else {
+            Ok(HeaderMap::from(http::HeaderMap::new()))
         }
-        Ok(HeaderMap::from(inner))
     }
 
     // MutableMapping methods
@@ -36,7 +38,7 @@ impl HeaderMap {
         })
     }
 
-    fn __setitem__(&mut self, key: HeaderName, value: HeaderValue) -> PyResult<()> {
+    fn __setitem__(&self, key: HeaderName, value: HeaderValue) -> PyResult<()> {
         self.mut_map(|map| {
             map.try_insert(key.0, value.0)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
@@ -44,7 +46,7 @@ impl HeaderMap {
         })
     }
 
-    fn __delitem__(&mut self, key: &str) -> PyResult<()> {
+    fn __delitem__(&self, key: &str) -> PyResult<()> {
         let key = match http::HeaderName::try_from(key) {
             Ok(name) => name,
             Err(_) => return Err(PyKeyError::new_err(key.to_string())), // Invalid key, can not be present in map
@@ -99,7 +101,7 @@ impl HeaderMap {
     fn __eq__(&self, py: Python, other: Bound<PyAny>) -> PyResult<bool> {
         self.ref_map(|map| {
             if let Ok(other) = other.downcast_exact::<HeaderMap>() {
-                return other.try_borrow()?.ref_map(|other| Ok(map == other));
+                other.get().ref_map(|other| Ok(map == other))
             } else if let Ok(other) = other.extract::<HeaderMap>() {
                 other.ref_map(|other| Ok(map == other))
             } else {
@@ -113,7 +115,7 @@ impl HeaderMap {
     }
 
     #[pyo3(signature = (key, default=PopArg::NotPresent(ellipsis())))]
-    fn pop<'py>(&mut self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
+    fn pop<'py>(&self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
         let key = match http::HeaderName::try_from(key) {
             Ok(name) => name,
             Err(_) => return default.res(key.to_string()), // Invalid key, can not be present in map
@@ -121,7 +123,7 @@ impl HeaderMap {
         self.mut_map(|map| Self::pop_inner(map, py, &key, default))
     }
 
-    fn popitem<'py>(&mut self, py: Python<'py>) -> PyResult<(HeaderName, Bound<'py, PyAny>)> {
+    fn popitem<'py>(&self, py: Python<'py>) -> PyResult<(HeaderName, Bound<'py, PyAny>)> {
         self.mut_map(|map| {
             let key = match map.iter().next() {
                 Some((key, _)) => Ok(key.clone()),
@@ -132,7 +134,7 @@ impl HeaderMap {
         })
     }
 
-    fn clear(&mut self) -> PyResult<()> {
+    fn clear(&self) -> PyResult<()> {
         self.mut_map(|map| {
             map.clear();
             Ok(())
@@ -140,7 +142,7 @@ impl HeaderMap {
     }
 
     #[pyo3(signature = (other=None, **py_kwargs))]
-    fn update(&mut self, other: Option<KeyValPairs>, py_kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
+    fn update(&self, other: Option<KeyValPairs>, py_kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
         fn insert(map: &mut http::HeaderMap, k: HeaderName, v: HeaderValue) -> PyResult<()> {
             map.try_insert(k.0, v.0)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
@@ -161,7 +163,7 @@ impl HeaderMap {
         })
     }
 
-    fn setdefault(&mut self, key: HeaderName, default: HeaderValue) -> PyResult<HeaderValue> {
+    fn setdefault(&self, key: HeaderName, default: HeaderValue) -> PyResult<HeaderValue> {
         self.mut_map(|map| match map.try_entry(key.0) {
             Ok(Entry::Occupied(entry)) => Ok(HeaderValue(entry.get().clone())),
             Ok(Entry::Vacant(entry)) => {
@@ -189,7 +191,7 @@ impl HeaderMap {
     }
 
     #[pyo3(signature = (key, value, *, is_sensitive=false))]
-    fn insert(&mut self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<Vec<HeaderValue>> {
+    fn insert(&self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<Vec<HeaderValue>> {
         let mut value = value.0;
         value.set_sensitive(is_sensitive);
 
@@ -204,7 +206,7 @@ impl HeaderMap {
     }
 
     #[pyo3(signature = (key, value, *, is_sensitive=false))]
-    fn append(&mut self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<bool> {
+    fn append(&self, key: HeaderName, value: HeaderValue, is_sensitive: bool) -> PyResult<bool> {
         let mut value = value.0;
         value.set_sensitive(is_sensitive);
 
@@ -214,12 +216,12 @@ impl HeaderMap {
         })
     }
 
-    fn extend(&mut self, other: KeyValPairs) -> PyResult<()> {
+    fn extend(&self, other: KeyValPairs) -> PyResult<()> {
         self.mut_map(|map| HeaderMap::extend_inner(map, other))
     }
 
     #[pyo3(signature = (key, default=PopArg::NotPresent(ellipsis())))]
-    fn popall<'py>(&mut self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
+    fn popall<'py>(&self, py: Python<'py>, key: &str, default: PopArg<'py>) -> PyResult<Bound<'py, PyAny>> {
         let key = match http::HeaderName::try_from(key) {
             Ok(name) => name,
             Err(_) => return default.res(key.to_string()), // Invalid key, can not be present in map
@@ -288,7 +290,7 @@ impl HeaderMap {
         self.ref_map(|map| Ok(map.clone()))
     }
 
-    pub fn try_take_inner(&mut self) -> PyResult<http::HeaderMap> {
+    pub fn try_take_inner(&self) -> PyResult<http::HeaderMap> {
         let mut inner = self.0.lock().unwrap();
         inner
             .map
@@ -362,7 +364,7 @@ impl HeaderMap {
         })
     }
 
-    pub fn extend_into_inner(mut self, map: &mut http::HeaderMap) -> PyResult<()> {
+    pub fn extend_into_inner(self, map: &mut http::HeaderMap) -> PyResult<()> {
         let mut prev_k: Option<http::HeaderName> = None;
         for (k, v) in self.try_take_inner()? {
             match k {
@@ -428,7 +430,7 @@ impl<'py> PopArg<'py> {
 impl<'py> FromPyObject<'py> for HeaderMap {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         if let Ok(map) = ob.downcast_exact::<HeaderMap>() {
-            Ok(map.try_borrow()?.try_clone()?)
+            Ok(map.get().try_clone()?)
         } else {
             Ok(HeaderMap::new_py(Some(ob.extract::<KeyValPairs>()?))?)
         }

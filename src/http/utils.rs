@@ -45,7 +45,7 @@ impl<'py> KeyValPairs<'py> {
         Ok(res)
     }
 
-    fn len(&self) -> PyResult<usize> {
+    pub fn len(&self) -> PyResult<usize> {
         match self {
             KeyValPairs::Mapping(v) => v.len(),
             KeyValPairs::List(v) => Ok(v.len()),

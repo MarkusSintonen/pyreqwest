@@ -53,8 +53,8 @@ impl BaseResponseBuilder {
         slf
     }
 
-    fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<RequestBody>>) -> PyResult<PyRefMut<'py, Self>> {
-        slf.body = body.map(|v| v.try_borrow_mut()?.take_inner()).transpose()?;
+    fn body(mut slf: PyRefMut<'_, Self>, body: Option<Py<RequestBody>>) -> PyResult<PyRefMut<'_, Self>> {
+        slf.body = body.map(|v| v.get().take_inner()).transpose()?;
         Ok(slf)
     }
 
@@ -116,7 +116,7 @@ impl BaseResponseBuilder {
         let body: reqwest::Body = self
             .body
             .take()
-            .map(|mut b| {
+            .map(|b| {
                 b.set_task_local()?;
                 b.into_reqwest()
             })

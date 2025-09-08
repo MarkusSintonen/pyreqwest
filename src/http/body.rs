@@ -8,51 +8,52 @@ use pyo3::types::PyEllipsis;
 use pyo3::{PyTraverseError, PyVisit, intern};
 use pyo3_bytes::PyBytes;
 use std::pin::Pin;
+use std::sync::{Mutex, MutexGuard};
 use std::task::{Context, Poll};
 
-#[pyclass]
-pub struct RequestBody(Option<InnerBody>);
+#[pyclass(frozen)]
+pub struct RequestBody(Mutex<Option<InnerBody>>);
 
 #[pymethods]
 impl RequestBody {
     #[staticmethod]
     pub fn from_text(body: String) -> Self {
-        Self(Some(InnerBody::Bytes(body.into())))
+        Self::new(InnerBody::Bytes(body.into()))
     }
 
     #[staticmethod]
     pub fn from_bytes(body: PyBytes) -> Self {
-        Self(Some(InnerBody::Bytes(body.into_inner())))
+        Self::new(InnerBody::Bytes(body.into_inner()))
     }
 
     #[staticmethod]
     pub fn from_stream(stream: Bound<PyAny>) -> PyResult<Self> {
-        Ok(Self(Some(InnerBody::Stream(BodyStream::new(stream)?))))
+        Ok(Self::new(InnerBody::Stream(BodyStream::new(stream)?)))
     }
 
     fn copy_bytes(&self) -> PyResult<Option<PyBytes>> {
-        match self.0.as_ref() {
+        match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(bytes)) => Ok(Some(PyBytes::from(bytes.clone()))),
             Some(InnerBody::Stream(_)) => Ok(None),
             None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
 
-    fn get_stream(&self) -> PyResult<Option<&Py<PyAny>>> {
-        match self.0.as_ref() {
+    fn get_stream(&self, py: Python) -> PyResult<Option<Py<PyAny>>> {
+        match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(_)) => Ok(None),
-            Some(InnerBody::Stream(stream)) => Ok(Some(stream.get_stream()?)),
+            Some(InnerBody::Stream(stream)) => Ok(Some(stream.get_stream()?.clone_ref(py))),
             None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
 
-    fn __copy__(&self) -> PyResult<Self> {
-        self.try_clone()
+    fn __copy__(&self, py: Python) -> PyResult<Self> {
+        self.try_clone(py)
     }
 
     pub fn __repr__(&self, py: Python) -> PyResult<String> {
         let type_name = py.get_type::<Self>().name()?;
-        match &self.0 {
+        match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(bytes)) => Ok(format!("{}(len={})", type_name, bytes.len())),
             Some(InnerBody::Stream(stream)) => {
                 let stream_repr = stream.get_stream()?.bind(py).repr()?;
@@ -63,41 +64,44 @@ impl RequestBody {
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        match &self.0 {
+        let Ok(inner) = self.lock() else {
+            return Ok(());
+        };
+        match inner.as_ref() {
             Some(InnerBody::Bytes(_)) => Ok(()),
             Some(InnerBody::Stream(stream)) => stream.__traverse__(visit),
             None => Ok(()),
         }
     }
-
-    pub fn __clear__(&mut self) {
-        self.0 = None;
-    }
 }
 impl RequestBody {
-    pub fn try_clone(&self) -> PyResult<Self> {
-        let body = match &self.0 {
+    fn new(body: InnerBody) -> Self {
+        Self(Mutex::new(Some(body)))
+    }
+
+    pub fn try_clone(&self, py: Python) -> PyResult<Self> {
+        let body = match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(bytes)) => InnerBody::Bytes(bytes.clone()),
-            Some(InnerBody::Stream(stream)) => InnerBody::Stream(Python::attach(|py| stream.try_clone(py))?),
+            Some(InnerBody::Stream(stream)) => InnerBody::Stream(stream.try_clone(py)?),
             None => return Err(PyRuntimeError::new_err("RequestBody already consumed")),
         };
-        Ok(Self(Some(body)))
+        Ok(Self::new(body))
     }
 
-    pub fn take_inner(&mut self) -> PyResult<Self> {
-        Ok(Self(Some(
-            self.0
+    pub fn take_inner(&self) -> PyResult<Self> {
+        Ok(Self::new(
+            self.lock()?
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("RequestBody already consumed"))?,
-        )))
+        ))
     }
 
-    pub fn py_body(&mut self, py: Python) -> PyResult<Py<Self>> {
+    pub fn py_body(&self, py: Python) -> PyResult<Py<Self>> {
         Py::new(py, self.take_inner()?)
     }
 
-    pub fn set_task_local(&mut self) -> PyResult<()> {
-        match self.0.as_mut() {
+    pub fn set_task_local(&self) -> PyResult<()> {
+        match self.lock()?.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
             Some(InnerBody::Stream(stream)) => stream.set_task_local(),
             None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
@@ -105,17 +109,23 @@ impl RequestBody {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    pub fn into_reqwest(&mut self) -> PyResult<reqwest::Body> {
-        match self.0.take() {
+    pub fn into_reqwest(&self) -> PyResult<reqwest::Body> {
+        match self.lock()?.take() {
             Some(InnerBody::Bytes(bytes)) => Ok(reqwest::Body::from(bytes)),
             Some(InnerBody::Stream(stream)) => stream.into_reqwest(),
             None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
+
+    fn lock(&self) -> PyResult<MutexGuard<'_, Option<InnerBody>>> {
+        self.0
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("RequestBody mutex poisoned"))
+    }
 }
 impl From<Bytes> for RequestBody {
     fn from(bytes: Bytes) -> Self {
-        Self(Some(InnerBody::Bytes(bytes)))
+        Self::new(InnerBody::Bytes(bytes))
     }
 }
 
