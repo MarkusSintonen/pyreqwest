@@ -105,14 +105,6 @@ impl Cookie {
         self.0.expires_datetime()
     }
 
-    fn name_value(&self) -> (&str, &str) {
-        self.0.name_value()
-    }
-
-    fn name_value_trimmed(&self) -> (&str, &str) {
-        self.0.name_value_trimmed()
-    }
-
     fn encode(&self) -> String {
         self.0.encoded().to_string()
     }

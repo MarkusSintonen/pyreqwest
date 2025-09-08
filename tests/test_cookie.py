@@ -12,6 +12,7 @@ def client_builder() -> ClientBuilder:
 
 
 async def test_cookie_provider(echo_server: EchoServer):
+    assert echo_server.url.host_str
     store = CookieStore()
 
     async with client_builder().cookie_provider(store).build() as client:
@@ -64,8 +65,6 @@ def test_cookie_attrs():
     assert c.same_site == "Strict"
     assert c.expires_datetime == datetime(2025, 6, 9, 10, 18, 14, tzinfo=UTC)
     assert c.max_age == timedelta(hours=1)
-    assert c.name_value() == ("key", "val")
-    assert c.name_value_trimmed() == ("key", "val")
     assert c.stripped() == "key=val"
     assert Cookie.parse("key=val").expires_datetime is None
 
