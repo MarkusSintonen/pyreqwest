@@ -47,8 +47,8 @@ impl RequestBody {
         }
     }
 
-    fn __copy__(&self, py: Python) -> PyResult<Self> {
-        self.try_clone(py)
+    fn __copy__(&self) -> PyResult<Self> {
+        self.try_clone()
     }
 
     pub fn __repr__(&self, py: Python) -> PyResult<String> {
@@ -79,10 +79,10 @@ impl RequestBody {
         Self(Mutex::new(Some(body)))
     }
 
-    pub fn try_clone(&self, py: Python) -> PyResult<Self> {
+    pub fn try_clone(&self) -> PyResult<Self> {
         let body = match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(bytes)) => InnerBody::Bytes(bytes.clone()),
-            Some(InnerBody::Stream(stream)) => InnerBody::Stream(stream.try_clone(py)?),
+            Some(InnerBody::Stream(stream)) => InnerBody::Stream(Python::attach(|py| stream.try_clone(py))?),
             None => return Err(PyRuntimeError::new_err("RequestBody already consumed")),
         };
         Ok(Self::new(body))
@@ -94,10 +94,6 @@ impl RequestBody {
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("RequestBody already consumed"))?,
         ))
-    }
-
-    pub fn py_body(&self, py: Python) -> PyResult<Py<Self>> {
-        Py::new(py, self.take_inner()?)
     }
 
     pub fn set_task_local(&self) -> PyResult<()> {

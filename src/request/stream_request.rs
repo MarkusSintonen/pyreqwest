@@ -48,7 +48,7 @@ impl StreamRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+        Self::new_py(py, slf.as_super().try_clone_inner()?)
     }
 
     #[classmethod]
@@ -58,7 +58,7 @@ impl StreamRequest {
         request: Bound<PyAny>,
         body: Option<Bound<RequestBody>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
+        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -96,7 +96,7 @@ impl BlockingStreamRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+        Self::new_py(py, slf.as_super().try_clone_inner()?)
     }
 
     #[classmethod]
@@ -106,7 +106,7 @@ impl BlockingStreamRequest {
         request: Bound<PyAny>,
         body: Option<Bound<RequestBody>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
+        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {

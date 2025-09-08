@@ -88,9 +88,9 @@ impl Request {
     }
 
     #[getter]
-    fn get_extensions(&mut self) -> &Py<PyDict> {
+    fn get_extensions(&mut self, py: Python) -> &Py<PyDict> {
         if self.extensions.is_none() {
-            self.extensions = Some(Extensions(Python::attach(|py| PyDict::new(py).unbind())));
+            self.extensions = Some(Extensions(PyDict::new(py).unbind()));
         }
         &self.extensions.as_ref().unwrap().0
     }
@@ -282,7 +282,7 @@ impl Request {
         })
     }
 
-    pub fn try_clone_inner(&self, py: Python) -> PyResult<Self> {
+    pub fn try_clone_inner(&self) -> PyResult<Self> {
         let new_inner = self
             .inner
             .as_ref()
@@ -291,8 +291,8 @@ impl Request {
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
 
         let body = match self.body.as_ref() {
-            Some(ReqBody::Body(body)) => Some(body.try_clone(py)?),
-            Some(ReqBody::PyBody(py_body)) => Some(Python::attach(|py| py_body.get().try_clone(py))?),
+            Some(ReqBody::Body(body)) => Some(body.try_clone()?),
+            Some(ReqBody::PyBody(py_body)) => Some(py_body.get().try_clone()?),
             None => None,
         };
 
@@ -307,12 +307,8 @@ impl Request {
             spawner: self.spawner.clone(),
             body: body.map(ReqBody::Body),
             headers,
-            extensions: self.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
-            middlewares_next: self
-                .middlewares_next
-                .as_ref()
-                .map(|next| next.clone_ref(py))
-                .transpose()?,
+            extensions: self.extensions.as_ref().map(|ext| ext.copy()).transpose()?,
+            middlewares_next: self.middlewares_next.as_ref().map(|next| next.clone_ref()),
             error_for_status: self.error_for_status,
             body_consume_config: self.body_consume_config,
         })
@@ -326,11 +322,7 @@ impl Request {
         &mut self.body_consume_config
     }
 
-    pub fn inner_from_request_and_body(
-        py: Python,
-        request: Bound<PyAny>,
-        body: Option<Bound<RequestBody>>,
-    ) -> PyResult<Self> {
+    pub fn inner_from_request_and_body(request: Bound<PyAny>, body: Option<Bound<RequestBody>>) -> PyResult<Self> {
         let this = request.downcast::<Request>()?.try_borrow()?;
         let new_inner = this
             .inner_ref()?
@@ -350,12 +342,8 @@ impl Request {
             spawner: this.spawner.clone(),
             body: body.map(ReqBody::Body),
             headers,
-            extensions: this.extensions.as_ref().map(|ext| ext.copy(py)).transpose()?,
-            middlewares_next: this
-                .middlewares_next
-                .as_ref()
-                .map(|next| next.clone_ref(py))
-                .transpose()?,
+            extensions: this.extensions.as_ref().map(|ext| ext.copy()).transpose()?,
+            middlewares_next: this.middlewares_next.as_ref().map(|next| next.clone_ref()),
             error_for_status: this.error_for_status,
             body_consume_config: this.body_consume_config,
         })

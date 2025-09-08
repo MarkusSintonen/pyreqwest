@@ -19,7 +19,7 @@ impl ConsumedRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+        Self::new_py(py, slf.as_super().try_clone_inner()?)
     }
 
     #[classmethod]
@@ -29,7 +29,7 @@ impl ConsumedRequest {
         request: Bound<PyAny>,
         body: Option<Bound<RequestBody>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
+        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 }
 impl ConsumedRequest {
@@ -45,7 +45,7 @@ impl BlockingConsumedRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+        Self::new_py(py, slf.as_super().try_clone_inner()?)
     }
 
     #[classmethod]
@@ -55,7 +55,7 @@ impl BlockingConsumedRequest {
         request: Bound<PyAny>,
         body: Option<Bound<RequestBody>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(py, request, body)?)
+        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 }
 impl BlockingConsumedRequest {

@@ -14,7 +14,7 @@ pub struct NextInner {
     override_middlewares: Option<Vec<Py<PyAny>>>,
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct Next {
     inner: NextInner,
     task_local: TaskLocal,
@@ -31,11 +31,6 @@ impl Next {
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.inner.__traverse__(&visit)?;
         self.task_local.__traverse__(&visit)
-    }
-
-    pub fn __clear__(&mut self) {
-        self.inner.__clear__();
-        self.task_local.__clear__();
     }
 }
 impl Next {
@@ -152,15 +147,17 @@ impl NextInner {
         Ok(())
     }
 
-    pub fn clone_ref(&self, py: Python) -> PyResult<Self> {
-        Ok(NextInner {
+    pub fn clone_ref(&self) -> Self {
+        let override_middlewares = self
+            .override_middlewares
+            .as_ref()
+            .map(|m| Python::attach(|py| m.iter().map(|v| v.clone_ref(py)).collect::<Vec<_>>()));
+
+        NextInner {
             middlewares: self.middlewares.clone(),
             current: self.current,
-            override_middlewares: self
-                .override_middlewares
-                .as_ref()
-                .map(|m| m.iter().map(|v| v.clone_ref(py)).collect()),
-        })
+            override_middlewares,
+        }
     }
 
     pub fn __traverse__(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {

@@ -150,7 +150,7 @@ impl BaseRequestBuilder {
 
     fn extensions(mut slf: PyRefMut<'_, Self>, extensions: Extensions) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
-        slf.extensions = Some(extensions.copy(slf.py())?);
+        slf.extensions = Some(extensions.copy()?);
         Ok(slf)
     }
 
