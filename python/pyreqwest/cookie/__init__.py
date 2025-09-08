@@ -1,1 +1,0 @@
-"""Cookie classes and types."""

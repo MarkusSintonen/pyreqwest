@@ -1,7 +1,6 @@
 mod allow_threads;
 mod asyncio;
 mod client;
-mod cookie;
 mod exceptions;
 mod http;
 mod middleware;
@@ -107,6 +106,18 @@ mod pyreqwest {
             register_collections_abc::<HeaderMapKeysView>(module.py(), "KeysView")?;
             register_collections_abc::<HeaderMapValuesView>(module.py(), "ValuesView")?;
             register_module_hack(module, "http")
+        }
+
+        #[pymodule]
+        mod cookie {
+            use super::*;
+            #[pymodule_export]
+            use crate::http::{Cookie, CookieBuilder, CookieStore};
+            #[pymodule_init]
+            fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+                register_collections_abc::<Cookie>(module.py(), "Sequence")?;
+                register_module_hack(module, "http.cookie")
+            }
         }
     }
 }
