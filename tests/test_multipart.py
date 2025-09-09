@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pyreqwest.client import BlockingClientBuilder, Client, ClientBuilder
 from pyreqwest.exceptions import BuilderError
-from pyreqwest.multipart import Form, Part
+from pyreqwest.multipart import FormBuilder, PartBuilder
 from requests_toolbelt import MultipartDecoder  # type: ignore[import-untyped]
 
 from .servers.server import Server
@@ -25,7 +25,7 @@ def decode_multipart(echo_response: dict[str, Any]) -> MultipartDecoder:
 
 
 async def test_multipart_text_fields(client: Client, echo_server: Server):
-    form = Form().text("name", "John").text("email", "john@example.com")
+    form = FormBuilder().text("name", "John").text("email", "john@example.com")
     boundary = form.boundary
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
 
@@ -42,9 +42,9 @@ async def test_multipart_text_fields(client: Client, echo_server: Server):
 
 
 async def test_multipart_with_custom_part(client: Client, echo_server: Server):
-    custom_part = Part.from_text("Custom content").mime_str("text/plain").file_name("custom.txt")
+    custom_part = PartBuilder.from_text("Custom content").mime_str("text/plain").file_name("custom.txt")
 
-    form = Form().text("description", "File upload test").part("file", custom_part)
+    form = FormBuilder().text("description", "File upload test").part("file", custom_part)
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
@@ -71,7 +71,7 @@ async def test_multipart_with_file_upload(echo_server: Server, file: str, req: s
         tmp.flush()
         tmp_path = Path(tmp.name)
 
-        form = Form().text("title", "File Upload Test")
+        form = FormBuilder().text("title", "File Upload Test")
         if file == "async":
             form = await form.file("document", tmp_path)
         else:
@@ -109,13 +109,13 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
         tmp.flush()
 
         if file == "async":
-            file_part = await Part.from_file(Path(tmp.name))
+            file_part = await PartBuilder.from_file(Path(tmp.name))
         else:
             assert file == "sync"
-            file_part = Part.blocking_from_file(Path(tmp.name))
+            file_part = PartBuilder.blocking_from_file(Path(tmp.name))
         file_part = file_part.mime_str("text/plain; charset=utf-8")
 
-        form = Form().text("description", "Using Part.file").part("attachment", file_part)
+        form = FormBuilder().text("description", "Using Part.file").part("attachment", file_part)
 
         if req == "async":
             async with ClientBuilder().error_for_status(True).build() as client:
@@ -144,9 +144,11 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server):
         yield b"First chunk"
         yield b" Second chunk"
 
-    stream_part = Part.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
+    stream_part = (
+        PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
+    )
 
-    form = Form().text("type", "streaming").part("data", stream_part)
+    form = FormBuilder().text("type", "streaming").part("data", stream_part)
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
@@ -165,8 +167,8 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server):
 
 async def test_multipart_with_bytes_part(client: Client, echo_server: Server):
     binary_data = b"Binary content \x00\x01\x02"
-    part = Part.from_bytes(binary_data).mime_str("application/octet-stream")
-    form = Form().text("type", "binary").part("data", part)
+    part = PartBuilder.from_bytes(binary_data).mime_str("application/octet-stream")
+    form = FormBuilder().text("type", "binary").part("data", part)
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
@@ -184,8 +186,8 @@ async def test_multipart_with_bytes_part(client: Client, echo_server: Server):
 
 async def test_multipart_with_headers(client: Client, echo_server: Server):
     headers = {"X-Custom-Header": "custom-value", "X-Test": "test"}
-    part = Part.from_text("content with headers").headers(headers)
-    form = Form().part("custom", part)
+    part = PartBuilder.from_text("content with headers").headers(headers)
+    form = FormBuilder().part("custom", part)
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
@@ -203,9 +205,9 @@ async def test_multipart_with_headers(client: Client, echo_server: Server):
 async def test_multipart_encoding_options(client: Client, echo_server: Server):
     special_value = "test/path?query=value&other=data"
 
-    form1 = Form().text("data", special_value).percent_encode_path_segment()
-    form2 = Form().text("data", special_value).percent_encode_attr_chars()
-    form3 = Form().text("data", special_value).percent_encode_noop()
+    form1 = FormBuilder().text("data", special_value).percent_encode_path_segment()
+    form2 = FormBuilder().text("data", special_value).percent_encode_attr_chars()
+    form3 = FormBuilder().text("data", special_value).percent_encode_noop()
 
     resp1 = await client.post(echo_server.url).multipart(form1).build_consumed().send()
     resp2 = await client.post(echo_server.url).multipart(form2).build_consumed().send()
@@ -229,7 +231,7 @@ async def test_multipart_encoding_options(client: Client, echo_server: Server):
 
 
 async def test_multipart_empty_form(client: Client, echo_server: Server):
-    form = Form()
+    form = FormBuilder()
     boundary = form.boundary
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
@@ -240,7 +242,7 @@ async def test_multipart_empty_form(client: Client, echo_server: Server):
 
 
 async def test_multipart_multiple_values_same_name(client: Client, echo_server: Server):
-    form = Form().text("tags", "python").text("tags", "async").text("tags", "http")
+    form = FormBuilder().text("tags", "python").text("tags", "async").text("tags", "http")
 
     resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
     response_data = await resp.json()
@@ -255,29 +257,29 @@ async def test_multipart_multiple_values_same_name(client: Client, echo_server: 
 
 
 async def test_multipart_with_body_conflict(client: Client, echo_server: Server):
-    form = Form().text("test", "value")
+    form = FormBuilder().text("test", "value")
 
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
         client.post(echo_server.url).multipart(form).body_text("conflict").build_consumed()
 
-    form2 = Form().text("test", "value")
+    form2 = FormBuilder().text("test", "value")
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
         client.post(echo_server.url).body_text("conflict").multipart(form2).build_consumed()
 
 
 async def test_multipart_boundary_uniqueness():
-    form = Form()
-    assert form.boundary != Form().boundary
+    form = FormBuilder()
+    assert form.boundary != FormBuilder().boundary
     assert form.boundary == form.boundary
 
 
 async def test_multipart_form_chaining():
-    form = Form()
+    form = FormBuilder()
     result = form.text("test", "value")
     assert result is form
 
 
 async def test_part_chaining():
-    part = Part.from_text("content")
+    part = PartBuilder.from_text("content")
     result = part.mime_str("text/plain").file_name("test.txt")
     assert result is part

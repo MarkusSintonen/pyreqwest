@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-#[pyclass(subclass)]
+#[pyclass(subclass, frozen)]
 pub struct BaseClient {
     client: reqwest::Client,
     base_url: Option<Url>,
@@ -24,10 +24,10 @@ pub struct BaseClient {
     close_cancellation: CancellationToken,
 }
 
-#[pyclass(extends=BaseClient)]
+#[pyclass(extends=BaseClient, frozen)]
 pub struct Client;
 
-#[pyclass(extends=BaseClient)]
+#[pyclass(extends=BaseClient, frozen)]
 pub struct BlockingClient;
 
 #[pymethods]
@@ -39,10 +39,6 @@ impl BaseClient {
             }
         }
         Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        self.middlewares = None;
     }
 }
 impl BaseClient {

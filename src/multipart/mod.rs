@@ -1,5 +1,5 @@
-mod form;
-mod part;
+mod form_builder;
+mod part_builder;
 
-pub use form::Form;
-pub use part::Part;
+pub use form_builder::FormBuilder;
+pub use part_builder::PartBuilder;

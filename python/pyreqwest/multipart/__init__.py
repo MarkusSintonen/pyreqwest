@@ -1,5 +1,5 @@
 """Multipart form data classes."""
 
-from pyreqwest._pyreqwest.multipart import Form, Part
+from pyreqwest._pyreqwest.multipart import FormBuilder, PartBuilder
 
-__all__ = ["Form", "Part"]
+__all__ = ["FormBuilder", "PartBuilder"]

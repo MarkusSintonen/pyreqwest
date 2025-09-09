@@ -6,7 +6,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyList, PySet, PyString};
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct HeaderMapItemsView(HeaderMap);
 #[pymethods]
 impl HeaderMapItemsView {
@@ -113,7 +113,7 @@ impl HeaderMapItemsView {
     }
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct HeaderMapKeysView(HeaderMap);
 #[pymethods]
 impl HeaderMapKeysView {
@@ -194,7 +194,7 @@ impl HeaderMapKeysView {
     }
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct HeaderMapValuesView(HeaderMap);
 #[pymethods]
 impl HeaderMapValuesView {

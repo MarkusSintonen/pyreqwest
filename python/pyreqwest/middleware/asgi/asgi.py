@@ -1,7 +1,7 @@
 """ASGI middleware."""
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, MutableMapping
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Coroutine, MutableMapping
 from datetime import timedelta
 from typing import Any, Self
 from urllib.parse import unquote
@@ -118,6 +118,7 @@ class ASGITestMiddleware:
             return
 
         if (stream := request.body.get_stream()) is not None:
+            assert isinstance(stream, AsyncIterable)
             body_parts = [bytes(chunk) async for chunk in stream]
             if not body_parts:
                 yield {"type": "http.request", "body": b"", "more_body": False}

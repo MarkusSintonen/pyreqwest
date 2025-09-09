@@ -8,11 +8,11 @@ use pyo3_bytes::PyBytes;
 use std::path::PathBuf;
 
 #[pyclass]
-pub struct Part {
+pub struct PartBuilder {
     inner: Option<reqwest::multipart::Part>,
 }
 #[pymethods]
-impl Part {
+impl PartBuilder {
     #[staticmethod]
     fn from_text(py: Python, value: String) -> Self {
         py.detach(|| reqwest::multipart::Part::text(value).into())
@@ -62,7 +62,13 @@ impl Part {
         Self::apply(slf, |builder| Ok(builder.headers(headers.try_take_inner()?)))
     }
 }
-impl Part {
+impl PartBuilder {
+    pub fn build(&mut self) -> PyResult<reqwest::multipart::Part> {
+        self.inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Part was already consumed"))
+    }
+
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::multipart::Part) -> PyResult<reqwest::multipart::Part>,
@@ -75,15 +81,9 @@ impl Part {
         slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
     }
-
-    pub fn take_inner(&mut self) -> PyResult<reqwest::multipart::Part> {
-        self.inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Part was already consumed"))
-    }
 }
-impl From<reqwest::multipart::Part> for Part {
+impl From<reqwest::multipart::Part> for PartBuilder {
     fn from(part: reqwest::multipart::Part) -> Self {
-        Part { inner: Some(part) }
+        PartBuilder { inner: Some(part) }
     }
 }

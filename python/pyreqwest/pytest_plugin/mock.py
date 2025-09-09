@@ -1,7 +1,7 @@
 """Module providing HTTP request mocking capabilities for pyreqwest clients in tests."""
 
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterable, Callable
 from functools import cached_property
 from re import Pattern
 from typing import Any, Literal, Self, assert_never
@@ -328,6 +328,7 @@ class ClientMocker:
     def _create_middleware(self) -> Middleware:
         async def mock_middleware(request: Request, next_handler: Next) -> Response:
             if request.body is not None and (stream := request.body.get_stream()) is not None:
+                assert isinstance(stream, AsyncIterable)
                 body = [bytes(chunk) async for chunk in stream]  # Read the body stream into bytes
                 request = request.from_request_and_body(request, RequestBody.from_bytes(b"".join(body)))
 

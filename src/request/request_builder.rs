@@ -2,7 +2,7 @@ use crate::client::Spawner;
 use crate::exceptions::BuilderError;
 use crate::http::{Extensions, FormParams, HeaderMap, HeaderName, HeaderValue, JsonValue, QueryParams, RequestBody};
 use crate::middleware::NextInner;
-use crate::multipart::Form;
+use crate::multipart::FormBuilder;
 use crate::request::Request;
 use crate::request::consumed_request::{BlockingConsumedRequest, ConsumedRequest};
 use crate::request::stream_request::{BlockingStreamRequest, StreamRequest};
@@ -133,7 +133,7 @@ impl BaseRequestBuilder {
         Self::apply(slf, |builder| Ok(builder.timeout(timeout)))
     }
 
-    fn multipart<'py>(slf: PyRefMut<'py, Self>, multipart: Bound<'_, Form>) -> PyResult<PyRefMut<'py, Self>> {
+    fn multipart<'py>(slf: PyRefMut<'py, Self>, multipart: Bound<'_, FormBuilder>) -> PyResult<PyRefMut<'py, Self>> {
         let multipart = multipart.try_borrow_mut()?.build()?;
         Self::apply(slf, |builder| Ok(builder.multipart(multipart)))
     }

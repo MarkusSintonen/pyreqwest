@@ -26,7 +26,7 @@ mod pyreqwest {
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module_hack(module, "client")
+            register_module(module, "client")
         }
     }
 
@@ -40,7 +40,7 @@ mod pyreqwest {
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module_hack(module, "request")
+            register_module(module, "request")
         }
     }
 
@@ -53,7 +53,7 @@ mod pyreqwest {
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module_hack(module, "response")
+            register_module(module, "response")
         }
     }
 
@@ -64,7 +64,7 @@ mod pyreqwest {
         use crate::middleware::{BlockingNext, Next};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module_hack(module, "middleware")
+            register_module(module, "middleware")
         }
     }
 
@@ -75,7 +75,7 @@ mod pyreqwest {
         use crate::proxy::ProxyBuilder;
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module_hack(module, "proxy")
+            register_module(module, "proxy")
         }
     }
 
@@ -83,10 +83,10 @@ mod pyreqwest {
     mod multipart {
         use super::*;
         #[pymodule_export]
-        use crate::multipart::{Form, Part};
+        use crate::multipart::{FormBuilder, PartBuilder};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module_hack(module, "multipart")
+            register_module(module, "multipart")
         }
     }
 
@@ -105,7 +105,7 @@ mod pyreqwest {
             register_collections_abc::<HeaderMapItemsView>(module.py(), "ItemsView")?;
             register_collections_abc::<HeaderMapKeysView>(module.py(), "KeysView")?;
             register_collections_abc::<HeaderMapValuesView>(module.py(), "ValuesView")?;
-            register_module_hack(module, "http")
+            register_module(module, "http")
         }
 
         #[pymodule]
@@ -116,7 +116,7 @@ mod pyreqwest {
             #[pymodule_init]
             fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
                 register_collections_abc::<Cookie>(module.py(), "Sequence")?;
-                register_module_hack(module, "http.cookie")
+                register_module(module, "http.cookie")
             }
         }
     }
@@ -131,7 +131,7 @@ fn register_collections_abc<T: PyTypeInfo>(py: Python, base: &str) -> PyResult<(
 }
 
 // https://github.com/PyO3/pyo3/issues/759
-fn register_module_hack(module: &Bound<'_, PyModule>, name: &str) -> PyResult<()> {
+fn register_module(module: &Bound<'_, PyModule>, name: &str) -> PyResult<()> {
     module
         .py()
         .import("sys")?

@@ -1,20 +1,20 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::Handle;
-use crate::multipart::Part;
+use crate::multipart::PartBuilder;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use std::path::PathBuf;
 
 #[pyclass]
-pub struct Form {
+pub struct FormBuilder {
     inner: Option<reqwest::multipart::Form>,
 }
 #[pymethods]
-impl Form {
+impl FormBuilder {
     #[new]
     fn new() -> Self {
-        Form {
+        FormBuilder {
             inner: Some(reqwest::multipart::Form::new()),
         }
     }
@@ -47,8 +47,12 @@ impl Form {
         Self::apply(slf, |builder| Ok(builder.part(name, part)))
     }
 
-    fn part<'py>(slf: PyRefMut<'py, Self>, name: String, mut part: PyRefMut<Part>) -> PyResult<PyRefMut<'py, Self>> {
-        let part = part.take_inner()?;
+    fn part<'py>(
+        slf: PyRefMut<'py, Self>,
+        name: String,
+        mut part: PyRefMut<PartBuilder>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        let part = part.build()?;
         Self::apply(slf, |builder| Ok(builder.part(name, part)))
     }
 
@@ -64,7 +68,13 @@ impl Form {
         Self::apply(slf, |builder| Ok(builder.percent_encode_noop()))
     }
 }
-impl Form {
+impl FormBuilder {
+    pub fn build(&mut self) -> PyResult<reqwest::multipart::Form> {
+        self.inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))
+    }
+
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::multipart::Form) -> PyResult<reqwest::multipart::Form>,
@@ -81,12 +91,6 @@ impl Form {
     fn inner_ref(&self) -> PyResult<&reqwest::multipart::Form> {
         self.inner
             .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))
-    }
-
-    pub fn build(&mut self) -> PyResult<reqwest::multipart::Form> {
-        self.inner
-            .take()
             .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))
     }
 }

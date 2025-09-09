@@ -56,7 +56,7 @@ pub struct InnerRuntime {
     close_tx: tokio::sync::mpsc::Sender<()>,
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 pub struct Runtime(InnerRuntime);
 #[pymethods]
 impl Runtime {
