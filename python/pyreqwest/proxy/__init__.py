@@ -1,5 +1,5 @@
 """Proxy classes."""
 
-from pyreqwest._pyreqwest.proxy import Proxy
+from pyreqwest._pyreqwest.proxy import ProxyBuilder
 
-__all__ = ["Proxy"]
+__all__ = ["ProxyBuilder"]

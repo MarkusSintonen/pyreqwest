@@ -81,7 +81,7 @@ impl Form {
     fn inner_ref(&self) -> PyResult<&reqwest::multipart::Form> {
         self.inner
             .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Request was already consumed"))
+            .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))
     }
 
     pub fn build(&mut self) -> PyResult<reqwest::multipart::Form> {

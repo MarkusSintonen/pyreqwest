@@ -1,3 +1,3 @@
-mod proxy;
+mod proxy_builder;
 
-pub use proxy::Proxy;
+pub use proxy_builder::ProxyBuilder;

@@ -5,7 +5,7 @@ import trustme
 from pyreqwest.client import ClientBuilder
 from pyreqwest.exceptions import ConnectError, RequestPanicError
 from pyreqwest.http import Url
-from pyreqwest.proxy import Proxy
+from pyreqwest.proxy import ProxyBuilder
 
 from .servers.echo_server import EchoServer
 
@@ -17,10 +17,10 @@ async def test_proxy_simple(
     proxy_type: str,
 ):
     if proxy_type == "http":
-        proxy = Proxy.http(https_echo_server.url)
+        proxy = ProxyBuilder.http(https_echo_server.url)
     else:
         assert proxy_type == "all"
-        proxy = Proxy.all(https_echo_server.url)
+        proxy = ProxyBuilder.all(https_echo_server.url)
 
     cert_pem = cert_authority.cert_pem.bytes()
     async with ClientBuilder().proxy(proxy).add_root_certificate_pem(cert_pem).error_for_status(True).build() as client:
@@ -40,7 +40,7 @@ async def test_proxy_custom(echo_server: EchoServer):
     def proxy_func(url: Url) -> Url | str | None:
         return echo_server.url if "foo.invalid" in str(url) else None
 
-    proxy = Proxy.custom(proxy_func)
+    proxy = ProxyBuilder.custom(proxy_func)
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
         resp = await client.get("http://foo.invalid/").build_consumed().send()
@@ -68,7 +68,7 @@ async def test_proxy_custom__fail(case: str):
         "bad_return": {"message": "ValueError: relative URL without a base"},
     }[case]
 
-    proxy = Proxy.custom(bad_fn)
+    proxy = ProxyBuilder.custom(bad_fn)
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
         req = client.get("http://foo.invalid/").build_consumed()
@@ -78,7 +78,7 @@ async def test_proxy_custom__fail(case: str):
 
 
 async def test_proxy_headers(echo_server: EchoServer):
-    proxy = Proxy.custom(lambda _: echo_server.url).headers({"X-Custom-Header": "CustomValue"})
+    proxy = ProxyBuilder.custom(lambda _: echo_server.url).headers({"X-Custom-Header": "CustomValue"})
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
         req = client.get("http://foo.invalid/").build_consumed()

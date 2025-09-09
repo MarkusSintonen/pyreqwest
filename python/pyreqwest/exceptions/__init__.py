@@ -188,6 +188,6 @@ class RequestPanicError(RequestError[CauseErrorDetails]):
     """Error due to a panic in the request processing.
 
     This indicates a bug in pyreqwest or one of its dependencies.
-    Also, might be raised due to incorrect Proxy.custom implementation (limitation in reqwest error handling).
+    Also, might be raised due to incorrect ProxyBuilder.custom implementation (limitation in reqwest error handling).
     Cause details may be available in `details["causes"]`.
     """

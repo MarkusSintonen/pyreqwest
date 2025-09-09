@@ -9,13 +9,13 @@ use pyo3::types::PyType;
 use pyo3::{PyTraverseError, PyVisit};
 
 #[pyclass(extends=Request)]
-pub struct StreamRequest {
-    ctx_response: Option<Py<Response>>,
-}
+pub struct StreamRequest(Ctx<Response>);
 
 #[pyclass(extends=Request)]
-pub struct BlockingStreamRequest {
-    ctx_response: Option<Py<BlockingResponse>>,
+pub struct BlockingStreamRequest(Ctx<BlockingResponse>);
+
+struct Ctx<T> {
+    ctx_response: Option<Py<T>>,
 }
 
 #[pymethods]
@@ -23,10 +23,11 @@ impl StreamRequest {
     async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
         let response = AllowThreads(Request::send_inner(slf.as_any(), cancel)).await?;
 
-        Python::attach(|py| {
-            slf.try_borrow_mut(py)?.ctx_response = Some(response.clone_ref(py));
-            Ok(response)
-        })
+        Python::attach(|py| -> PyResult<_> {
+            slf.try_borrow_mut(py)?.0.ctx_response = Some(response.clone_ref(py));
+            Ok(())
+        })?;
+        Ok(response)
     }
 
     async fn __aexit__(
@@ -36,9 +37,10 @@ impl StreamRequest {
         _traceback: Py<PyAny>,
     ) -> PyResult<()> {
         Python::attach(|py| {
-            let ctx_response = &slf.try_borrow(py)?.ctx_response;
-            ctx_response
-                .as_ref()
+            slf.try_borrow_mut(py)?
+                .0
+                .ctx_response
+                .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
                 .try_borrow(py)?
                 .as_super()
@@ -48,7 +50,7 @@ impl StreamRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner()?)
+        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
     }
 
     #[classmethod]
@@ -62,32 +64,43 @@ impl StreamRequest {
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.ctx_response)
+        let Some(resp) = self.0.ctx_response.as_ref() else {
+            return Ok(());
+        };
+        visit.call(resp)
     }
 
     fn __clear__(&mut self) {
-        self.ctx_response = None;
+        self.0.ctx_response.take();
     }
 }
 impl StreamRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
-        let initializer = PyClassInitializer::from(inner).add_subclass(Self { ctx_response: None });
+        let ctx = Ctx { ctx_response: None };
+        let initializer = PyClassInitializer::from(inner).add_subclass(Self(ctx));
         Py::new(py, initializer)
     }
 }
 
 #[pymethods]
 impl BlockingStreamRequest {
-    fn __enter__(slf: Py<Self>, py: Python) -> PyResult<Py<BlockingResponse>> {
-        let response = Request::blocking_send_inner(slf.as_any())?;
+    fn __enter__(slf: Bound<Self>) -> PyResult<Py<BlockingResponse>> {
+        let response = Request::blocking_send_inner(slf.as_unbound().as_any())?;
 
-        slf.bind(py).try_borrow_mut()?.ctx_response = Some(response.clone_ref(py));
+        slf.try_borrow_mut()?.0.ctx_response = Some(response.clone_ref(slf.py()));
         Ok(response)
     }
 
-    fn __exit__(&self, _exc_type: Py<PyAny>, _exc_val: Py<PyAny>, _traceback: Py<PyAny>, py: Python) -> PyResult<()> {
-        self.ctx_response
-            .as_ref()
+    fn __exit__(
+        &mut self,
+        _exc_type: Py<PyAny>,
+        _exc_val: Py<PyAny>,
+        _traceback: Py<PyAny>,
+        py: Python,
+    ) -> PyResult<()> {
+        self.0
+            .ctx_response
+            .take()
             .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
             .try_borrow(py)?
             .as_super()
@@ -96,7 +109,7 @@ impl BlockingStreamRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner()?)
+        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
     }
 
     #[classmethod]
@@ -110,16 +123,20 @@ impl BlockingStreamRequest {
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.ctx_response)
+        let Some(resp) = self.0.ctx_response.as_ref() else {
+            return Ok(());
+        };
+        visit.call(resp)
     }
 
     fn __clear__(&mut self) {
-        self.ctx_response = None;
+        self.0.ctx_response.take();
     }
 }
 impl BlockingStreamRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
-        let initializer = PyClassInitializer::from(inner).add_subclass(Self { ctx_response: None });
+        let ctx = Ctx { ctx_response: None };
+        let initializer = PyClassInitializer::from(inner).add_subclass(Self(ctx));
         Py::new(py, initializer)
     }
 }

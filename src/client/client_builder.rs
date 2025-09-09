@@ -4,7 +4,7 @@ use crate::client::runtime::Runtime;
 use crate::client::{Client, Handle};
 use crate::http::{CookieStore, CookieStorePyProxy};
 use crate::http::{HeaderMap, Url, UrlType};
-use crate::proxy::Proxy;
+use crate::proxy::ProxyBuilder;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
@@ -115,7 +115,7 @@ impl BaseClientBuilder {
         Self::apply(slf, |builder| Ok(builder.referer(enable)))
     }
 
-    fn proxy<'py>(slf: PyRefMut<'py, Self>, proxy: Bound<'_, Proxy>) -> PyResult<PyRefMut<'py, Self>> {
+    fn proxy<'py>(slf: PyRefMut<'py, Self>, proxy: Bound<'_, ProxyBuilder>) -> PyResult<PyRefMut<'py, Self>> {
         let proxy = proxy.borrow_mut().build()?;
         Self::apply(slf, |builder| Ok(builder.proxy(proxy)))
     }

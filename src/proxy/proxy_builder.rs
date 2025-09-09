@@ -6,18 +6,18 @@ use reqwest::NoProxy;
 use std::panic::panic_any;
 
 #[pyclass]
-pub struct Proxy {
+pub struct ProxyBuilder {
     inner: Option<reqwest::Proxy>,
 }
 
 #[pymethods]
-impl Proxy {
+impl ProxyBuilder {
     #[staticmethod]
     fn http(py: Python, url: UrlType) -> PyResult<Self> {
         py.detach(|| {
             let proxy =
                 reqwest::Proxy::http(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
-            Ok(Proxy { inner: Some(proxy) })
+            Ok(ProxyBuilder { inner: Some(proxy) })
         })
     }
 
@@ -26,7 +26,7 @@ impl Proxy {
         py.detach(|| {
             let proxy =
                 reqwest::Proxy::https(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
-            Ok(Proxy { inner: Some(proxy) })
+            Ok(ProxyBuilder { inner: Some(proxy) })
         })
     }
 
@@ -35,7 +35,7 @@ impl Proxy {
         py.detach(|| {
             let proxy =
                 reqwest::Proxy::all(url.0).map_err(|e| PyValueError::new_err(format!("Invalid proxy: {}", e)))?;
-            Ok(Proxy { inner: Some(proxy) })
+            Ok(ProxyBuilder { inner: Some(proxy) })
         })
     }
 
@@ -47,7 +47,7 @@ impl Proxy {
                 Err(err) => panic_any(err), // No better way to handle this in reqwest custom proxy
             }
         });
-        Ok(Proxy { inner: Some(proxy) })
+        Ok(ProxyBuilder { inner: Some(proxy) })
     }
 
     fn basic_auth<'py>(slf: PyRefMut<'py, Self>, username: &str, password: &str) -> PyResult<PyRefMut<'py, Self>> {
@@ -67,7 +67,7 @@ impl Proxy {
     }
 }
 
-impl Proxy {
+impl ProxyBuilder {
     pub fn build(&mut self) -> PyResult<reqwest::Proxy> {
         self.inner
             .take()

@@ -72,7 +72,7 @@ mod pyreqwest {
     mod proxy {
         use super::*;
         #[pymodule_export]
-        use crate::proxy::Proxy;
+        use crate::proxy::ProxyBuilder;
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module_hack(module, "proxy")
