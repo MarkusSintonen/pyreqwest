@@ -13,7 +13,7 @@ use std::fmt::Display;
 #[pyclass(subclass)]
 pub struct Request(Option<Inner>);
 struct Inner {
-    inner: reqwest::Request,
+    reqwest: reqwest::Request,
     spawner: Spawner,
     body: Option<ReqBody>,
     headers: Option<ReqHeaders>,
@@ -27,23 +27,23 @@ struct Inner {
 impl Request {
     #[getter]
     fn get_method(&self) -> PyResult<Method> {
-        Ok(self.ref_inner()?.inner.method().clone().into())
+        Ok(self.ref_inner()?.reqwest.method().clone().into())
     }
 
     #[setter]
     fn set_method(&mut self, value: Method) -> PyResult<()> {
-        *self.mut_inner()?.inner.method_mut() = value.0;
+        *self.mut_inner()?.reqwest.method_mut() = value.0;
         Ok(())
     }
 
     #[getter]
     fn get_url(&self) -> PyResult<Url> {
-        Ok(self.ref_inner()?.inner.url().clone().into())
+        Ok(self.ref_inner()?.reqwest.url().clone().into())
     }
 
     #[setter]
     fn set_url(&mut self, value: UrlType) -> PyResult<()> {
-        *self.mut_inner()?.inner.url_mut() = value.0;
+        *self.mut_inner()?.reqwest.url_mut() = value.0;
         Ok(())
     }
 
@@ -51,7 +51,7 @@ impl Request {
     fn get_headers(&mut self, py: Python) -> PyResult<Py<HeaderMap>> {
         let inner = self.mut_inner()?;
         if inner.headers.is_none() {
-            let headers = HeaderMap::from(inner.inner.headers().clone());
+            let headers = HeaderMap::from(inner.reqwest.headers().clone());
             inner.headers = Some(ReqHeaders::PyHeaders(Py::new(py, headers)?));
         }
         if let Some(ReqHeaders::Headers(h)) = &inner.headers {
@@ -174,7 +174,7 @@ impl Request {
         body_consume_config: BodyConsumeConfig,
     ) -> Self {
         Request(Some(Inner {
-            inner: request,
+            reqwest: request,
             spawner,
             extensions,
             body: body.map(ReqBody::Body),
@@ -241,7 +241,7 @@ impl Request {
         let mut this = Python::attach(|py| -> PyResult<_> {
             py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?.take_inner()
         })?;
-        let request = &mut this.inner;
+        let request = &mut this.reqwest;
 
         match this.headers.take() {
             Some(ReqHeaders::Headers(h)) => *request.headers_mut() = h.try_take_inner()?,
@@ -263,7 +263,7 @@ impl Request {
         }
 
         Ok(SpawnRequestData {
-            request: this.inner,
+            request: this.reqwest,
             spawner: this.spawner.clone(),
             extensions: this.extensions.take(),
             error_for_status: this.error_for_status,
@@ -275,7 +275,7 @@ impl Request {
         py.detach(|| {
             let inner = self.ref_inner()?;
             let new_req = inner
-                .inner
+                .reqwest
                 .try_clone()
                 .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
 
@@ -292,7 +292,7 @@ impl Request {
             };
 
             Ok(Request(Some(Inner {
-                inner: new_req,
+                reqwest: new_req,
                 spawner: inner.spawner.clone(),
                 body: body.map(ReqBody::Body),
                 headers,
@@ -310,7 +310,7 @@ impl Request {
         let body = body.map(|b| b.get().take_inner()).transpose()?;
 
         let new_inner = inner
-            .inner
+            .reqwest
             .try_clone()
             .ok_or_else(|| PyRuntimeError::new_err("Failed to clone request"))?;
 
@@ -321,7 +321,7 @@ impl Request {
         };
 
         Ok(Request(Some(Inner {
-            inner: new_inner,
+            reqwest: new_inner,
             spawner: inner.spawner.clone(),
             body: body.map(ReqBody::Body),
             headers,
@@ -338,14 +338,14 @@ impl Request {
         }
 
         let inner = self.ref_inner()?;
-        let mut url = Url::from(inner.inner.url().clone());
+        let mut url = Url::from(inner.reqwest.url().clone());
         let mut key_url = "url";
         if hide_sensitive {
             key_url = "origin_path";
             url = url.with_query_string(None);
         };
 
-        let headers_dict = HeaderMap::dict_multi_value_inner(inner.inner.headers(), py, hide_sensitive)?;
+        let headers_dict = HeaderMap::dict_multi_value_inner(inner.reqwest.headers(), py, hide_sensitive)?;
         let body_repr = match &inner.body {
             Some(ReqBody::Body(body)) => body.__repr__(py)?,
             Some(ReqBody::PyBody(py_body)) => py_body.try_borrow(py)?.__repr__(py)?,
@@ -354,7 +354,7 @@ impl Request {
 
         Ok(format!(
             "Request(method={}, {}={}, headers={}, body={})",
-            disp_repr(py, inner.inner.method())?,
+            disp_repr(py, inner.reqwest.method())?,
             key_url,
             disp_repr(py, url.as_str())?,
             headers_dict.repr()?.to_str()?,
