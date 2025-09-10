@@ -48,9 +48,7 @@ mod pyreqwest {
     mod response {
         use super::*;
         #[pymodule_export]
-        use crate::response::{
-            BaseResponse, BaseResponseBuilder, BlockingResponse, BlockingResponseBuilder, Response, ResponseBuilder,
-        };
+        use crate::response::{BaseResponse, BlockingResponse, Response, ResponseBuilder};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_module(module, "response")

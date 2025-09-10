@@ -14,6 +14,6 @@ async def test_fixture_loads(client_mocker: "ClientMocker") -> None:
     """
     client_mocker.get("/").with_body_text("test")
 
-    resp = await ClientBuilder().build().get("http://example.com").build_consumed().send()
+    resp = await ClientBuilder().build().get("http://example.invalid").build_consumed().send()
     assert resp.status == 200
     assert await resp.text() == "test"

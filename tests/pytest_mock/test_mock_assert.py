@@ -32,7 +32,7 @@ def client() -> Client:
 async def test_assert_called_default_exactly_once_success(client_mocker: ClientMocker, client: Client) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
 
-    await client.get("http://api.example.com/test").build_consumed().send()
+    await client.get("http://api.example.invalid/test").build_consumed().send()
 
     mock.assert_called()
 
@@ -43,7 +43,7 @@ async def test_assert_called_default_exactly_once_failure(
     mock = client_mocker.get("/test").with_body_text("response")
     client_mocker.get("/different").with_body_text("different response")
 
-    await client.get("http://api.example.com/different").build_consumed().send()
+    await client.get("http://api.example.invalid/different").build_consumed().send()
 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called()
@@ -55,7 +55,7 @@ async def test_assert_called_exact_count_success(client_mocker: ClientMocker, cl
     mock = client_mocker.get("/test").with_body_text("response")
 
     for _ in range(3):
-        await client.get("http://api.example.com/test").build_consumed().send()
+        await client.get("http://api.example.invalid/test").build_consumed().send()
 
     mock.assert_called(count=3)
 
@@ -75,7 +75,7 @@ async def test_assert_called_exact_count_failure(
     client_mocker.get("/users").with_body_json({"users": []})
 
     res = (
-        await client.post("http://api.example.com/users")
+        await client.post("http://api.example.invalid/users")
         .header("Authorization", "Bearer token123")
         .body_json({"name": "John", "age": 30})
         .build_consumed()
@@ -84,7 +84,7 @@ async def test_assert_called_exact_count_failure(
     assert await res.json() == {"id": 1}
 
     res = (
-        await client.post("http://api.example.com/users")
+        await client.post("http://api.example.invalid/users")
         .header("Authorization", "Bearer wrong-token")
         .body_json({"name": "Jane", "age": 25})
         .build_consumed()
@@ -92,7 +92,7 @@ async def test_assert_called_exact_count_failure(
     )
     assert res.status == 403
 
-    res = await client.get("http://api.example.com/users").build_consumed().send()
+    res = await client.get("http://api.example.invalid/users").build_consumed().send()
     assert await res.json() == {"users": []}
 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
@@ -105,7 +105,7 @@ async def test_assert_called_min_count_success(client_mocker: ClientMocker, clie
     mock = client_mocker.get("/test").with_body_text("response")
 
     for _ in range(5):
-        await client.get("http://api.example.com/test").build_consumed().send()
+        await client.get("http://api.example.invalid/test").build_consumed().send()
 
     mock.assert_called(min_count=3)
 
@@ -117,8 +117,8 @@ async def test_assert_called_min_count_failure(
 
     client_mocker.get("/endpoint").with_body_json({"data": ["inactive"]})
 
-    await client.get("http://api.example.com/endpoint?filter=active").build_consumed().send()
-    await client.get("http://api.example.com/endpoint?filter=inactive").build_consumed().send()
+    await client.get("http://api.example.invalid/endpoint?filter=active").build_consumed().send()
+    await client.get("http://api.example.invalid/endpoint?filter=inactive").build_consumed().send()
 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(min_count=3)
@@ -130,7 +130,7 @@ async def test_assert_called_max_count_success(client_mocker: ClientMocker, clie
     mock = client_mocker.get("/test").with_body_text("response")
 
     for _ in range(2):
-        await client.get("http://api.example.com/test").build_consumed().send()
+        await client.get("http://api.example.invalid/test").build_consumed().send()
 
     mock.assert_called(max_count=3)
 
@@ -141,7 +141,7 @@ async def test_assert_called_max_count_failure(
     mock = client_mocker.get("/test").with_body_text("response")
 
     for _ in range(5):
-        await client.get("http://api.example.com/test").build_consumed().send()
+        await client.get("http://api.example.invalid/test").build_consumed().send()
 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(max_count=3)
@@ -153,7 +153,7 @@ async def test_assert_called_min_max_range_success(client_mocker: ClientMocker, 
     mock = client_mocker.get("/test").with_body_text("response")
 
     for _ in range(3):
-        await client.get("http://api.example.com/test").build_consumed().send()
+        await client.get("http://api.example.invalid/test").build_consumed().send()
 
     mock.assert_called(min_count=2, max_count=5)
 
@@ -163,7 +163,7 @@ async def test_assert_called_min_max_range_failure(
 ) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
 
-    await client.get("http://api.example.com/test").build_consumed().send()
+    await client.get("http://api.example.invalid/test").build_consumed().send()
 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(min_count=3, max_count=5)
@@ -188,25 +188,25 @@ async def test_assert_called_complex_mock_with_all_matchers(
 
     requests_to_make = [
         # Wrong method
-        ("GET", "http://api.example.com/complex?action=create&version=v1", {}, None),
+        ("GET", "http://api.example.invalid/complex?action=create&version=v1", {}, None),
         # Missing auth header
         (
             "POST",
-            "http://api.example.com/complex?action=create&version=v1",
+            "http://api.example.invalid/complex?action=create&version=v1",
             {"Content-Type": "application/json"},
             {"user": {"name": "John", "role": "admin"}},
         ),
         # Wrong query param
         (
             "POST",
-            "http://api.example.com/complex?action=update&version=v1",
+            "http://api.example.invalid/complex?action=update&version=v1",
             {"Authorization": "Bearer abc123", "Content-Type": "application/json"},
             {"user": {"name": "John", "role": "admin"}},
         ),
         # Wrong body
         (
             "POST",
-            "http://api.example.com/complex?action=create&version=v1",
+            "http://api.example.invalid/complex?action=create&version=v1",
             {"Authorization": "Bearer abc123", "Content-Type": "application/json"},
             {"user": {"name": "Jane", "role": "user"}},
         ),
@@ -243,7 +243,7 @@ async def test_assert_called_custom_matcher_and_handler(
     client_mocker.post("/admin").with_status(403).with_body_text("Forbidden")
 
     res = (
-        await client.post("http://api.example.com/admin")
+        await client.post("http://api.example.invalid/admin")
         .body_json({"role": "user", "action": "view"})
         .build_consumed()
         .send()
@@ -251,7 +251,7 @@ async def test_assert_called_custom_matcher_and_handler(
     assert await res.text() == "Forbidden"
 
     res = (
-        await client.post("http://api.example.com/admin")
+        await client.post("http://api.example.invalid/admin")
         .body_json({"role": "admin", "action": "view"})
         .build_consumed()
         .send()
@@ -273,12 +273,12 @@ async def test_assert_called_with_matched_and_unmatched_requests(
     client_mocker.get("/posts").with_body_json({"posts": []})
 
     for i in range(2):
-        await client.get(f"http://api.example.com/users?active=true&page={i}").build_consumed().send()
+        await client.get(f"http://api.example.invalid/users?active=true&page={i}").build_consumed().send()
 
     unmatched_requests = [
-        "http://api.example.com/users?active=false",
-        "http://api.example.com/users",
-        "http://api.example.com/posts?active=true",
+        "http://api.example.invalid/users?active=false",
+        "http://api.example.invalid/users",
+        "http://api.example.invalid/posts?active=true",
     ]
 
     for url in unmatched_requests:
@@ -299,7 +299,7 @@ async def test_assert_called_many_unmatched_requests_truncation(
 
     for i in range(8):
         await (
-            client.get(f"http://api.example.com/different/{i}")
+            client.get(f"http://api.example.invalid/different/{i}")
             .header("X-Request-ID", f"req-{i}")
             .build_consumed()
             .send()
@@ -330,7 +330,7 @@ async def test_assert_called_regex_matchers_display(
     client_mocker.put("/users/abc").with_status(400).with_body_text("Bad request")
 
     await (
-        client.put("http://api.example.com/users/abc")
+        client.put("http://api.example.invalid/users/abc")
         .header("Authorization", "Bearer short")
         .body_text('{"action": "delete"}')
         .build_consumed()
@@ -347,7 +347,7 @@ async def test_assert_called_zero_count_success(client_mocker: ClientMocker, cli
     mock = client_mocker.get("/test").with_body_text("response")
     client_mocker.get("/different").with_body_text("different response")
 
-    await client.get("http://api.example.com/different").build_consumed().send()
+    await client.get("http://api.example.invalid/different").build_consumed().send()
 
     mock.assert_called(count=0)
 
@@ -357,7 +357,7 @@ async def test_assert_called_zero_count_failure(
 ) -> None:
     mock = client_mocker.get("/test").with_body_text("response")
 
-    await client.get("http://api.example.com/test").build_consumed().send()
+    await client.get("http://api.example.invalid/test").build_consumed().send()
 
     with pytest.raises(AssertionError, match=re.escape("request(s) but received")) as exc_info:
         mock.assert_called(count=0)
@@ -373,9 +373,9 @@ async def test_dirty_equals_matcher_repr(
     )
     others = client_mocker.get("/test")
 
-    await client.get("http://api.example.com/test").build_consumed().send()
-    await client.get("http://api.example.com/test?values=foo&values=admin&values=user").build_consumed().send()
-    await client.get("http://api.example.com/test?values=admin").build_consumed().send()
+    await client.get("http://api.example.invalid/test").build_consumed().send()
+    await client.get("http://api.example.invalid/test?values=foo&values=admin&values=user").build_consumed().send()
+    await client.get("http://api.example.invalid/test?values=admin").build_consumed().send()
 
     mock.assert_called(count=1)
     others.assert_called(count=2)

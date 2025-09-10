@@ -21,5 +21,5 @@ MethodMatcher = Matcher
 UrlMatcher = Matcher | Url
 QueryMatcher = dict[str, Matcher | list[str]] | Matcher
 BodyContentMatcher = bytes | Matcher
-CustomMatcher = Callable[[Request], Awaitable[bool]]
-CustomHandler = Callable[[Request], Awaitable[Response | None]]
+CustomMatcher = Callable[[Request], Awaitable[bool]] | Callable[[Request], bool]
+CustomHandler = Callable[[Request], Awaitable[Response | None]] | Callable[[Request], Response | None]
