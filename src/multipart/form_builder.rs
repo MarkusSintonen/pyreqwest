@@ -9,6 +9,7 @@ use std::path::PathBuf;
 #[pyclass]
 pub struct FormBuilder {
     inner: Option<reqwest::multipart::Form>,
+    is_async: bool,
 }
 #[pymethods]
 impl FormBuilder {
@@ -16,6 +17,7 @@ impl FormBuilder {
     fn new() -> Self {
         FormBuilder {
             inner: Some(reqwest::multipart::Form::new()),
+            is_async: false,
         }
     }
 
@@ -48,10 +50,13 @@ impl FormBuilder {
     }
 
     fn part<'py>(
-        slf: PyRefMut<'py, Self>,
+        mut slf: PyRefMut<'py, Self>,
         name: String,
         mut part: PyRefMut<PartBuilder>,
     ) -> PyResult<PyRefMut<'py, Self>> {
+        if !slf.is_async {
+            slf.is_async = part.is_async();
+        }
         let part = part.build()?;
         Self::apply(slf, |builder| Ok(builder.part(name, part)))
     }
@@ -73,6 +78,10 @@ impl FormBuilder {
         self.inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Form was already built"))
+    }
+
+    pub fn is_async(&self) -> bool {
+        self.is_async
     }
 
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>

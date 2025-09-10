@@ -230,14 +230,14 @@ impl Request {
     }
 
     pub async fn spawn_request(request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        Spawner::spawn_reqwest(Self::prepare_spawn_request(request)?, cancel).await
+        Spawner::spawn_reqwest(Self::prepare_spawn_request(request, false)?, cancel).await
     }
 
     pub fn blocking_spawn_request(request: &Py<PyAny>) -> PyResult<Py<BlockingResponse>> {
-        Spawner::blocking_spawn_reqwest(Self::prepare_spawn_request(request)?)
+        Spawner::blocking_spawn_reqwest(Self::prepare_spawn_request(request, true)?)
     }
 
-    fn prepare_spawn_request(py_request: &Py<PyAny>) -> PyResult<SpawnRequestData> {
+    fn prepare_spawn_request(py_request: &Py<PyAny>, is_blocking: bool) -> PyResult<SpawnRequestData> {
         let mut this = Python::attach(|py| -> PyResult<_> {
             py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?.take_inner()
         })?;
@@ -252,12 +252,12 @@ impl Request {
         match this.body.take() {
             Some(ReqBody::Body(body)) => {
                 body.set_task_local()?;
-                *request.body_mut() = Some(body.into_reqwest()?)
+                *request.body_mut() = Some(body.into_reqwest(is_blocking)?)
             }
             Some(ReqBody::PyBody(py_body)) => {
                 let py_body = py_body.get();
                 py_body.set_task_local()?;
-                *request.body_mut() = Some(py_body.into_reqwest()?)
+                *request.body_mut() = Some(py_body.into_reqwest(is_blocking)?)
             }
             None => {}
         }

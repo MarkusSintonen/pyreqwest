@@ -10,44 +10,52 @@ use std::path::PathBuf;
 #[pyclass]
 pub struct PartBuilder {
     inner: Option<reqwest::multipart::Part>,
+    is_async: bool,
 }
 #[pymethods]
 impl PartBuilder {
     #[staticmethod]
     fn from_text(py: Python, value: String) -> Self {
-        py.detach(|| reqwest::multipart::Part::text(value).into())
+        py.detach(|| Self::new(reqwest::multipart::Part::text(value), false))
     }
 
     #[staticmethod]
     fn from_bytes(py: Python, value: PyBytes) -> Self {
-        py.detach(|| reqwest::multipart::Part::bytes(Vec::from(value.into_inner())).into())
+        py.detach(|| Self::new(reqwest::multipart::Part::bytes(Vec::from(value.into_inner())), false))
     }
 
     #[staticmethod]
     fn from_stream(py: Python, stream: Bound<PyAny>) -> PyResult<Self> {
         let mut stream = BodyStream::new(stream)?;
         stream.set_task_local()?;
-        py.detach(|| Ok(reqwest::multipart::Part::stream(stream.into_reqwest()?).into()))
+        let is_async = stream.is_async();
+        py.detach(|| Ok(Self::new(reqwest::multipart::Part::stream(stream.into_reqwest(false)?), is_async)))
     }
 
     #[staticmethod]
     fn from_stream_with_length(py: Python, stream: Bound<PyAny>, length: u64) -> PyResult<Self> {
         let mut stream = BodyStream::new(stream)?;
         stream.set_task_local()?;
-        py.detach(|| Ok(reqwest::multipart::Part::stream_with_length(stream.into_reqwest()?, length).into()))
+        let is_async = stream.is_async();
+        py.detach(|| {
+            Ok(Self::new(
+                reqwest::multipart::Part::stream_with_length(stream.into_reqwest(false)?, length),
+                is_async,
+            ))
+        })
     }
 
     #[staticmethod]
     async fn from_file(path: PathBuf, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Self> {
         let fut = Handle::global_handle()?.spawn_handled(reqwest::multipart::Part::file(path), cancel);
         let part = AllowThreads(fut).await??;
-        Ok(part.into())
+        Ok(Self::new(part, false))
     }
 
     #[staticmethod]
     fn blocking_from_file(path: PathBuf) -> PyResult<Self> {
         let part = Handle::global_handle()?.blocking_spawn(reqwest::multipart::Part::file(path))?;
-        Ok(part.into())
+        Ok(Self::new(part, false))
     }
 
     fn mime_str<'py>(slf: PyRefMut<'py, Self>, mime: &str) -> PyResult<PyRefMut<'py, Self>> {
@@ -63,10 +71,21 @@ impl PartBuilder {
     }
 }
 impl PartBuilder {
+    fn new(part: reqwest::multipart::Part, is_async: bool) -> Self {
+        PartBuilder {
+            inner: Some(part),
+            is_async,
+        }
+    }
+
     pub fn build(&mut self) -> PyResult<reqwest::multipart::Part> {
         self.inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Part was already consumed"))
+    }
+
+    pub fn is_async(&self) -> bool {
+        self.is_async
     }
 
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
@@ -80,10 +99,5 @@ impl PartBuilder {
             .ok_or_else(|| PyRuntimeError::new_err("Part was already consumed"))?;
         slf.inner = Some(slf.py().detach(|| fun(builder))?);
         Ok(slf)
-    }
-}
-impl From<reqwest::multipart::Part> for PartBuilder {
-    fn from(part: reqwest::multipart::Part) -> Self {
-        PartBuilder { inner: Some(part) }
     }
 }

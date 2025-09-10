@@ -81,7 +81,7 @@ impl ResponseBuilder {
     }
 
     async fn build(slf: Py<Self>) -> PyResult<Py<Response>> {
-        let inner = Python::attach(|py| slf.bind(py).try_borrow_mut()?.build_inner())?;
+        let inner = Python::attach(|py| slf.bind(py).try_borrow_mut()?.build_inner(false))?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig {
             read_buffer_limit: DEFAULT_READ_BUFFER_LIMIT,
@@ -92,7 +92,7 @@ impl ResponseBuilder {
     }
 
     fn build_blocking(mut slf: PyRefMut<Self>) -> PyResult<Py<BlockingResponse>> {
-        let inner = slf.build_inner()?;
+        let inner = slf.build_inner(true)?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig {
             read_buffer_limit: DEFAULT_READ_BUFFER_LIMIT,
@@ -133,13 +133,13 @@ impl ResponseBuilder {
         }
     }
 
-    fn build_inner(&mut self) -> PyResult<reqwest::Response> {
+    fn build_inner(&mut self, is_blocking: bool) -> PyResult<reqwest::Response> {
         let body: reqwest::Body = self
             .body
             .take()
             .map(|b| {
                 b.set_task_local()?;
-                b.into_reqwest()
+                b.into_reqwest(is_blocking)
             })
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));

@@ -65,7 +65,12 @@ impl BaseClient {
         }
     }
 
-    pub fn create_request_builder(&self, method: Method, url: Bound<PyAny>) -> PyResult<BaseRequestBuilder> {
+    pub fn create_request_builder(
+        &self,
+        method: Method,
+        url: Bound<PyAny>,
+        is_blocking: bool,
+    ) -> PyResult<BaseRequestBuilder> {
         let py = url.py();
 
         let url: reqwest::Url = match self.base_url.as_ref() {
@@ -84,8 +89,13 @@ impl BaseClient {
             let reqwest_request_builder = self.client.request(method.0, url);
             let middlewares_next = self.init_middleware_next()?;
 
-            let mut builder =
-                BaseRequestBuilder::new(reqwest_request_builder, spawner, middlewares_next, self.error_for_status);
+            let mut builder = BaseRequestBuilder::new(
+                reqwest_request_builder,
+                spawner,
+                middlewares_next,
+                self.error_for_status,
+                is_blocking,
+            );
 
             self.total_timeout
                 .map(|timeout| builder.inner_timeout(timeout))
@@ -109,7 +119,7 @@ impl BaseClient {
 #[pymethods]
 impl Client {
     pub fn request(slf: PyRef<Self>, method: Method, url: Bound<PyAny>) -> PyResult<Py<RequestBuilder>> {
-        let builder = slf.as_super().create_request_builder(method, url)?;
+        let builder = slf.as_super().create_request_builder(method, url, false)?;
         RequestBuilder::new_py(slf.py(), builder)
     }
 
@@ -167,7 +177,7 @@ impl Client {
 #[pymethods]
 impl BlockingClient {
     pub fn request(slf: PyRef<Self>, method: Method, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
-        let builder = slf.as_super().create_request_builder(method, url)?;
+        let builder = slf.as_super().create_request_builder(method, url, true)?;
         BlockingRequestBuilder::new_py(slf.py(), builder)
     }
 

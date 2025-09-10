@@ -55,7 +55,7 @@ impl Reader {
         };
         let runtime = runtime.unwrap_or_else(Handle::current);
 
-        runtime.0.spawn(async move {
+        let _ = runtime.spawn(async move {
             let fut = async move {
                 loop {
                     match body.frame().await.transpose().map_err(map_read_error) {

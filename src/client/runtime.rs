@@ -13,14 +13,22 @@ static GLOBAL_HANDLE: LazyLock<PyResult<InnerRuntime>> = LazyLock::new(|| {
 });
 
 #[derive(Clone)]
-pub struct Handle(pub tokio::runtime::Handle);
+pub struct Handle(tokio::runtime::Handle);
 impl Handle {
+    pub fn spawn<F, T>(&self, future: F) -> PyResult<tokio::task::JoinHandle<T>>
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        Ok(self.0.spawn(future))
+    }
+
     pub async fn spawn_handled<F, T>(&self, future: F, mut cancel: CancelHandle) -> PyResult<T>
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        let join_handle = self.0.spawn(future);
+        let join_handle = self.spawn(future)?;
 
         tokio::select! {
             res = join_handle => res.map_err(|e| match e.try_into_panic() {

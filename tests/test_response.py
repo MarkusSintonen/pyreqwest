@@ -1,12 +1,16 @@
+import gc
 import json
 import string
-from collections.abc import AsyncGenerator, MutableMapping
+import weakref
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator, MutableMapping
+from typing import Any
 
 import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import DecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
+from pyreqwest.response import ResponseBuilder
 
 from .servers.server import Server
 
@@ -256,3 +260,80 @@ async def test_error_for_status(echo_server: Server) -> None:
         with pytest.raises(StatusError, match="HTTP status client error") as e:
             resp.error_for_status()
         assert e.value.details and e.value.details["status"] == 404
+
+
+async def test_response_builder():
+    async def stream() -> AsyncIterator[bytes]:
+        yield b"test1 "
+        yield b"test2"
+
+    resp = (
+        await ResponseBuilder()
+        .status(201)
+        .header("X-Test", "Value1")
+        .header("X-Test", "Value2")
+        .body_stream(stream())
+        .build()
+    )
+
+    assert resp.headers["X-Test"] == "Value1"
+    assert resp.headers.getall("X-Test") == ["Value1", "Value2"]
+    assert resp.status == 201
+    assert await resp.bytes() == b"test1 test2"
+
+
+async def test_response_builder__blocking():
+    def stream() -> Iterator[bytes]:
+        yield b"test1 "
+        yield b"test2"
+
+    resp = (
+        ResponseBuilder()
+        .status(201)
+        .header("X-Test", "Value1")
+        .header("X-Test", "Value2")
+        .body_stream(stream())
+        .build_blocking()
+    )
+
+    assert resp.headers["X-Test"] == "Value1"
+    assert resp.headers.getall("X-Test") == ["Value1", "Value2"]
+    assert resp.status == 201
+    assert resp.bytes() == b"test1 test2"
+
+
+async def test_response_builder__blocking_no_async() -> None:
+    async def stream() -> AsyncIterator[bytes]:
+        pytest.fail("Should not be called")
+        yield b""
+
+    builder = ResponseBuilder().body_stream(stream())
+    with pytest.raises(ValueError, match="Cannot use async iterator in a blocking context"):
+        builder.build_blocking()
+
+
+def test_response_builder__circular_reference_collected() -> None:
+    # Check the GC support via __traverse__ and __clear__
+    ref: weakref.ReferenceType[Any] | None = None
+
+    def check() -> None:
+        nonlocal ref
+
+        class StreamHandler:
+            def __init__(self) -> None:
+                self.builder: ResponseBuilder | None = None
+
+            def __aiter__(self) -> AsyncGenerator[bytes]:
+                async def gen() -> AsyncGenerator[bytes]:
+                    yield b"test"
+
+                return gen()
+
+        stream = StreamHandler()
+        resp = ResponseBuilder().body_stream(stream)
+        stream.builder = resp
+        ref = weakref.ref(stream)
+
+    check()
+    gc.collect()
+    assert ref is not None and ref() is None

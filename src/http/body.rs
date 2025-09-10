@@ -1,7 +1,7 @@
 use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use bytes::Bytes;
 use futures_util::{FutureExt, Stream};
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::PyEllipsis;
@@ -105,10 +105,10 @@ impl RequestBody {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    pub fn into_reqwest(&self) -> PyResult<reqwest::Body> {
+    pub fn into_reqwest(&self, is_blocking: bool) -> PyResult<reqwest::Body> {
         match self.lock()?.take() {
             Some(InnerBody::Bytes(bytes)) => Ok(reqwest::Body::from(bytes)),
-            Some(InnerBody::Stream(stream)) => stream.into_reqwest(),
+            Some(InnerBody::Stream(stream)) => stream.into_reqwest(is_blocking),
             None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
         }
     }
@@ -191,15 +191,22 @@ impl BodyStream {
         })
     }
 
+    pub fn is_async(&self) -> bool {
+        self.is_async
+    }
+
     pub fn get_stream(&self) -> PyResult<&Py<PyAny>> {
         self.stream
             .as_ref()
             .ok_or_else(|| PyRuntimeError::new_err("Expected stream"))
     }
 
-    pub fn into_reqwest(self) -> PyResult<reqwest::Body> {
+    pub fn into_reqwest(self, is_blocking: bool) -> PyResult<reqwest::Body> {
         if self.started {
             return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
+        }
+        if is_blocking && self.is_async {
+            return Err(PyValueError::new_err("Cannot use async iterator in a blocking context"));
         }
         Ok(reqwest::Body::wrap_stream(self))
     }

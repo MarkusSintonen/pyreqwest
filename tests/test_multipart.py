@@ -1,5 +1,5 @@
 import tempfile
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -139,14 +139,24 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
         assert file_part.headers[b"content-type"] == b"text/plain; charset=utf-8"
 
 
-async def test_multipart_with_stream_part(client: Client, echo_server: Server):
-    async def data_stream() -> AsyncGenerator[bytes, None]:
-        yield b"First chunk"
-        yield b" Second chunk"
+@pytest.mark.parametrize("blocking", [False, True])
+async def test_multipart_with_stream_part(client: Client, echo_server: Server, blocking: bool):
+    if blocking:
 
-    stream_part = (
-        PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
-    )
+        def data_stream_sync() -> Iterator[bytes]:
+            yield b"First chunk"
+            yield b" Second chunk"
+
+        stream_part = (
+            PartBuilder.from_stream(data_stream_sync()).mime_str("application/octet-stream").file_name("data.bin")
+        )
+    else:
+
+        async def data_stream() -> AsyncGenerator[bytes, None]:
+            yield b"First chunk"
+            yield b" Second chunk"
+
+        stream_part = PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("data.bin")
 
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
 
@@ -161,8 +171,22 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server):
 
     assert type_part.content == b"streaming"
     assert data_part.content == b"First chunk Second chunk"
-    assert b'filename="streamed_data.bin"' in data_part.headers[b"content-disposition"]
+    assert b'filename="data.bin"' in data_part.headers[b"content-disposition"]
     assert data_part.headers[b"content-type"] == b"application/octet-stream"
+
+
+async def test_multipart_with_stream_async_part_blocking_request(echo_server: Server):
+    async def data_stream() -> AsyncGenerator[bytes, None]:
+        yield b""
+
+    stream_part = (
+        PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
+    )
+    form = FormBuilder().text("type", "streaming").part("data", stream_part)
+    req_builder = BlockingClientBuilder().build().post(echo_server.url)
+    with pytest.raises(BuilderError) as e:
+        req_builder.multipart(form)
+    assert e.value.message == "Can not use async multipart (stream) in a blocking request"
 
 
 async def test_multipart_with_bytes_part(client: Client, echo_server: Server):

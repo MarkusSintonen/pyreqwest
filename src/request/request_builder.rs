@@ -24,6 +24,7 @@ pub struct BaseRequestBuilder {
     middlewares_next: Option<NextInner>,
     error_for_status: bool,
     streamed_read_buffer_limit: Option<usize>,
+    is_blocking: bool,
 }
 
 #[pyclass(extends=BaseRequestBuilder)]
@@ -134,7 +135,14 @@ impl BaseRequestBuilder {
     }
 
     fn multipart<'py>(slf: PyRefMut<'py, Self>, multipart: Bound<'_, FormBuilder>) -> PyResult<PyRefMut<'py, Self>> {
-        let multipart = multipart.try_borrow_mut()?.build()?;
+        let mut multipart = multipart.try_borrow_mut()?;
+        if slf.is_blocking && multipart.is_async() {
+            return Err(BuilderError::from_causes(
+                "Can not use async multipart (stream) in a blocking request",
+                vec![],
+            ));
+        }
+        let multipart = multipart.build()?;
         Self::apply(slf, |builder| Ok(builder.multipart(multipart)))
     }
 
@@ -205,6 +213,7 @@ impl BaseRequestBuilder {
         spawner: Spawner,
         middlewares_next: Option<NextInner>,
         error_for_status: bool,
+        is_blocking: bool,
     ) -> Self {
         BaseRequestBuilder {
             inner: Some(inner),
@@ -214,6 +223,7 @@ impl BaseRequestBuilder {
             middlewares_next,
             error_for_status,
             streamed_read_buffer_limit: None,
+            is_blocking,
         }
     }
 
