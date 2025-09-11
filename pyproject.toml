@@ -32,6 +32,7 @@ dev = [
     # Perf comparison
     "aiohttp==3.12.15",
     "httpx==0.28.1",
+    "urllib3==2.5.0",
     "matplotlib==3.10.6",
 ]
 

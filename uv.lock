@@ -1326,6 +1326,7 @@ dev = [
     { name = "starlette" },
     { name = "syrupy" },
     { name = "trustme" },
+    { name = "urllib3" },
     { name = "yarl" },
 ]
 
@@ -1350,6 +1351,7 @@ dev = [
     { name = "starlette", specifier = "==0.47.3" },
     { name = "syrupy", specifier = "==4.9.1" },
     { name = "trustme", specifier = "==1.2.1" },
+    { name = "urllib3", specifier = "==2.5.0" },
     { name = "yarl", specifier = "==1.20.1" },
 ]
 

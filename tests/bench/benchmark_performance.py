@@ -4,9 +4,10 @@ import ssl
 import statistics
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import matplotlib.pyplot as plt
 import trustme
@@ -14,7 +15,7 @@ from aiohttp import TCPConnector
 from granian.constants import HTTPModes
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
-from pyreqwest.client import ClientBuilder
+from pyreqwest.client import ClientBuilder, BlockingClientBuilder
 from pyreqwest.http import Url
 
 from tests.servers.echo_server import EchoServer
@@ -27,13 +28,16 @@ class PerformanceBenchmark:
         """Initialize benchmark with echo server and comparison library."""
         self.url = server_url.with_query({"echo_only_body": "1"})
         self.comparison_lib = comparison_lib
+        self.is_sync = comparison_lib == "urllib3"
         self.trust_cert_der = trust_cert_der
         self.body_sizes = [
             10_000,  # 10KB
             100_000,  # 100KB
             1_000_000,  # 1MB
-            10_000_000,  # 10MB
+            5_000_000,  # 5MB
         ]
+        self.big_body_limit = 1_000_000
+        self.big_body_chunk_size = 1024 * 1024
         self.requests = 100
         self.concurrency_levels = [2, 10, 100]
         self.warmup_iterations = 5
@@ -45,114 +49,169 @@ class PerformanceBenchmark:
         }
 
     def generate_body(self, size: int) -> bytes:
-        """Generate test body of specified size."""
         return b"x" * size
 
-    async def meas_concurrent_batch(
-        self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int, timings: list[float]
-    ) -> None:
+    async def meas_concurrent_batch(self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int) -> list[float]:
         semaphore = asyncio.Semaphore(concurrency)
 
-        async def sem_task(coro: Coroutine[Any, Any, None]) -> None:
-            async with semaphore:
-                await coro
+        async def run() -> float:
+            async def sem_fn() -> None:
+                async with semaphore:
+                    await fn()
 
-        start_time = time.perf_counter()
-        await asyncio.gather(*(sem_task(fn()) for _ in range(self.requests)))
-        timings.append((time.perf_counter() - start_time) * 1000)
+            start_time = time.perf_counter()
+            await asyncio.gather(*(sem_fn() for _ in range(self.requests)))
+            return (time.perf_counter() - start_time) * 1000
+
+        print("    Warming up...")
+        _ = [await run() for _ in range(self.warmup_iterations)]
+        print("    Running benchmark...")
+        return [await run() for _ in range(self.iterations)]
+
+    def sync_meas_concurrent_batch(self, fn: Callable[[], None], concurrency: int) -> list[float]:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+
+            def run() -> float:
+                start_time = time.perf_counter()
+                futures = [executor.submit(fn) for _ in range(self.requests)]
+                _ = [f.result() for f in futures]
+                return (time.perf_counter() - start_time) * 1000
+
+            print("    Warming up...")
+            _ = [run() for _ in range(self.warmup_iterations)]
+            print("    Running benchmark...")
+            return [run() for _ in range(self.iterations)]
+
+    def body_parts_sync(self, body: bytes) -> Iterator[bytes]:
+        chunk_size = self.big_body_chunk_size
+        for i in range(0, len(body), chunk_size):
+            yield body[i : i + chunk_size]
+
+    async def body_parts(self, body: bytes) -> AsyncGenerator[bytes, None]:
+        for part in self.body_parts_sync(body):
+            yield part
 
     async def benchmark_pyreqwest_concurrent(self, body_size: int, concurrency: int) -> list[float]:
-        """Benchmark pyreqwest with specified body size and concurrency."""
         body = self.generate_body(body_size)
-        timings: list[float] = []
 
         async with ClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
 
             async def post_read() -> None:
-                if body_size <= 1_000_000:
+                if body_size <= self.big_body_limit:
                     response = await client.post(self.url).body_bytes(body).build_consumed().send()
                     assert len(await response.bytes()) == body_size
                 else:
                     buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
                     async with (
                         client.post(self.url)
-                        .body_bytes(body)
+                        .body_stream(self.body_parts(body))
                         .streamed_read_buffer_limit(buffer_size)
                         .build_streamed() as response
                     ):
                         tot = 0
-                        while chunk := await response.read(1024 * 1024):
-                            assert len(chunk) <= 1024 * 1024
+                        while chunk := await response.read(self.big_body_chunk_size):
+                            assert len(chunk) <= self.big_body_chunk_size
                             tot += len(chunk)
                         assert tot == body_size
 
-            print("    Warming up...")
-            for _ in range(self.warmup_iterations):
-                await self.meas_concurrent_batch(post_read, concurrency, [])
+            return await self.meas_concurrent_batch(post_read, concurrency)
 
-            print("    Running benchmark...")
-            for _ in range(self.iterations):
-                await self.meas_concurrent_batch(post_read, concurrency, timings)
+    def benchmark_sync_pyreqwest_concurrent(self, body_size: int, concurrency: int) -> list[float]:
+        body = self.generate_body(body_size)
 
-        return timings
+        with BlockingClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
+
+            def post_read() -> None:
+                if body_size <= self.big_body_limit:
+                    response = client.post(self.url).body_bytes(body).build_consumed().send()
+                    assert len(response.bytes()) == body_size
+                else:
+                    buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
+                    with (
+                        client.post(self.url)
+                        .body_stream(self.body_parts_sync(body))
+                        .streamed_read_buffer_limit(buffer_size)
+                        .build_streamed() as response
+                    ):
+                        tot = 0
+                        while chunk := response.read(self.big_body_chunk_size):
+                            assert len(chunk) <= self.big_body_chunk_size
+                            tot += len(chunk)
+                        assert tot == body_size
+
+            return self.sync_meas_concurrent_batch(post_read, concurrency)
 
     async def benchmark_aiohttp_concurrent(self, body_size: int, concurrency: int) -> list[float]:
-        """Benchmark aiohttp with specified body size and concurrency."""
         import aiohttp
 
         body = self.generate_body(body_size)
         url_str = str(self.url)
-        timings: list[float] = []
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
-        async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx)) as session:
+        async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx, limit=concurrency)) as session:
 
             async def post_read() -> None:
-                if body_size <= 1_000_000:
+                if body_size <= self.big_body_limit:
                     async with session.post(url_str, data=body) as response:
                         assert len(await response.read()) == body_size
                 else:
-                    async with session.post(url_str, data=body) as response:
+                    async with session.post(url_str, data=self.body_parts(body)) as response:
                         tot = 0
-                        async for chunk in response.content.iter_chunked(1024 * 1024):
-                            assert len(chunk) <= 1024 * 1024
+                        async for chunk in response.content.iter_chunked(self.big_body_chunk_size):
+                            assert len(chunk) <= self.big_body_chunk_size
                             tot += len(chunk)
                         assert tot == body_size
 
-            print("    Warming up...")
-            for _ in range(self.warmup_iterations):
-                await self.meas_concurrent_batch(post_read, concurrency, [])
-
-            print("    Running benchmark...")
-            for _ in range(self.iterations):
-                await self.meas_concurrent_batch(post_read, concurrency, timings)
-
-        return timings
+            return await self.meas_concurrent_batch(post_read, concurrency)
 
     async def benchmark_httpx_concurrent(self, body_size: int, concurrency: int) -> list[float]:
-        """Benchmark httpx with specified body size and concurrency."""
         import httpx
 
         body = self.generate_body(body_size)
         url_str = str(self.url)
-        timings: list[float] = []
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
-        async with httpx.AsyncClient(verify=ssl_ctx) as client:
+        async with httpx.AsyncClient(verify=ssl_ctx, limits=httpx.Limits(max_connections=concurrency)) as client:
 
             async def post_read() -> None:
-                response = await client.post(url_str, content=body)
-                assert len(await response.aread()) == body_size
+                if body_size <= self.big_body_limit:
+                    response = await client.post(url_str, content=body)
+                    assert len(await response.aread()) == body_size
+                else:
+                    response = await client.post(url_str, content=self.body_parts(body))
+                    tot = 0
+                    async for chunk in response.aiter_bytes(self.big_body_chunk_size):
+                        assert len(chunk) <= self.big_body_chunk_size
+                        tot += len(chunk)
+                    assert tot == body_size
 
-            print("    Warming up...")
-            for _ in range(self.warmup_iterations):
-                await self.meas_concurrent_batch(post_read, concurrency, [])
+            return await self.meas_concurrent_batch(post_read, concurrency)
 
-            print("    Running benchmark...")
-            for _ in range(self.iterations):
-                await self.meas_concurrent_batch(post_read, concurrency, timings)
+    def benchmark_urllib3_concurrent(self, body_size: int, concurrency: int) -> list[float]:
+        import urllib3
 
-        return timings
+        body = self.generate_body(body_size)
+        url_str = str(self.url)
+        ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
+
+        with urllib3.PoolManager(maxsize=concurrency, ssl_context=ssl_ctx) as pool:
+            if body_size <= self.big_body_limit:
+                def post_read() -> None:
+                    response = pool.request("POST", url_str, body=body)
+                    assert response.status == 200
+                    assert len(response.data) == body_size
+            else:
+                def post_read() -> None:
+                    response = pool.request("POST", url_str, body=self.body_parts_sync(body), preload_content=False)
+                    assert response.status == 200
+                    tot = 0
+                    while chunk := response.read(self.big_body_chunk_size):
+                        assert len(chunk) <= self.big_body_chunk_size
+                        tot += len(chunk)
+                    assert tot == body_size
+                    response.release_conn()
+
+            return self.sync_meas_concurrent_batch(post_read, concurrency)
 
     async def benchmark_comparison_lib_concurrent(self, body_size: int, concurrency: int) -> list[float]:
         """Dispatch to the appropriate benchmark method based on comparison library."""
@@ -160,6 +219,8 @@ class PerformanceBenchmark:
             return await self.benchmark_aiohttp_concurrent(body_size, concurrency)
         if self.comparison_lib == "httpx":
             return await self.benchmark_httpx_concurrent(body_size, concurrency)
+        if self.comparison_lib == "urllib3":
+            return self.benchmark_urllib3_concurrent(body_size, concurrency)
         raise ValueError(f"Unsupported comparison library: {self.comparison_lib}")
 
     async def run_benchmarks(self) -> None:
@@ -188,8 +249,12 @@ class PerformanceBenchmark:
             for concurrency in self.concurrency_levels:
                 print(f"  Testing concurrency level: {concurrency}")
 
-                print("    Running pyreqwest benchmark...")
-                pyreqwest_times = await self.benchmark_pyreqwest_concurrent(body_size, concurrency)
+                if self.is_sync:
+                    print("    Running sync pyreqwest benchmark...")
+                    pyreqwest_times = self.benchmark_sync_pyreqwest_concurrent(body_size, concurrency)
+                else:
+                    print("    Running async pyreqwest benchmark...")
+                    pyreqwest_times = await self.benchmark_pyreqwest_concurrent(body_size, concurrency)
                 pyreqwest_avg = statistics.mean(pyreqwest_times)
                 print(f"    pyreqwest average: {pyreqwest_avg:.4f}ms")
                 self.results["pyreqwest"][body_size][concurrency] = pyreqwest_times
@@ -328,7 +393,7 @@ async def server() -> AsyncGenerator[tuple[EchoServer, bytes], None]:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Performance benchmark")
-    parser.add_argument("--lib", type=str, choices=["aiohttp", "httpx"], default="aiohttp")
+    parser.add_argument("--lib", type=str, choices=["aiohttp", "httpx", "urllib3"], default="aiohttp")
 
     args = parser.parse_args()
 

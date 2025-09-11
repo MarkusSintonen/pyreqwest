@@ -262,12 +262,6 @@ impl BaseRequestBuilder {
             };
             Ok(BodyConsumeConfig::Streamed(config))
         } else {
-            if self.streamed_read_buffer_limit.is_some() {
-                return Err(BuilderError::from_causes(
-                    "Can not set streamed_read_buffer_limit when building a fully consumed request",
-                    vec![],
-                ));
-            }
             Ok(BodyConsumeConfig::FullyConsumed)
         }
     }
