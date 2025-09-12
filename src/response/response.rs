@@ -1,11 +1,9 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::Handle;
-use crate::exceptions::utils::map_read_error;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
 use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
 use crate::http::{JsonValue, StatusCode};
-use crate::response::body_read_channel::{Receiver, body_read_channel};
-use bytes::{Bytes, BytesMut};
+use crate::response::body_reader::BodyReader;
 use encoding_rs::{Encoding, UTF_8};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -13,7 +11,6 @@ use pyo3::types::PyDict;
 use pyo3::{PyTraverseError, PyVisit};
 use pyo3_bytes::PyBytes;
 use serde_json::json;
-use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
@@ -26,10 +23,7 @@ pub struct BaseResponse {
     headers: Option<RespHeaders>,
     extensions: Option<RespExtensions>,
 
-    chunks: VecDeque<Bytes>,
-    body_consuming_started: bool,
-    fully_consumed_body: Option<Bytes>,
-    body_receiver: Option<Receiver>,
+    body_reader: BodyReader,
     runtime: Option<Handle>,
 }
 
@@ -111,7 +105,7 @@ impl BaseResponse {
 
     async fn bytes(&mut self) -> PyResult<PyBytes> {
         AllowThreads(async {
-            let bytes = self.bytes_inner().await?;
+            let bytes = self.body_reader.read_all_once().await?;
             Ok(PyBytes::new(bytes))
         })
         .await
@@ -119,7 +113,7 @@ impl BaseResponse {
 
     async fn json(&mut self) -> PyResult<JsonValue> {
         AllowThreads(async {
-            let bytes = self.bytes_inner().await?;
+            let bytes = self.body_reader.read_all_once().await?;
             match serde_json::from_slice(&bytes) {
                 Ok(v) => Ok(v),
                 Err(e) => Err(self.json_error(&e).await?),
@@ -130,7 +124,7 @@ impl BaseResponse {
 
     async fn text(&mut self) -> PyResult<String> {
         AllowThreads(async {
-            let bytes = self.bytes_inner().await?;
+            let bytes = self.body_reader.read_all_once().await?;
             let encoding = self
                 .content_type_mime_inner()?
                 .and_then(|mime| mime.get_param("charset").map(String::from))
@@ -144,30 +138,11 @@ impl BaseResponse {
 
     #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
     async fn read(&mut self, amount: usize) -> PyResult<PyBytes> {
-        AllowThreads(async {
-            let mut collected = BytesMut::with_capacity(amount);
-            let mut remaining = amount;
-
-            while remaining > 0 {
-                if let Some(mut chunk) = self.next_chunk_inner().await? {
-                    if chunk.len() > remaining {
-                        let extra = chunk.split_off(remaining);
-                        self.chunks.push_front(extra);
-                    }
-                    collected.extend_from_slice(&chunk);
-                    remaining -= chunk.len();
-                } else {
-                    break; // No more data
-                }
-            }
-
-            Ok(PyBytes::new(collected.freeze()))
-        })
-        .await
+        AllowThreads(async { self.body_reader.read(amount).await.map(PyBytes::from) }).await
     }
 
     async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
-        AllowThreads(async { Ok(self.next_chunk_inner().await?.map(PyBytes::from)) }).await
+        AllowThreads(async { Ok(self.body_reader.next_chunk().await?.map(PyBytes::from)) }).await
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -187,50 +162,24 @@ impl BaseResponse {
 }
 impl BaseResponse {
     pub async fn initialize(
-        mut response: reqwest::Response,
-        mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
+        response: reqwest::Response,
+        request_semaphore_permit: Option<OwnedSemaphorePermit>,
         consume_body: BodyConsumeConfig,
         runtime: Option<Handle>,
     ) -> PyResult<Self> {
-        let (init_chunks, has_more);
-        let head: http::response::Parts;
-
-        let body_receiver = match consume_body {
-            BodyConsumeConfig::FullyConsumed => {
-                (init_chunks, has_more) = Self::read_limit(&mut response, None).await?;
-                assert!(!has_more, "Should have fully consumed the response");
-
-                // Release the semaphore right away without waiting for user to do it (by consuming or closing).
-                _ = request_semaphore_permit.take();
-
-                (head, _) = Self::response_parts(response); // Body was fully read, drops it
-                None
-            }
-            BodyConsumeConfig::Streamed(conf) => {
-                (init_chunks, has_more) = Self::read_limit(&mut response, Some(conf.read_buffer_limit)).await?;
-
-                let body;
-                (head, body) = Self::response_parts(response);
-
-                if has_more {
-                    Some(body_read_channel(body, request_semaphore_permit, conf.read_buffer_limit, runtime.clone()))
-                } else {
-                    _ = request_semaphore_permit.take();
-                    drop(body); // Was already read
-                    None
-                }
-            }
+        let buffer_limit = match consume_body {
+            BodyConsumeConfig::FullyConsumed => None,
+            BodyConsumeConfig::Streamed(conf) => Some(conf.read_buffer_limit),
         };
+        let (body_reader, head) =
+            BodyReader::initialize(response, request_semaphore_permit, buffer_limit, runtime.clone()).await?;
 
         let resp = BaseResponse {
             status: StatusCode(head.status),
             version: Version(head.version),
             headers: Some(RespHeaders::Headers(HeaderMap::from(head.headers))),
             extensions: Some(RespExtensions::Extensions(head.extensions)),
-            chunks: init_chunks,
-            body_consuming_started: false,
-            fully_consumed_body: None,
-            body_receiver,
+            body_reader,
             runtime,
         };
         Ok(resp)
@@ -265,104 +214,8 @@ impl BaseResponse {
         Ok(Some(Mime::new(mime)))
     }
 
-    async fn next_chunk_inner(&mut self) -> PyResult<Option<Bytes>> {
-        self.body_consuming_started = true;
-
-        if let Some(chunk) = self.chunks.pop_front() {
-            return Ok(Some(chunk));
-        }
-
-        let Some(body_rx) = self.body_receiver.as_mut() else {
-            return Ok(None); // No body receiver, fully consumed
-        };
-
-        let Some(buffer) = body_rx.recv().await? else {
-            return Ok(None); // No more data
-        };
-        if buffer.is_empty() {
-            return Ok(None); // No more data
-        }
-
-        let mut buffer_iter = buffer.into_iter();
-        let first_chunk = buffer_iter.next().unwrap();
-        for rest_chunk in buffer_iter {
-            self.chunks.push_back(rest_chunk);
-        }
-        Ok(Some(first_chunk))
-    }
-
-    async fn bytes_inner(&mut self) -> PyResult<Bytes> {
-        if let Some(fully_consumed_body) = self.fully_consumed_body.as_ref() {
-            return Ok(fully_consumed_body.clone()); // Zero-copy clone
-        }
-
-        if self.body_consuming_started {
-            return Err(PyRuntimeError::new_err("Response body already consumed"));
-        }
-
-        let mut bytes = match self.content_length()? {
-            Some(len) => BytesMut::with_capacity(len),
-            None => BytesMut::new(),
-        };
-
-        while let Some(chunk) = self.next_chunk_inner().await? {
-            bytes.extend_from_slice(&chunk);
-        }
-
-        let bytes = bytes.freeze();
-        self.fully_consumed_body = Some(bytes.clone()); // Zero-copy clone
-        Ok(bytes)
-    }
-
-    fn content_length(&self) -> PyResult<Option<usize>> {
-        let Some(content_length) = self.get_header_inner("content-length")? else {
-            return Ok(None);
-        };
-        content_length
-            .0
-            .to_str()
-            .map_err(|e| RequestError::from_err("Invalid Content-Length header", &e))?
-            .parse::<usize>()
-            .map_err(|e| RequestError::from_err("Failed to parse Content-Length header", &e))
-            .map(Some)
-    }
-
-    fn response_parts(response: reqwest::Response) -> (http::response::Parts, reqwest::Body) {
-        let resp: http::Response<reqwest::Body> = response.into();
-        resp.into_parts()
-    }
-
-    async fn read_limit(
-        response: &mut reqwest::Response,
-        byte_limit: Option<usize>,
-    ) -> PyResult<(VecDeque<Bytes>, bool)> {
-        if byte_limit == Some(0) {
-            return Ok((VecDeque::new(), true));
-        }
-
-        let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
-        let mut has_more = true;
-        let mut consumed_bytes = 0;
-        while has_more {
-            if let Some(chunk) = response.chunk().await.map_err(map_read_error)? {
-                consumed_bytes += chunk.len();
-                init_chunks.push_back(chunk);
-                if let Some(byte_limit) = byte_limit {
-                    if consumed_bytes >= byte_limit {
-                        break;
-                    }
-                }
-            } else {
-                has_more = false;
-            }
-        }
-        Ok((init_chunks, has_more))
-    }
-
     pub fn inner_close(&self) {
-        if let Some(rx) = self.body_receiver.as_ref() {
-            rx.close() // Close the receiver to stop the reader background task
-        }
+        self.body_reader.close() // Close the receiver to stop the reader background task
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {

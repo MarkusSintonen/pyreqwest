@@ -1,4 +1,4 @@
-mod body_read_channel;
+mod body_reader;
 mod response;
 mod response_builder;
 

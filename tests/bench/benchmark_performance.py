@@ -3,11 +3,11 @@ import asyncio
 import ssl
 import statistics
 import time
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import matplotlib.pyplot as plt
 import trustme
@@ -15,7 +15,7 @@ from aiohttp import TCPConnector
 from granian.constants import HTTPModes
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
-from pyreqwest.client import ClientBuilder, BlockingClientBuilder
+from pyreqwest.client import BlockingClientBuilder, ClientBuilder
 from pyreqwest.http import Url
 
 from tests.servers.echo_server import EchoServer
@@ -196,11 +196,13 @@ class PerformanceBenchmark:
 
         with urllib3.PoolManager(maxsize=concurrency, ssl_context=ssl_ctx) as pool:
             if body_size <= self.big_body_limit:
+
                 def post_read() -> None:
                     response = pool.request("POST", url_str, body=body)
                     assert response.status == 200
                     assert len(response.data) == body_size
             else:
+
                 def post_read() -> None:
                     response = pool.request("POST", url_str, body=self.body_parts_sync(body), preload_content=False)
                     assert response.status == 200

@@ -35,3 +35,8 @@ time = "=0.3.43"
 
 [build-dependencies]
 pyo3-build-config = "=0.26.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true

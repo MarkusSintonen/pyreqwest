@@ -1,0 +1,283 @@
+use crate::client::Handle;
+use crate::exceptions::utils::map_read_error;
+use bytes::{Bytes, BytesMut};
+use http_body_util::BodyExt;
+use pyo3::PyResult;
+use pyo3::exceptions::PyRuntimeError;
+use std::collections::VecDeque;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio_util::sync::CancellationToken;
+
+pub struct BodyReader {
+    body_receiver: Option<Receiver>,
+    chunks: VecDeque<Bytes>,
+    fully_consumed_body: Option<Bytes>,
+    content_length: Option<usize>,
+    read_bytes: usize,
+}
+impl BodyReader {
+    pub async fn initialize(
+        mut response: reqwest::Response,
+        mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
+        buffer_limit: Option<usize>,
+        runtime: Option<Handle>,
+    ) -> PyResult<(Self, http::response::Parts)> {
+        let (init_chunks, has_more) = Self::read_limit(&mut response, buffer_limit).await?;
+        let (head, body) = Self::response_parts(response);
+
+        let mut body_receiver: Option<Receiver> = None;
+        if let Some(buffer_limit) = buffer_limit {
+            if has_more {
+                body_receiver = Some(Reader::start(body, request_semaphore_permit.take(), buffer_limit, runtime));
+            }
+        } else {
+            assert!(!has_more, "Should have fully consumed the response");
+        }
+        if body_receiver.is_none() {
+            if let Some(a) = request_semaphore_permit.take() {
+                drop(a)
+            } // No more body to read, release the semaphore permit
+        }
+
+        let body_reader = BodyReader {
+            body_receiver,
+            chunks: init_chunks,
+            fully_consumed_body: None,
+            content_length: Self::content_length(&head.headers),
+            read_bytes: 0,
+        };
+        Ok((body_reader, head))
+    }
+
+    pub async fn next_chunk(&mut self) -> PyResult<Option<Bytes>> {
+        async fn next(this: &mut BodyReader) -> PyResult<Option<Bytes>> {
+            if let Some(chunk) = this.chunks.pop_front() {
+                return Ok(Some(chunk));
+            }
+
+            let Some(body_rx) = this.body_receiver.as_mut() else {
+                return Ok(None); // No body receiver, fully consumed
+            };
+
+            let Some(buffer) = body_rx.recv().await? else {
+                return Ok(None); // No more data
+            };
+            if buffer.is_empty() {
+                return Ok(None); // No more data
+            }
+
+            let mut buffer_iter = buffer.into_iter();
+            let first_chunk = buffer_iter.next().unwrap();
+            for rest_chunk in buffer_iter {
+                this.chunks.push_back(rest_chunk);
+            }
+            Ok(Some(first_chunk))
+        }
+
+        match next(self).await {
+            Ok(Some(chunk)) => {
+                self.read_bytes += chunk.len();
+                Ok(Some(chunk))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    pub async fn read_all_once(&mut self) -> PyResult<Bytes> {
+        if let Some(fully_consumed_body) = self.fully_consumed_body.as_ref() {
+            return Ok(fully_consumed_body.clone()); // Zero-copy clone
+        }
+
+        if self.read_bytes > 0 {
+            return Err(PyRuntimeError::new_err("Response body already consumed"));
+        }
+
+        let mut bytes = match self.content_length {
+            Some(len) => BytesMut::with_capacity(len),
+            None => BytesMut::new(),
+        };
+
+        while let Some(chunk) = self.next_chunk().await? {
+            bytes.extend_from_slice(&chunk);
+        }
+
+        let bytes = bytes.freeze();
+        self.fully_consumed_body = Some(bytes.clone()); // Zero-copy clone
+        Ok(bytes)
+    }
+
+    pub async fn read(&mut self, amount: usize) -> PyResult<Bytes> {
+        let remaining = self
+            .content_length
+            .map(|content_len| content_len.saturating_sub(self.read_bytes));
+        let capacity = remaining.map(|remaining| remaining.min(amount)).unwrap_or(amount);
+
+        let mut collected = if capacity > 0 {
+            BytesMut::with_capacity(capacity)
+        } else {
+            BytesMut::new()
+        };
+        let mut remaining = amount;
+
+        while remaining > 0 {
+            if let Some(mut chunk) = self.next_chunk().await? {
+                if chunk.len() > remaining {
+                    let extra = chunk.split_off(remaining);
+                    self.chunks.push_front(extra);
+                }
+                collected.extend_from_slice(&chunk);
+                remaining -= chunk.len();
+            } else {
+                break; // No more data
+            }
+        }
+
+        Ok(collected.freeze())
+    }
+
+    pub fn close(&self) {
+        if let Some(body_rx) = self.body_receiver.as_ref() {
+            body_rx.close();
+        }
+    }
+
+    fn response_parts(response: reqwest::Response) -> (http::response::Parts, reqwest::Body) {
+        let resp: http::Response<reqwest::Body> = response.into();
+        resp.into_parts()
+    }
+
+    async fn read_limit(
+        response: &mut reqwest::Response,
+        byte_limit: Option<usize>,
+    ) -> PyResult<(VecDeque<Bytes>, bool)> {
+        if byte_limit == Some(0) {
+            return Ok((VecDeque::new(), true));
+        }
+
+        let mut init_chunks: VecDeque<Bytes> = VecDeque::new();
+        let mut has_more = true;
+        let mut consumed_bytes = 0;
+
+        while has_more {
+            if let Some(chunk) = response.chunk().await.map_err(map_read_error)? {
+                consumed_bytes += chunk.len();
+                init_chunks.push_back(chunk);
+
+                if let Some(byte_limit) = byte_limit {
+                    if consumed_bytes >= byte_limit {
+                        break;
+                    }
+                }
+            } else {
+                has_more = false;
+            }
+        }
+        Ok((init_chunks, has_more))
+    }
+
+    fn content_length(headers: &http::HeaderMap) -> Option<usize> {
+        headers.get(http::header::CONTENT_LENGTH)?.to_str().ok()?.parse().ok()
+    }
+}
+
+struct Receiver {
+    rx: tokio::sync::mpsc::Receiver<PyResult<Vec<Bytes>>>,
+    close_token: CancellationToken,
+}
+impl Receiver {
+    async fn recv(&mut self) -> PyResult<Option<Vec<Bytes>>> {
+        self.rx.recv().await.transpose()
+    }
+
+    fn close(&self) {
+        self.close_token.cancel();
+    }
+}
+
+struct Reader {
+    buffer: Option<Vec<Bytes>>,
+    tot_bytes: usize,
+    buffer_size: usize,
+    tx: tokio::sync::mpsc::Sender<PyResult<Vec<Bytes>>>,
+}
+
+impl Reader {
+    fn start(
+        mut body: reqwest::Body,
+        mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
+        buffer_size: usize,
+        runtime: Option<Handle>,
+    ) -> Receiver {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let close_token = CancellationToken::new();
+        let close_token_child = close_token.child_token();
+
+        let mut reader = Reader {
+            buffer: Some(Vec::new()),
+            tot_bytes: 0,
+            buffer_size,
+            tx,
+        };
+        let runtime = runtime.unwrap_or_else(Handle::current);
+
+        let _ = runtime.spawn(async move {
+            let fut = async move {
+                loop {
+                    match body.frame().await.transpose().map_err(map_read_error) {
+                        Err(err) => {
+                            let _ = reader.tx.send(Err(err)).await;
+                            break; // Stop on error
+                        }
+                        Ok(None) => {
+                            reader.finalize().await;
+                            break; // All was consumed
+                        }
+                        Ok(Some(frame)) => {
+                            if let Ok(chunk) = frame.into_data() {
+                                if !reader.send_chunk(chunk).await {
+                                    break; // Receiver was dropped
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            tokio::select! {
+                _ = fut => {},
+                _ = close_token_child.cancelled() => {}
+            }
+
+            _ = request_semaphore_permit.take();
+        });
+
+        Receiver { rx, close_token }
+    }
+
+    async fn send_chunk(&mut self, chunk: Bytes) -> bool {
+        let Some(buffer) = self.buffer.as_mut() else {
+            return false; // Already finalized
+        };
+
+        self.tot_bytes += chunk.len();
+        buffer.push(chunk);
+
+        if self.tot_bytes < self.buffer_size {
+            return true;
+        }
+
+        let new_buffer = Vec::with_capacity(buffer.capacity()); // Start new chunks buffer
+        self.tot_bytes = 0;
+
+        self.tx.send(Ok(std::mem::replace(buffer, new_buffer))).await.is_ok()
+    }
+
+    async fn finalize(&mut self) {
+        if let Some(buffer) = self.buffer.take() {
+            if !buffer.is_empty() {
+                _ = self.tx.send(Ok(buffer)).await;
+            }
+        };
+    }
+}
