@@ -18,7 +18,7 @@ import_time_client = ClientBuilder().build()
 async def test_simple_get_mock(client_mocker: ClientMocker) -> None:
     client_mocker.get("/api").with_body_text("Hello World")
 
-    resp = await ClientBuilder().build().get("http://example.invalid/api").build_consumed().send()
+    resp = await ClientBuilder().build().get("http://example.invalid/api").build().send()
 
     assert resp.status == 200
     assert await resp.text() == "Hello World"
@@ -33,29 +33,23 @@ async def test_method_specific_mocks(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    get_resp = await client.get("http://api.example.invalid/users").build_consumed().send()
+    get_resp = await client.get("http://api.example.invalid/users").build().send()
     assert get_resp.status == 200
     assert await get_resp.json() == {"users": []}
 
     post_resp = (
-        await client.post("http://api.example.invalid/users")
-        .body_text(json.dumps({"name": "John"}))
-        .build_consumed()
-        .send()
+        await client.post("http://api.example.invalid/users").body_text(json.dumps({"name": "John"})).build().send()
     )
     assert post_resp.status == 201
     assert await post_resp.json() == {"id": 123}
 
     put_resp = (
-        await client.put("http://api.example.invalid/users/123")
-        .body_text(json.dumps({"name": "Jane"}))
-        .build_consumed()
-        .send()
+        await client.put("http://api.example.invalid/users/123").body_text(json.dumps({"name": "Jane"})).build().send()
     )
     assert put_resp.status == 202
 
     for _ in range(2):
-        delete_resp = await client.delete("http://api.example.invalid/users/123").build_consumed().send()
+        delete_resp = await client.delete("http://api.example.invalid/users/123").build().send()
         assert delete_resp.status == 204
 
     assert client_mocker.get_call_count() == 5
@@ -71,10 +65,10 @@ async def test_regex_path_matching(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    resp1 = await client.get("http://api.example.invalid/users/123").build_consumed().send()
-    resp2 = await client.get("http://api.example.invalid/users/456").build_consumed().send()
+    resp1 = await client.get("http://api.example.invalid/users/123").build().send()
+    resp2 = await client.get("http://api.example.invalid/users/456").build().send()
     with pytest.raises(AssertionError, match="No mock rule matched request"):
-        await client.get("http://api.example.invalid/users/abc").build_consumed().send()
+        await client.get("http://api.example.invalid/users/abc").build().send()
 
     assert await resp1.json() == {"id": 456, "name": "Test User"}
     assert await resp2.json() == {"id": 456, "name": "Test User"}
@@ -91,15 +85,12 @@ async def test_header_matching(client_mocker: ClientMocker) -> None:
     client = ClientBuilder().build()
 
     auth_resp = (
-        await client.post("http://api.example.invalid/data")
-        .header("Authorization", "Bearer token123")
-        .build_consumed()
-        .send()
+        await client.post("http://api.example.invalid/data").header("Authorization", "Bearer token123").build().send()
     )
     assert auth_resp.status == 200
     assert await auth_resp.text() == "Authorized"
 
-    unauth_resp = await client.post("http://api.example.invalid/data").build_consumed().send()
+    unauth_resp = await client.post("http://api.example.invalid/data").build().send()
     assert unauth_resp.status == 401
     assert await unauth_resp.text() == "Unauthorized"
 
@@ -111,14 +102,10 @@ async def test_body_matching(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    json_resp = (
-        await client.post("http://api.example.invalid/echo").body_text('{"test": "data"}').build_consumed().send()
-    )
+    json_resp = await client.post("http://api.example.invalid/echo").body_text('{"test": "data"}').build().send()
     assert await json_resp.text() == "JSON matched"
 
-    binary_resp = (
-        await client.post("http://api.example.invalid/echo").body_bytes(b"binary data").build_consumed().send()
-    )
+    binary_resp = await client.post("http://api.example.invalid/echo").body_bytes(b"binary data").build().send()
     assert await binary_resp.text() == "Binary matched"
 
 
@@ -131,7 +118,7 @@ async def test_regex_body_matching(client_mocker: ClientMocker) -> None:
     resp = (
         await client.post("http://api.example.invalid/actions")
         .body_text(json.dumps({"action": "create", "resource": "user"}))
-        .build_consumed()
+        .build()
         .send()
     )
 
@@ -145,9 +132,9 @@ async def test_request_capture(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    await client.get("http://api.example.invalid/test").header("User-Agent", "test-client").build_consumed().send()
+    await client.get("http://api.example.invalid/test").header("User-Agent", "test-client").build().send()
 
-    await client.post("http://api.example.invalid/test").body_text(json.dumps({"key": "value"})).build_consumed().send()
+    await client.post("http://api.example.invalid/test").body_text(json.dumps({"key": "value"})).build().send()
 
     all_requests = client_mocker.get_requests()
     assert len(all_requests) == 2
@@ -168,7 +155,7 @@ async def test_call_counting(client_mocker: ClientMocker) -> None:
     client = ClientBuilder().build()
 
     for _ in range(3):
-        await client.get("http://api.example.invalid/endpoint").build_consumed().send()
+        await client.get("http://api.example.invalid/endpoint").build().send()
 
     assert client_mocker.get_call_count() == 3
     assert mock.get_call_count() == 3
@@ -180,7 +167,7 @@ async def test_response_headers(client_mocker: ClientMocker) -> None:
         "100",
     )
     client = ClientBuilder().build()
-    resp = await client.get("http://api.example.invalid/test").build_consumed().send()
+    resp = await client.get("http://api.example.invalid/test").build().send()
 
     assert resp.headers["X-Custom-Header"] == "custom-value"
     assert resp.headers["X-Rate-Limit"] == "100"
@@ -191,7 +178,7 @@ async def test_json_response(client_mocker: ClientMocker) -> None:
     client_mocker.get("/users").with_body_json(test_data)
 
     client = ClientBuilder().build()
-    resp = await client.get("http://api.example.invalid/users").build_consumed().send()
+    resp = await client.get("http://api.example.invalid/users").build().send()
 
     assert resp.headers["content-type"] == "application/json"
     assert await resp.json() == test_data
@@ -202,7 +189,7 @@ async def test_bytes_response(client_mocker: ClientMocker) -> None:
     client_mocker.get("/binary").with_body_bytes(test_data)
 
     client = ClientBuilder().build()
-    resp = await client.get("http://api.example.invalid/binary").build_consumed().send()
+    resp = await client.get("http://api.example.invalid/binary").build().send()
 
     assert await resp.bytes() == test_data
 
@@ -213,18 +200,18 @@ async def test_strict_mode(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    resp = await client.get("http://api.example.invalid/allowed").build_consumed().send()
+    resp = await client.get("http://api.example.invalid/allowed").build().send()
     assert await resp.text() == "OK"
 
     with pytest.raises(AssertionError, match="No mock rule matched request"):
-        await client.get("http://api.example.invalid/forbidden").build_consumed().send()
+        await client.get("http://api.example.invalid/forbidden").build().send()
 
 
 async def test_reset_mocks(client_mocker: ClientMocker) -> None:
     client_mocker.get("/test").with_body_text("response")
 
     client = ClientBuilder().build()
-    await client.get("http://api.example.invalid/test").build_consumed().send()
+    await client.get("http://api.example.invalid/test").build().send()
 
     assert client_mocker.get_call_count() == 1
     assert len(client_mocker.get_requests()) == 1
@@ -240,7 +227,7 @@ async def test_multiple_rules_first_match_wins(client_mocker: ClientMocker) -> N
     client_mocker.get("/users/123").with_body_text("General user")
 
     client = ClientBuilder().build()
-    resp = await client.get("http://api.example.invalid/users/123?param=1").build_consumed().send()
+    resp = await client.get("http://api.example.invalid/users/123?param=1").build().send()
 
     assert await resp.text() == "Specific user"
 
@@ -251,15 +238,15 @@ async def test_method_pattern_matching(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    get_resp = await client.get("http://api.example.invalid/data").build_consumed().send()
+    get_resp = await client.get("http://api.example.invalid/data").build().send()
     assert get_resp.status == 200
     assert await get_resp.json() == {"message": "success"}
 
-    post_resp = await client.post("http://api.example.invalid/data").build_consumed().send()
+    post_resp = await client.post("http://api.example.invalid/data").build().send()
     assert post_resp.status == 200
     assert await post_resp.json() == {"message": "success"}
 
-    req = client.put("http://api.example.invalid/data").build_consumed()
+    req = client.put("http://api.example.invalid/data").build()
     with pytest.raises(AssertionError, match="No mock rule matched request"):
         await req.send()
 
@@ -271,13 +258,13 @@ async def test_without_mocking_requests_pass_through(client_mocker: ClientMocker
 
     client = ClientBuilder().build()
 
-    mocked_resp = await client.get("http://mocked.example.invalid/api").build_consumed().send()
+    mocked_resp = await client.get("http://mocked.example.invalid/api").build().send()
     assert mocked_resp.status == 200
     mocked_data = await mocked_resp.json()
     assert mocked_data["mocked"] is True
     assert mocked_data["source"] == "mock"
 
-    real_resp = await client.get(echo_server.url).build_consumed().send()
+    real_resp = await client.get(echo_server.url).build().send()
     assert real_resp.status == 200
     real_data = await real_resp.json()
 
@@ -300,7 +287,7 @@ async def test_regex_header_matching(client_mocker: ClientMocker) -> None:
     auth_resp = (
         await client.post("http://api.service.invalid/secure")
         .header("Authorization", "Bearer abc123xyz")
-        .build_consumed()
+        .build()
         .send()
     )
     assert (await auth_resp.json())["authenticated"] is True
@@ -314,7 +301,7 @@ async def test_mock_chaining_and_reset(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    resp = await client.get("http://api.service.invalid/resource").build_consumed().send()
+    resp = await client.get("http://api.service.invalid/resource").build().send()
     assert resp.status == 200
     assert resp.headers["X-Rate-Limit"] == "100"
     assert (await resp.json())["name"] == "Resource"
@@ -348,7 +335,7 @@ async def test_stream_match(client_mocker: ClientMocker, body_match: Any, matche
     mock = client_mocker.post("/stream").match_body(body_match).with_body_text("Stream received")
 
     client = ClientBuilder().error_for_status(True).build()
-    req = client.post("http://api.example.invalid/stream").body_stream(stream_generator()).build_consumed()
+    req = client.post("http://api.example.invalid/stream").body_stream(stream_generator()).build()
 
     if matches:
         resp = await req.send()
@@ -367,7 +354,7 @@ async def test_stream_match(client_mocker: ClientMocker, body_match: Any, matche
 async def test_import_time_client_is_mocked(client_mocker: ClientMocker) -> None:
     client_mocker.get("/").with_body_text("Mocked response")
 
-    resp = await import_time_client.get("http://foo.invalid").build_consumed().send()
+    resp = await import_time_client.get("http://foo.invalid").build().send()
     assert resp.status == 200
     assert (await resp.text()) == "Mocked response"
     assert client_mocker.get_call_count() == 1
@@ -382,10 +369,10 @@ async def test_custom_matcher_basic(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    v2_resp = await client.get("http://api.example.invalid/data").header("X-API-Version", "v2").build_consumed().send()
+    v2_resp = await client.get("http://api.example.invalid/data").header("X-API-Version", "v2").build().send()
     assert await v2_resp.text() == "API v2 response"
 
-    default_resp = await client.get("http://api.example.invalid/data").build_consumed().send()
+    default_resp = await client.get("http://api.example.invalid/data").build().send()
     assert await default_resp.text() == "Default response"
 
 
@@ -405,7 +392,7 @@ async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
         await client.get("http://api.example.invalid/protected")
         .header("Authorization", "Bearer valid-token")
         .header("User-Agent", "TestClient/1.0")
-        .build_consumed()
+        .build()
         .send()
     )
     assert await success_resp.text() == "All conditions matched"
@@ -413,7 +400,7 @@ async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
     no_ua_resp = (
         await client.get("http://api.example.invalid/protected")
         .header("Authorization", "Bearer valid-token")
-        .build_consumed()
+        .build()
         .send()
     )
     assert await no_ua_resp.text() == "Fallback response"
@@ -422,7 +409,7 @@ async def test_custom_matcher_combined(client_mocker: ClientMocker) -> None:
         await client.get("http://api.example.invalid/protected")
         .header("Authorization", "Bearer wrong-token")
         .header("User-Agent", "TestClient/1.0")
-        .build_consumed()
+        .build()
         .send()
     )
     assert await wrong_auth_resp.text() == "Fallback response"
@@ -450,9 +437,7 @@ async def test_custom_handler_basic(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    echo_resp = (
-        await client.post("http://api.example.invalid/echo").header("X-Test", "custom-value").build_consumed().send()
-    )
+    echo_resp = await client.post("http://api.example.invalid/echo").header("X-Test", "custom-value").build().send()
 
     assert echo_resp.status == 200
     echo_data = await echo_resp.json()
@@ -460,7 +445,7 @@ async def test_custom_handler_basic(client_mocker: ClientMocker) -> None:
     assert echo_data["url"] == "http://api.example.invalid/echo"
     assert echo_data["test_header"] == "custom-value"
 
-    default_resp = await client.get("http://api.example.invalid/test").build_consumed().send()
+    default_resp = await client.get("http://api.example.invalid/test").build().send()
     assert await default_resp.text() == "Default response"
 
 
@@ -498,7 +483,7 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
     admin_resp = (
         await client.post("http://api.example.invalid/actions")
         .body_text(json.dumps({"role": "admin", "action": "delete", "user": "alice"}))
-        .build_consumed()
+        .build()
         .send()
     )
 
@@ -510,7 +495,7 @@ async def test_custom_handler_with_body_inspection(client_mocker: ClientMocker) 
     user_resp = (
         await client.post("http://api.example.invalid/actions")
         .body_text(json.dumps({"role": "user", "action": "create"}))
-        .build_consumed()
+        .build()
         .send()
     )
 
@@ -533,28 +518,28 @@ async def test_get_call_count_comprehensive(client_mocker: ClientMocker) -> None
     assert users_get_mock.get_call_count() == 0
     assert users_post_mock.get_call_count() == 0
 
-    await client.get("http://api.example.invalid/users").build_consumed().send()
+    await client.get("http://api.example.invalid/users").build().send()
     assert client_mocker.get_call_count() == 1
     assert users_get_mock.get_call_count() == 1
     assert users_post_mock.get_call_count() == 0
     assert posts_get_mock.get_call_count() == 0
 
-    await client.get("http://api.example.invalid/posts").build_consumed().send()
+    await client.get("http://api.example.invalid/posts").build().send()
     assert client_mocker.get_call_count() == 2
     assert users_get_mock.get_call_count() == 1
     assert posts_get_mock.get_call_count() == 1
 
-    await client.get("http://api.example.invalid/users").build_consumed().send()
+    await client.get("http://api.example.invalid/users").build().send()
     assert client_mocker.get_call_count() == 3
     assert users_get_mock.get_call_count() == 2
     assert posts_get_mock.get_call_count() == 1
 
-    await client.post("http://api.example.invalid/users").body_text("{}").build_consumed().send()
+    await client.post("http://api.example.invalid/users").body_text("{}").build().send()
     assert client_mocker.get_call_count() == 4
     assert users_get_mock.get_call_count() == 2
     assert users_post_mock.get_call_count() == 1
 
-    await client.put("http://other.invalid/data").body_text("data").build_consumed().send()
+    await client.put("http://other.invalid/data").body_text("data").build().send()
     assert client_mocker.get_call_count() == 5
     assert other_put_mock.get_call_count() == 1
 
@@ -576,17 +561,17 @@ async def test_get_call_count_with_custom_handlers(client_mocker: ClientMocker) 
 
     assert client_mocker.get_call_count() == 0
 
-    resp1 = await client.get("http://api.example.invalid/custom").build_consumed().send()
+    resp1 = await client.get("http://api.example.invalid/custom").build().send()
     assert await resp1.text() == "Custom response 1"
     assert client_mocker.get_call_count() == 1
     assert custom_mock.get_call_count() == 1
 
-    resp2 = await client.get("http://api.example.invalid/custom/data").build_consumed().send()
+    resp2 = await client.get("http://api.example.invalid/custom/data").build().send()
     assert await resp2.text() == "Custom response 2"
     assert client_mocker.get_call_count() == 2
     assert custom_mock.get_call_count() == 2
 
-    resp3 = await client.get("http://api.example.invalid/normal").build_consumed().send()
+    resp3 = await client.get("http://api.example.invalid/normal").build().send()
     assert await resp3.text() == "Normal response"
     assert client_mocker.get_call_count() == 3
     assert normal_mock.get_call_count() == 1
@@ -598,9 +583,9 @@ async def test_get_call_count_after_reset(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    await client.get("http://api.example.invalid/test").build_consumed().send()
-    await client.post("http://api.example.invalid/test").body_text("data").build_consumed().send()
-    await client.get("http://api.example.invalid/test").build_consumed().send()
+    await client.get("http://api.example.invalid/test").build().send()
+    await client.post("http://api.example.invalid/test").body_text("data").build().send()
+    await client.get("http://api.example.invalid/test").build().send()
 
     assert client_mocker.get_call_count() == 3
     assert get_mock.get_call_count() == 2
@@ -622,7 +607,7 @@ async def test_get_call_count_edge_cases(client_mocker: ClientMocker) -> None:
     assert client_mocker.get_call_count() == 0
     assert mock.get_call_count() == 0
 
-    resp = await client.get("http://test.invalid").build_consumed().send()
+    resp = await client.get("http://test.invalid").build().send()
     assert await resp.text() == "response"
 
     assert client_mocker.get_call_count() == 1
@@ -635,13 +620,13 @@ async def test_query_matching_dict_string_values(client_mocker: ClientMocker) ->
 
     client = ClientBuilder().build()
 
-    match_resp = await client.get("http://api.example.invalid/search?q=python&type=repo").build_consumed().send()
+    match_resp = await client.get("http://api.example.invalid/search?q=python&type=repo").build().send()
     assert await match_resp.json() == {"results": ["pyreqwest"]}
 
-    no_match_resp = await client.get("http://api.example.invalid/search?q=rust&type=repo").build_consumed().send()
+    no_match_resp = await client.get("http://api.example.invalid/search?q=rust&type=repo").build().send()
     assert await no_match_resp.json() == {"results": []}
 
-    missing_resp = await client.get("http://api.example.invalid/search?q=python").build_consumed().send()
+    missing_resp = await client.get("http://api.example.invalid/search?q=python").build().send()
     assert await missing_resp.json() == {"results": []}
 
 
@@ -653,13 +638,13 @@ async def test_query_matching_dict_regex_values(client_mocker: ClientMocker) -> 
 
     client = ClientBuilder().build()
 
-    match_resp = await client.get("http://api.example.invalid/search?q=python&limit=10").build_consumed().send()
+    match_resp = await client.get("http://api.example.invalid/search?q=python&limit=10").build().send()
     assert await match_resp.json() == {"matched": True}
 
-    match2_resp = await client.get("http://api.example.invalid/search?q=pyreqwest&limit=50").build_consumed().send()
+    match2_resp = await client.get("http://api.example.invalid/search?q=pyreqwest&limit=50").build().send()
     assert await match2_resp.json() == {"matched": True}
 
-    no_match_resp = await client.get("http://api.example.invalid/search?q=rust&limit=abc").build_consumed().send()
+    no_match_resp = await client.get("http://api.example.invalid/search?q=rust&limit=abc").build().send()
     assert await no_match_resp.json() == {"matched": False}
 
 
@@ -669,13 +654,13 @@ async def test_query_matching_regex_pattern(client_mocker: ClientMocker) -> None
 
     client = ClientBuilder().build()
 
-    auth_resp = await client.get("http://api.example.invalid/data?token=abc123&other=value").build_consumed().send()
+    auth_resp = await client.get("http://api.example.invalid/data?token=abc123&other=value").build().send()
     assert await auth_resp.json() == {"authorized": True}
 
-    no_auth_resp = await client.get("http://api.example.invalid/data?other=value").build_consumed().send()
+    no_auth_resp = await client.get("http://api.example.invalid/data?other=value").build().send()
     assert await no_auth_resp.json() == {"authorized": False}
 
-    empty_resp = await client.get("http://api.example.invalid/data").build_consumed().send()
+    empty_resp = await client.get("http://api.example.invalid/data").build().send()
     assert await empty_resp.json() == {"authorized": False}
 
 
@@ -685,10 +670,10 @@ async def test_query_matching_empty(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    no_params_resp = await client.get("http://api.example.invalid/endpoint").build_consumed().send()
+    no_params_resp = await client.get("http://api.example.invalid/endpoint").build().send()
     assert await no_params_resp.json() == {"no_params": True}
 
-    with_params_resp = await client.get("http://api.example.invalid/endpoint?foo=bar").build_consumed().send()
+    with_params_resp = await client.get("http://api.example.invalid/endpoint?foo=bar").build().send()
     assert await with_params_resp.json() == {"has_params": True}
 
 
@@ -700,13 +685,13 @@ async def test_query_matching_regex_empty_string(client_mocker: ClientMocker) ->
 
     client = ClientBuilder().build()
 
-    empty_resp = await client.get("http://api.example.invalid/flexible").build_consumed().send()
+    empty_resp = await client.get("http://api.example.invalid/flexible").build().send()
     assert await empty_resp.json() == {"debug_or_empty": True}
 
-    debug_resp = await client.get("http://api.example.invalid/flexible?debug=true").build_consumed().send()
+    debug_resp = await client.get("http://api.example.invalid/flexible?debug=true").build().send()
     assert await debug_resp.json() == {"debug_or_empty": True}
 
-    other_resp = await client.get("http://api.example.invalid/flexible?other=value").build_consumed().send()
+    other_resp = await client.get("http://api.example.invalid/flexible?other=value").build().send()
     assert await other_resp.json() == {"other": True}
 
 
@@ -717,13 +702,13 @@ async def test_query_matching_multiple_values_same_key(client_mocker: ClientMock
 
     client = ClientBuilder().build()
 
-    resp1 = await client.get("http://api.example.invalid/multi?tag=python&tag=web").build_consumed().send()
+    resp1 = await client.get("http://api.example.invalid/multi?tag=python&tag=web").build().send()
     assert await resp1.json() == {"match": 1}
 
-    resp2 = await client.get("http://api.example.invalid/multi?tag=python&tag=rust").build_consumed().send()
+    resp2 = await client.get("http://api.example.invalid/multi?tag=python&tag=rust").build().send()
     assert await resp2.json() == {"match": 2}
 
-    no_match_resp = await client.get("http://api.example.invalid/multi?tag=python&tag=java").build_consumed().send()
+    no_match_resp = await client.get("http://api.example.invalid/multi?tag=python&tag=java").build().send()
     assert await no_match_resp.json() == {"no_match": True}
 
 
@@ -739,9 +724,7 @@ async def test_query_matching_mixed_string_and_regex(client_mocker: ClientMocker
     client = ClientBuilder().build()
 
     match_resp = (
-        await client.get("http://api.example.invalid/mixed?exact=value&pattern=test_123&optional=")
-        .build_consumed()
-        .send()
+        await client.get("http://api.example.invalid/mixed?exact=value&pattern=test_123&optional=").build().send()
     )
     assert await match_resp.json() == {"mixed_match": True}
 
@@ -754,9 +737,7 @@ async def test_query_matching_url_encoded_values(client_mocker: ClientMocker) ->
     client = ClientBuilder().build()
 
     encoded_resp = (
-        await client.get("http://api.example.invalid/encoded?search=hello%20world&special=a%2Bb%3Dc")
-        .build_consumed()
-        .send()
+        await client.get("http://api.example.invalid/encoded?search=hello%20world&special=a%2Bb%3Dc").build().send()
     )
     assert await encoded_resp.json() == {"encoded_match": True}
 
@@ -767,10 +748,10 @@ async def test_query_matching_case_sensitivity(client_mocker: ClientMocker) -> N
 
     client = ClientBuilder().build()
 
-    exact_resp = await client.get("http://api.example.invalid/case?Key=Value").build_consumed().send()
+    exact_resp = await client.get("http://api.example.invalid/case?Key=Value").build().send()
     assert await exact_resp.json() == {"case_match": True}
 
-    wrong_case_resp = await client.get("http://api.example.invalid/case?key=value").build_consumed().send()
+    wrong_case_resp = await client.get("http://api.example.invalid/case?key=value").build().send()
     assert await wrong_case_resp.json() == {"no_match": True}
 
 
@@ -788,7 +769,7 @@ async def test_query_matching_with_other_matchers(client_mocker: ClientMocker) -
         await client.post("http://api.example.invalid/combined?action=create")
         .header("Content-Type", "application/json")
         .body_text('{"name": "test", "other": "data"}')
-        .build_consumed()
+        .build()
         .send()
     )
     assert await full_match_resp.json() == {"combined_match": True}
@@ -797,7 +778,7 @@ async def test_query_matching_with_other_matchers(client_mocker: ClientMocker) -
         await client.post("http://api.example.invalid/combined?action=update")
         .header("Content-Type", "application/json")
         .body_text('{"name": "test", "other": "data"}')
-        .build_consumed()
+        .build()
         .send()
     )
     assert await partial_resp.json() == {"partial_match": True}
@@ -808,8 +789,8 @@ async def test_query_matching_request_capture(client_mocker: ClientMocker) -> No
 
     client = ClientBuilder().build()
 
-    await client.get("http://api.example.invalid/capture?filter=active&sort=name").build_consumed().send()
-    await client.get("http://api.example.invalid/capture?filter=active").build_consumed().send()
+    await client.get("http://api.example.invalid/capture?filter=active&sort=name").build().send()
+    await client.get("http://api.example.invalid/capture?filter=active").build().send()
 
     captured_requests = query_mock.get_requests()
     assert len(captured_requests) == 2
@@ -830,15 +811,10 @@ async def test_json_body_matching_basic(client_mocker: ClientMocker) -> None:
 
     client = ClientBuilder().build()
 
-    resp = (
-        await client.post("http://api.example.invalid/users")
-        .body_json({"name": "John", "age": 30})
-        .build_consumed()
-        .send()
-    )
+    resp = await client.post("http://api.example.invalid/users").body_json({"name": "John", "age": 30}).build().send()
     assert resp.status == 201 and await resp.json() == {"id": 123}
 
-    req = client.post("http://api.example.invalid/users").body_json({"name": "John", "age": 31}).build_consumed()
+    req = client.post("http://api.example.invalid/users").body_json({"name": "John", "age": 31}).build()
     with pytest.raises(AssertionError, match="No mock rule matched request"):
         await req.send()
 
@@ -853,12 +829,12 @@ async def test_json_body_matching_with_custom_equals(client_mocker: ClientMocker
     resp1 = (
         await client.post("http://api.example.invalid/partial")
         .body_json({"name": "Alice", "action": "create", "extra": "ignored"})
-        .build_consumed()
+        .build()
         .send()
     )
     assert await resp1.text() == "Partial match successful"
 
-    req = client.post("http://api.example.invalid/partial").body_json({"action": "create"}).build_consumed()
+    req = client.post("http://api.example.invalid/partial").body_json({"action": "create"}).build()
     with pytest.raises(AssertionError, match="No mock rule matched request"):
         await req.send()
 
@@ -869,11 +845,9 @@ async def test_json_body_matching_invalid(client_mocker: ClientMocker) -> None:
     client = ClientBuilder().build()
 
     with pytest.raises(AssertionError, match="No mock rule matched request"):
-        await client.post("http://api.example.invalid/strict").body_text('{"required": value}').build_consumed().send()
+        await client.post("http://api.example.invalid/strict").body_text('{"required": value}').build().send()
 
-    resp = (
-        await client.post("http://api.example.invalid/strict").body_text('{"required":"value"}').build_consumed().send()
-    )
+    resp = await client.post("http://api.example.invalid/strict").body_text('{"required":"value"}').build().send()
     assert await resp.text() == "Matched"
 
 
@@ -882,6 +856,6 @@ def test_blocking(client_mocker: ClientMocker) -> None:
 
     client = BlockingClientBuilder().error_for_status(True).build()
 
-    resp = client.get("http://api.example.invalid/data").build_consumed().send()
+    resp = client.get("http://api.example.invalid/data").build().send()
     assert resp.json() == {"data": "value"}
     assert client_mocker.get_call_count() == 1

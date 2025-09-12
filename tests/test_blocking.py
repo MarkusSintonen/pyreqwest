@@ -34,7 +34,7 @@ def client() -> Generator[BlockingClient, None, None]:
 
 
 def test_send(client: BlockingClient, echo_server: Server) -> None:
-    req = client.get(echo_server.url).build_consumed()
+    req = client.get(echo_server.url).build()
     assert req.send().json()["method"] == "GET"
 
 
@@ -44,7 +44,7 @@ def test_middleware(echo_server: Server) -> None:
         return next_.run(req)
 
     with middleware_client(middleware) as client:
-        req = client.get(echo_server.url).build_consumed()
+        req = client.get(echo_server.url).build()
         assert ["x-test", "foo"] in req.send().json()["headers"]
 
 
@@ -69,8 +69,7 @@ def test_concurrent_requests(echo_server: Server, concurrency: int, limit: int |
 
     with builder.build() as client, ThreadPoolExecutor(max_workers=10) as executor:
         futures = [
-            executor.submit(lambda: client.get(echo_server.url).build_consumed().send().json())
-            for _ in range(concurrency)
+            executor.submit(lambda: client.get(echo_server.url).build().send().json()) for _ in range(concurrency)
         ]
         assert all(fut.result()["method"] == "GET" for fut in futures)
 
@@ -82,7 +81,7 @@ def test_max_connections_pool_timeout(echo_server: Server, value: int | None):
     builder = client_builder().max_connections(value).pool_timeout(timedelta(seconds=0.05))
 
     with builder.build() as client, ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(lambda: client.get(url).build_consumed().send().json()) for _ in range(2)]
+        futures = [executor.submit(lambda: client.get(url).build().send().json()) for _ in range(2)]
         if value == 1:
             with pytest.raises(PoolTimeoutError) as e:
                 _ = [fut.result() for fut in futures]
@@ -93,14 +92,14 @@ def test_max_connections_pool_timeout(echo_server: Server, value: int | None):
 
 def test_use_after_close(echo_server: Server):
     with client_builder().build() as client:
-        assert client.get(echo_server.url).build_consumed().send().status == 200
-    req = client.get(echo_server.url).build_consumed()
+        assert client.get(echo_server.url).build().send().status == 200
+    req = client.get(echo_server.url).build()
     with pytest.raises(ClientClosedError, match="Client was closed"):
         req.send()
 
     client = client_builder().build()
     client.close()
-    req = client.get(echo_server.url).build_consumed()
+    req = client.get(echo_server.url).build()
     with pytest.raises(ClientClosedError, match="Client was closed"):
         req.send()
 
@@ -112,7 +111,7 @@ def test_types(echo_server: Server) -> None:
     assert type(client) is BlockingClient and isinstance(client, BaseClient)
     req_builder = client.get(echo_server.url)
     assert type(req_builder) is BlockingRequestBuilder and isinstance(req_builder, BaseRequestBuilder)
-    req = req_builder.build_consumed()
+    req = req_builder.build()
     assert type(req) is BlockingConsumedRequest and isinstance(req, Request)
     resp = req.send()
     assert type(resp) is BlockingResponse and isinstance(resp, BaseResponse)

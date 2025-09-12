@@ -17,10 +17,10 @@ async def test_cookie_provider(echo_server: EchoServer):
 
     async with client_builder().cookie_provider(store).build() as client:
         url1 = (echo_server.url / "path1").with_query({"header_Set_Cookie": "name1=val1"})
-        await client.get(url1).build_consumed().send()
+        await client.get(url1).build().send()
 
         url2 = (echo_server.url / "path2").with_query({"header_Set_Cookie": "name2=val2; Path=/path2"})
-        await client.get(url2).build_consumed().send()
+        await client.get(url2).build().send()
 
     url3 = echo_server.url / "path3"
     store.insert("name3=val3; Path=/path3", url3)

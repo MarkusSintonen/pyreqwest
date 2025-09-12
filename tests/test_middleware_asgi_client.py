@@ -60,14 +60,14 @@ async def asgi_client(starlette_app: Starlette) -> AsyncGenerator[Client]:
 
 
 async def test_get_root(asgi_client: Client):
-    response = await asgi_client.get("/").build_consumed().send()
+    response = await asgi_client.get("/").build().send()
     assert response.status == 200
     data = await response.json()
     assert data == {"message": "Hello World"}
 
 
 async def test_get_with_path_params(asgi_client: Client):
-    response = await asgi_client.get("/param/42").build_consumed().send()
+    response = await asgi_client.get("/param/42").build().send()
     assert response.status == 200
     data = await response.json()
     assert data == {"param": 42}
@@ -75,7 +75,7 @@ async def test_get_with_path_params(asgi_client: Client):
 
 async def test_post_json(asgi_client: Client):
     request_data = {"name": "John Doe", "email": "john@example.com"}
-    response = await asgi_client.post("/echo").body_json(request_data).build_consumed().send()
+    response = await asgi_client.post("/echo").body_json(request_data).build().send()
     assert response.status == 200
     assert await response.json() == {
         "body": '{"email":"john@example.com","name":"John Doe"}',
@@ -85,7 +85,7 @@ async def test_post_json(asgi_client: Client):
 
 
 async def test_put_json(asgi_client: Client):
-    response = await asgi_client.put("/echo").body_json({"name": "Jane Doe"}).build_consumed().send()
+    response = await asgi_client.put("/echo").body_json({"name": "Jane Doe"}).build().send()
     assert response.status == 200
     assert await response.json() == {
         "body": '{"name":"Jane Doe"}',
@@ -100,7 +100,7 @@ async def test_headers(asgi_client: Client):
         .header("X-Header-1", "value1")
         .header("X-Header-2", "value2")
         .header("X-Header-2", "value3")
-        .build_consumed()
+        .build()
         .send()
     )
     assert response.status == 200
@@ -112,13 +112,13 @@ async def test_headers(asgi_client: Client):
 
 
 async def test_query_parameters(asgi_client: Client):
-    response = await asgi_client.get("/echo").query([("k1", "v1"), ("k2", "v2"), ("k1", "v3")]).build_consumed().send()
+    response = await asgi_client.get("/echo").query([("k1", "v1"), ("k2", "v2"), ("k1", "v3")]).build().send()
     assert response.status == 200
     assert (await response.json())["query_string"] == "k1=v1&k2=v2&k1=v3"
 
 
 async def test_error_response(asgi_client: Client):
-    response = await asgi_client.get("/error").build_consumed().send()
+    response = await asgi_client.get("/error").build().send()
     assert response.status == 404
     data = await response.json()
     assert data["detail"] == "Not found"
@@ -146,7 +146,7 @@ async def test_scope_override(starlette_app: Starlette):
 
     middleware = ASGITestMiddleware(starlette_app, scope_update=scope_update)
     async with ClientBuilder().base_url("http://localhost").with_middleware(middleware).build() as client:
-        req = client.get("/echo").header("X-Test-Header", "test-value").build_consumed()
+        req = client.get("/echo").header("X-Test-Header", "test-value").build()
         req.extensions["test"] = "something"
         resp = await req.send()
         assert resp.status == 200
@@ -177,7 +177,7 @@ async def test_lifespan_events():
         assert not shutdown_called
 
         async with ClientBuilder().with_middleware(middleware).build() as client:
-            response = await client.get("http://localhost/").build_consumed().send()
+            response = await client.get("http://localhost/").build().send()
             assert response.status == 200
             assert await response.json() == {"server_state": "some state"}
 

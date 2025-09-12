@@ -27,7 +27,7 @@ def decode_multipart(echo_response: dict[str, Any]) -> MultipartDecoder:
 async def test_multipart_text_fields(client: Client, echo_server: Server):
     form = FormBuilder().text("name", "John").text("email", "john@example.com")
     boundary = form.boundary
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
 
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
@@ -46,7 +46,7 @@ async def test_multipart_with_custom_part(client: Client, echo_server: Server):
 
     form = FormBuilder().text("description", "File upload test").part("file", custom_part)
 
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
 
@@ -80,12 +80,12 @@ async def test_multipart_with_file_upload(echo_server: Server, file: str, req: s
 
         if req == "async":
             async with ClientBuilder().error_for_status(True).build() as client:
-                resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+                resp = await client.post(echo_server.url).multipart(form).build().send()
                 response_data = await resp.json()
         else:
             assert req == "sync"
             with BlockingClientBuilder().error_for_status(True).build() as client:
-                response_data = client.post(echo_server.url).multipart(form).build_consumed().send().json()
+                response_data = client.post(echo_server.url).multipart(form).build().send().json()
 
         decoder = decode_multipart(response_data)
 
@@ -119,12 +119,12 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
 
         if req == "async":
             async with ClientBuilder().error_for_status(True).build() as client:
-                resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+                resp = await client.post(echo_server.url).multipart(form).build().send()
                 response_data = await resp.json()
         else:
             assert req == "sync"
             with BlockingClientBuilder().error_for_status(True).build() as client:
-                response_data = client.post(echo_server.url).multipart(form).build_consumed().send().json()
+                response_data = client.post(echo_server.url).multipart(form).build().send().json()
 
         decoder = decode_multipart(response_data)
 
@@ -160,7 +160,7 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server, b
 
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
 
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
 
@@ -194,7 +194,7 @@ async def test_multipart_with_bytes_part(client: Client, echo_server: Server):
     part = PartBuilder.from_bytes(binary_data).mime_str("application/octet-stream")
     form = FormBuilder().text("type", "binary").part("data", part)
 
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
 
@@ -213,7 +213,7 @@ async def test_multipart_with_headers(client: Client, echo_server: Server):
     part = PartBuilder.from_text("content with headers").headers(headers)
     form = FormBuilder().part("custom", part)
 
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
 
@@ -233,9 +233,9 @@ async def test_multipart_encoding_options(client: Client, echo_server: Server):
     form2 = FormBuilder().text("data", special_value).percent_encode_attr_chars()
     form3 = FormBuilder().text("data", special_value).percent_encode_noop()
 
-    resp1 = await client.post(echo_server.url).multipart(form1).build_consumed().send()
-    resp2 = await client.post(echo_server.url).multipart(form2).build_consumed().send()
-    resp3 = await client.post(echo_server.url).multipart(form3).build_consumed().send()
+    resp1 = await client.post(echo_server.url).multipart(form1).build().send()
+    resp2 = await client.post(echo_server.url).multipart(form2).build().send()
+    resp3 = await client.post(echo_server.url).multipart(form3).build().send()
 
     decoder1 = decode_multipart(await resp1.json())
     decoder2 = decode_multipart(await resp2.json())
@@ -258,7 +258,7 @@ async def test_multipart_empty_form(client: Client, echo_server: Server):
     form = FormBuilder()
     boundary = form.boundary
 
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
     response_data = await resp.json()
 
     assert ["content-type", f"multipart/form-data; boundary={boundary}"] in response_data["headers"]
@@ -268,7 +268,7 @@ async def test_multipart_empty_form(client: Client, echo_server: Server):
 async def test_multipart_multiple_values_same_name(client: Client, echo_server: Server):
     form = FormBuilder().text("tags", "python").text("tags", "async").text("tags", "http")
 
-    resp = await client.post(echo_server.url).multipart(form).build_consumed().send()
+    resp = await client.post(echo_server.url).multipart(form).build().send()
     response_data = await resp.json()
     decoder = decode_multipart(response_data)
 
@@ -284,11 +284,11 @@ async def test_multipart_with_body_conflict(client: Client, echo_server: Server)
     form = FormBuilder().text("test", "value")
 
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
-        client.post(echo_server.url).multipart(form).body_text("conflict").build_consumed()
+        client.post(echo_server.url).multipart(form).body_text("conflict").build()
 
     form2 = FormBuilder().text("test", "value")
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
-        client.post(echo_server.url).body_text("conflict").multipart(form2).build_consumed()
+        client.post(echo_server.url).body_text("conflict").multipart(form2).build()
 
 
 async def test_multipart_boundary_uniqueness():

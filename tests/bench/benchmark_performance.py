@@ -98,7 +98,7 @@ class PerformanceBenchmark:
 
             async def post_read() -> None:
                 if body_size <= self.big_body_limit:
-                    response = await client.post(self.url).body_bytes(body).build_consumed().send()
+                    response = await client.post(self.url).body_bytes(body).build().send()
                     assert len(await response.bytes()) == body_size
                 else:
                     buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
@@ -123,7 +123,7 @@ class PerformanceBenchmark:
 
             def post_read() -> None:
                 if body_size <= self.big_body_limit:
-                    response = client.post(self.url).body_bytes(body).build_consumed().send()
+                    response = client.post(self.url).body_bytes(body).build().send()
                     assert len(response.bytes()) == body_size
                 else:
                     buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark

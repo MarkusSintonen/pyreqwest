@@ -23,7 +23,7 @@ async def client(cert_authority: trustme.CA) -> AsyncGenerator[Client, None]:
 
 
 async def test_status(client: Client, echo_server: Server) -> None:
-    req = client.get(echo_server.url).build_consumed()
+    req = client.get(echo_server.url).build()
     resp = await req.send()
     resp.error_for_status()
     assert resp.status == 200
@@ -44,7 +44,7 @@ async def test_headers(client: Client, echo_server: Server) -> None:
         .query(
             [("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")],
         )
-        .build_consumed()
+        .build()
     )
     resp = await req.send()
 
@@ -63,7 +63,7 @@ async def test_headers(client: Client, echo_server: Server) -> None:
 @pytest.mark.parametrize("proto", ["http", "https"])
 async def test_version(client: Client, echo_server: Server, https_echo_server: Server, proto: str) -> None:
     url = echo_server.url if proto == "http" else https_echo_server.url
-    resp = await client.get(url).build_consumed().send()
+    resp = await client.get(url).build().send()
     if proto == "http":
         assert resp.version == "HTTP/1.1"
     else:
@@ -78,7 +78,7 @@ async def test_version(client: Client, echo_server: Server, https_echo_server: S
 
 
 async def test_extensions(client: Client, echo_server: Server) -> None:
-    req = client.get(echo_server.url).extensions({"a": "b"}).build_consumed()
+    req = client.get(echo_server.url).extensions({"a": "b"}).build()
     req.extensions["c"] = "d"
     resp = await req.send()
     assert resp.extensions == {"a": "b", "c": "d"}
@@ -95,7 +95,7 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
         yield b'{"foo": "bar", "test": "value"'
         yield b', "baz": 123}'
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
     if kind == "chunk":
         assert (await resp.next_chunk()) == b'{"foo": "bar", "test": "value"'
         assert (await resp.next_chunk()) == b', "baz": 123}'
@@ -128,12 +128,12 @@ async def test_read(client: Client, echo_body_parts_server: Server) -> None:
     async def stream_gen() -> AsyncGenerator[bytes, None]:
         yield body
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
     assert (await resp.read()) == body[:65536]
     assert (await resp.read()) == body[65536:]
     assert (await resp.read()) == b""
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
     assert (await resp.read(0)) == b""
     assert (await resp.read(100)) == body[:100]
     assert (await resp.read(100)) == body[100:200]
@@ -174,7 +174,7 @@ async def test_bad_json(client: Client, echo_body_parts_server: Server, body: st
     async def stream_gen() -> AsyncGenerator[bytes, None]:
         yield body_bytes
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
     with pytest.raises(JSONDecodeError) as e:
         await resp.json()
     assert isinstance(e.value, json.JSONDecodeError)
@@ -217,7 +217,7 @@ async def test_text(
         await client.post(echo_body_parts_server.url)
         .body_stream(resp_body())
         .query({"content_type": content_type})
-        .build_consumed()
+        .build()
         .send()
     )
     mime = resp.content_type_mime()
@@ -235,7 +235,7 @@ async def test_mime(client: Client, echo_body_parts_server: Server) -> None:
         .query(
             {"content_type": "text/plain;charset=ascii"},
         )
-        .build_consumed()
+        .build()
         .send()
     )
 
@@ -253,10 +253,10 @@ async def test_mime(client: Client, echo_body_parts_server: Server) -> None:
 
 async def test_error_for_status(echo_server: Server) -> None:
     async with ClientBuilder().build() as client:
-        resp = await client.get(echo_server.url).query([("status", 201)]).build_consumed().send()
+        resp = await client.get(echo_server.url).query([("status", 201)]).build().send()
         resp.error_for_status()
 
-        resp = await client.get(echo_server.url).query([("status", 404)]).build_consumed().send()
+        resp = await client.get(echo_server.url).query([("status", 404)]).build().send()
         with pytest.raises(StatusError, match="HTTP status client error") as e:
             resp.error_for_status()
         assert e.value.details and e.value.details["status"] == 404

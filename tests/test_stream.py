@@ -79,7 +79,7 @@ async def test_body_stream__consumed(client: Client, echo_body_parts_server: Ech
             await asyncio.sleep(0)  # Simulate some work
             yield f"part {i}".encode()
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
     if read == "chunks":
         assert [c async for c in read_chunks(resp)] == [b"part 0", b"part 1", b"part 2", b"part 3", b"part 4"]
     elif read == "bytes":
@@ -229,7 +229,7 @@ async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: 
 
 
 async def test_body_consumed(client: Client, echo_server: EchoServer):
-    resp = await client.get(echo_server.url).build_consumed().send()
+    resp = await client.get(echo_server.url).build().send()
 
     first = await resp.json()
     assert first["path"] == "/"
@@ -251,7 +251,7 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
         yield b"part 0"
         yield b"part 1"
 
-    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
 
     assert await resp.next_chunk() == b"part 0"
 

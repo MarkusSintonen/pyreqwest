@@ -45,7 +45,7 @@ async def test_single(echo_server: Server) -> None:
         .get(echo_server.url)
         .header("X-Test", "Val1")
         .extensions({"Ext": "ExtVal1"})
-        .build_consumed()
+        .build()
         .send()
     )
 
@@ -74,7 +74,7 @@ async def test_multiple(echo_server: Server, reverse: bool) -> None:
         builder = builder.with_middleware(middleware)
     client = builder.build()
 
-    resp = await client.get(echo_server.url).build_consumed().send()
+    resp = await client.get(echo_server.url).build().send()
 
     headers = [h for h in (await resp.json())["headers"] if h[0].startswith("x-")]
     if reverse:
@@ -96,7 +96,7 @@ async def test_context_vars(echo_server: Server) -> None:
 
     ctx_var.set("val1")
 
-    await client.get(echo_server.url).build_consumed().send()
+    await client.get(echo_server.url).build().send()
 
     assert ctx_var.get() == "val1"
 
@@ -111,7 +111,7 @@ async def test_raise_error(echo_server: Server, before: bool) -> None:
             raise ValueError("Test error")
         return res
 
-    req = build_client(middleware).get(echo_server.url).build_consumed()
+    req = build_client(middleware).get(echo_server.url).build()
 
     with pytest.raises(ValueError, match="Test error"):
         await req.send()
@@ -127,7 +127,7 @@ async def test_multi_run_error(echo_server: Server) -> None:
         calls.append("run2")
         return res
 
-    req = build_client(middleware).get(echo_server.url).build_consumed()
+    req = build_client(middleware).get(echo_server.url).build()
     with pytest.raises(RuntimeError, match="Request was already sent"):
         await req.send()
     assert calls == ["run1"]
@@ -137,23 +137,23 @@ async def test_bad_middleware(echo_server: Server) -> None:
     async def wrong_args(_request: Request) -> Response:
         pytest.fail("Should not be called")
 
-    req = build_client(wrong_args).get("http://foo.invalid").build_consumed()  # type: ignore[arg-type]
+    req = build_client(wrong_args).get("http://foo.invalid").build()  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="takes 1 positional argument but 2 were given"):
         await req.send()
 
-    dummy_resp = await ClientBuilder().error_for_status(True).build().get(echo_server.url).build_consumed().send()
+    dummy_resp = await ClientBuilder().error_for_status(True).build().get(echo_server.url).build().send()
 
     def not_async(_request: Request, _next_handler: Next) -> Response:
         return dummy_resp
 
-    req = build_client(not_async).get("http://foo.invalid").build_consumed()  # type: ignore[arg-type]
+    req = build_client(not_async).get("http://foo.invalid").build()  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="a coroutine was expected"):
         await req.send()
 
     async def none_return(request: Request, next_handler: Next) -> Response:  # type: ignore[return]
         await next_handler.run(request)
 
-    req = build_client(none_return).get(echo_server.url).build_consumed()
+    req = build_client(none_return).get(echo_server.url).build()
     with pytest.raises(TypeError, match="'NoneType' object cannot be converted to 'Response'"):
         await req.send()
 
@@ -166,7 +166,7 @@ async def test_retry_middleware(echo_server: EchoServer) -> None:
         await next_handler.run(request)
         return await next_handler.run(request2)
 
-    await build_client(retry_middleware).get(echo_server.url).build_consumed().send()
+    await build_client(retry_middleware).get(echo_server.url).build().send()
     assert echo_server.calls == 2
 
 
@@ -177,7 +177,7 @@ async def test_modify_status(echo_server: EchoServer) -> None:
         resp.status = 201
         return resp
 
-    resp = await build_client(modify_response).post(echo_server.url).body_bytes(b"test").build_consumed().send()
+    resp = await build_client(modify_response).post(echo_server.url).body_bytes(b"test").build().send()
     assert resp.status == 201
 
 
@@ -189,7 +189,7 @@ async def test_modify_body(echo_server: EchoServer) -> None:
         request.body = RequestBody.from_bytes(bytes_.to_bytes() + b" modified")
         return await next_handler.run(request)
 
-    resp = await build_client(modify_body).post(echo_server.url).body_bytes(b"test").build_consumed().send()
+    resp = await build_client(modify_body).post(echo_server.url).body_bytes(b"test").build().send()
     assert (await resp.json())["body_parts"] == ["test modified"]
 
 
@@ -208,7 +208,7 @@ async def test_stream_to_body_bytes(echo_server: EchoServer) -> None:
         yield b"test1"
         yield b"test2"
 
-    resp = await build_client(stream_to_body).post(echo_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await build_client(stream_to_body).post(echo_server.url).body_stream(stream_gen()).build().send()
     assert (await resp.json())["body_parts"] == ["test1---test2"]
 
 
@@ -229,7 +229,7 @@ async def test_stream_modify_body(echo_server: EchoServer) -> None:
         yield b"test1"
         yield b"test2"
 
-    resp = await build_client(modify_stream).post(echo_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await build_client(modify_stream).post(echo_server.url).body_stream(stream_gen()).build().send()
     assert (await resp.json())["body_parts"] == ["test1 modified", "test2 modified"]
 
 
@@ -255,7 +255,7 @@ async def test_stream_context_var(echo_server: EchoServer) -> None:
 
     ctx_var.set("val1")
 
-    resp = await build_client(modify_stream).post(echo_server.url).body_stream(stream_gen()).build_consumed().send()
+    resp = await build_client(modify_stream).post(echo_server.url).body_stream(stream_gen()).build().send()
     assert (await resp.json())["body_parts"] == ["test1 modified", "test2 modified"]
 
 
@@ -276,7 +276,7 @@ async def test_override_with_response_builder(body_stream: bool) -> None:
 
         return await builder.build()
 
-    resp = await build_client(override_response).get("http://foo.invalid").build_consumed().send()
+    resp = await build_client(override_response).get("http://foo.invalid").build().send()
     assert resp.status == 201
     assert (await resp.text()) == "test override"
 
@@ -294,7 +294,7 @@ async def test_response_builder_stream_context_var() -> None:
 
     context_var.set("val1")
 
-    resp = await build_client(override_response).get("http://foo.invalid").build_consumed().send()
+    resp = await build_client(override_response).get("http://foo.invalid").build().send()
     assert resp.status == 201
     assert (await resp.text()) == "test override"
 
@@ -312,13 +312,13 @@ async def test_proxy_nested_request(echo_server: EchoServer) -> None:
             assert request.url == "http://foo.invalid"
             ext = {"skip_proxy": True}
             assert self.client
-            return await self.client.request(request.method, echo_server.url).extensions(ext).build_consumed().send()
+            return await self.client.request(request.method, echo_server.url).extensions(ext).build().send()
 
     middleware = MiddlewareProxy()
     client = build_client(middleware)
     middleware.client = client
 
-    resp = await client.get("http://foo.invalid").build_consumed().send()
+    resp = await client.get("http://foo.invalid").build().send()
     assert (await resp.json())["method"] == "GET"
     assert echo_server.calls == 1
 
@@ -334,7 +334,7 @@ async def test_nested_request_context_var(echo_server: EchoServer) -> None:
             if ctx_var.get() == "val1":
                 ctx_var.set("val2")
                 assert self.client
-                return await self.client.request(request.method, echo_server.url).build_consumed().send()
+                return await self.client.request(request.method, echo_server.url).build().send()
             assert ctx_var.get() == "val2"
             return await next_handler.run(request)
 
@@ -345,7 +345,7 @@ async def test_nested_request_context_var(echo_server: EchoServer) -> None:
     client = build_client(middleware)
     middleware.client = client
 
-    resp = await client.get("http://foo.invalid").build_consumed().send()
+    resp = await client.get("http://foo.invalid").build().send()
     assert (await resp.json())["method"] == "GET"
 
 
@@ -365,7 +365,7 @@ async def test_proxy_modify_request(echo_server: EchoServer) -> None:
     client = build_client(middleware)
     middleware.client = client
 
-    await client.get("http://foo.invalid").build_consumed().send()
+    await client.get("http://foo.invalid").build().send()
     assert echo_server.calls == 1
 
 
@@ -388,7 +388,7 @@ async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ClientBuilder, "build", build_patch)
 
     client = ClientBuilder().error_for_status(True).build()
-    resp = await client.get("http://foo.invalid").build_consumed().send()
+    resp = await client.get("http://foo.invalid").build().send()
     assert resp.status == 202 and (await resp.text()) == "Mocked"
 
 
@@ -412,7 +412,7 @@ async def test_circular_reference_collected(echo_server: EchoServer) -> None:
 
         ref = weakref.ref(middleware)
 
-        await client.get(echo_server.url).build_consumed().send()
+        await client.get(echo_server.url).build().send()
 
     await check()
     gc.collect()

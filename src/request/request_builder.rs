@@ -35,7 +35,7 @@ pub struct BlockingRequestBuilder;
 
 #[pymethods]
 impl RequestBuilder {
-    fn build_consumed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<ConsumedRequest>> {
+    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<ConsumedRequest>> {
         let slf_super = slf.as_super();
         let body_config = slf_super.body_consume_config(false)?;
         ConsumedRequest::new_py(py, slf_super.inner_build(body_config)?)
@@ -55,7 +55,7 @@ impl RequestBuilder {
 
 #[pymethods]
 impl BlockingRequestBuilder {
-    fn build_consumed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingConsumedRequest>> {
+    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingConsumedRequest>> {
         let slf_super = slf.as_super();
         let body_config = slf_super.body_consume_config(false)?;
         BlockingConsumedRequest::new_py(py, slf_super.inner_build(body_config)?)

@@ -428,14 +428,14 @@ def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
     mocker = ClientMocker()
 
     def setup(klass: type[BaseRequestBuilder], *, is_async: bool) -> None:
-        orig_build_consumed = klass.build_consumed  # type: ignore[attr-defined]
+        orig_build_consumed = klass.build  # type: ignore[attr-defined]
         orig_build_streamed = klass.build_streamed  # type: ignore[attr-defined]
 
         def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
             middleware = mocker._create_middleware() if is_async else mocker._create_blocking_middleware()
             return orig(self._set_interceptor(middleware))  # type: ignore[attr-defined]
 
-        monkeypatch.setattr(klass, "build_consumed", lambda slf: build_patch(slf, orig_build_consumed))
+        monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
         monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
 
     setup(RequestBuilder, is_async=True)
