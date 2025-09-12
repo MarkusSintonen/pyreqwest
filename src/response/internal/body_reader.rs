@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 
+pub const DEFAULT_READ_BUFFER_LIMIT: usize = 65536;
+
 pub struct BodyReader {
     body_receiver: Option<Receiver>,
     chunks: VecDeque<Bytes>,
@@ -19,9 +21,14 @@ impl BodyReader {
     pub async fn initialize(
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
-        buffer_limit: Option<usize>,
+        read_config: BodyConsumeConfig,
         runtime: Option<Handle>,
     ) -> PyResult<(Self, http::response::Parts)> {
+        let buffer_limit = match read_config {
+            BodyConsumeConfig::FullyConsumed => None,
+            BodyConsumeConfig::Streamed(cfg) => Some(cfg.read_buffer_limit),
+        };
+
         let (init_chunks, has_more) = Self::read_limit(&mut response, buffer_limit).await?;
         let (head, body) = Self::response_parts(response);
 
@@ -279,5 +286,23 @@ impl Reader {
                 _ = self.tx.send(Ok(buffer)).await;
             }
         };
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BodyConsumeConfig {
+    FullyConsumed,
+    Streamed(StreamedReadConfig),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StreamedReadConfig {
+    pub read_buffer_limit: usize,
+}
+impl Default for StreamedReadConfig {
+    fn default() -> Self {
+        Self {
+            read_buffer_limit: DEFAULT_READ_BUFFER_LIMIT,
+        }
     }
 }

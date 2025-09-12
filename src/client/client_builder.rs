@@ -1,5 +1,5 @@
 use crate::client::client::{BaseClient, BlockingClient};
-use crate::client::connection_limiter::ConnectionLimiter;
+use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime::Runtime;
 use crate::client::{Client, Handle};
 use crate::http::{CookieStore, CookieStorePyProxy};

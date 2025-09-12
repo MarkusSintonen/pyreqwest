@@ -1,8 +1,8 @@
-use crate::client::connection_limiter::ConnectionLimiter;
+use crate::client::internal::ConnectionLimiter;
+use crate::client::internal::Spawner;
 use crate::client::runtime::Handle;
-use crate::client::spawner::Spawner;
-use crate::http::{HeaderMap, Method};
-use crate::http::{Url, UrlType};
+use crate::http::internal::types::Method;
+use crate::http::{HeaderMap, Url, UrlType};
 use crate::middleware::NextInner;
 use crate::request::{BaseRequestBuilder, BlockingRequestBuilder, RequestBuilder};
 use pyo3::prelude::*;

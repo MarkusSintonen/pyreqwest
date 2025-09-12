@@ -1,4 +1,4 @@
-use crate::http::utils::KeyValPairs;
+use crate::http::internal::utils::KeyValPairs;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyInt, PyString};

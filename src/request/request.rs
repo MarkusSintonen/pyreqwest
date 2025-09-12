@@ -1,8 +1,10 @@
 use crate::allow_threads::AllowThreads;
-use crate::client::{SpawnRequestData, Spawner};
-use crate::http::{Extensions, HeaderMap, Method, RequestBody, Url, UrlType};
+use crate::client::internal::{SpawnRequestData, Spawner};
+use crate::http::internal::types::{Extensions, Method};
+use crate::http::{HeaderMap, RequestBody, Url, UrlType};
 use crate::middleware::{BlockingNext, Next, NextInner};
-use crate::response::{BlockingResponse, BodyConsumeConfig, Response};
+use crate::response::internal::BodyConsumeConfig;
+use crate::response::{BlockingResponse, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::prelude::*;

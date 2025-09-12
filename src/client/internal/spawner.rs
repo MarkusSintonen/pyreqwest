@@ -1,9 +1,10 @@
-use crate::client::connection_limiter::ConnectionLimiter;
+use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{ClientClosedError, PoolTimeoutError};
-use crate::http::Extensions;
-use crate::response::{BaseResponse, BlockingResponse, BodyConsumeConfig, Response};
+use crate::http::internal::types::Extensions;
+use crate::response::internal::BodyConsumeConfig;
+use crate::response::{BaseResponse, BlockingResponse, Response};
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
 use tokio::sync::OwnedSemaphorePermit;

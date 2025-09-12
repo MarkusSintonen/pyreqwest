@@ -1,9 +1,9 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::Handle;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
-use crate::http::{Extensions, HeaderMap, HeaderValue, Mime, Version};
-use crate::http::{JsonValue, StatusCode};
-use crate::response::body_reader::BodyReader;
+use crate::http::internal::types::{Extensions, HeaderValue, JsonValue, StatusCode, Version};
+use crate::http::{HeaderMap, Mime};
+use crate::response::internal::{BodyConsumeConfig, BodyReader, DEFAULT_READ_BUFFER_LIMIT};
 use encoding_rs::{Encoding, UTF_8};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -167,12 +167,8 @@ impl BaseResponse {
         consume_body: BodyConsumeConfig,
         runtime: Option<Handle>,
     ) -> PyResult<Self> {
-        let buffer_limit = match consume_body {
-            BodyConsumeConfig::FullyConsumed => None,
-            BodyConsumeConfig::Streamed(conf) => Some(conf.read_buffer_limit),
-        };
         let (body_reader, head) =
-            BodyReader::initialize(response, request_semaphore_permit, buffer_limit, runtime.clone()).await?;
+            BodyReader::initialize(response, request_semaphore_permit, consume_body, runtime.clone()).await?;
 
         let resp = BaseResponse {
             status: StatusCode(head.status),
@@ -294,19 +290,6 @@ impl BlockingResponse {
             None => Ok(Handle::global_handle()?.clone()),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum BodyConsumeConfig {
-    FullyConsumed,
-    Streamed(StreamedReadConfig),
-}
-
-pub const DEFAULT_READ_BUFFER_LIMIT: usize = 65536;
-
-#[derive(Debug, Clone, Copy)]
-pub struct StreamedReadConfig {
-    pub read_buffer_limit: usize,
 }
 
 enum RespHeaders {
