@@ -52,11 +52,6 @@ impl ResponseBuilder {
         slf
     }
 
-    fn body(mut slf: PyRefMut<'_, Self>, body: Option<Py<RequestBody>>) -> PyResult<PyRefMut<'_, Self>> {
-        slf.body = body.map(|v| v.get().take_inner()).transpose()?;
-        Ok(slf)
-    }
-
     fn body_bytes(mut slf: PyRefMut<Self>, body: PyBytes) -> PyResult<PyRefMut<Self>> {
         slf.body = Some(RequestBody::from_bytes(body));
         Ok(slf)

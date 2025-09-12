@@ -97,12 +97,6 @@ impl BaseRequestBuilder {
         Self::apply(slf, |builder| Ok(builder.bearer_auth(token)))
     }
 
-    fn body<'py>(mut slf: PyRefMut<'py, Self>, body: Option<Bound<RequestBody>>) -> PyResult<PyRefMut<'py, Self>> {
-        slf.check_inner()?;
-        slf.body = body.map(|v| v.get().take_inner()).transpose()?;
-        Ok(slf)
-    }
-
     fn body_bytes(mut slf: PyRefMut<Self>, body: PyBytes) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
         slf.body = Some(RequestBody::from_bytes(body));
