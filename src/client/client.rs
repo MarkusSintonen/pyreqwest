@@ -4,7 +4,7 @@ use crate::client::runtime::Handle;
 use crate::http::internal::types::Method;
 use crate::http::{HeaderMap, Url, UrlType};
 use crate::middleware::NextInner;
-use crate::request::{BaseRequestBuilder, BlockingRequestBuilder, RequestBuilder};
+use crate::request::{BaseRequestBuilder, RequestBuilder, SyncRequestBuilder};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ pub struct BaseClient {
 pub struct Client;
 
 #[pyclass(extends=BaseClient, frozen)]
-pub struct BlockingClient;
+pub struct SyncClient;
 
 #[pymethods]
 impl BaseClient {
@@ -175,33 +175,33 @@ impl Client {
 }
 
 #[pymethods]
-impl BlockingClient {
-    pub fn request(slf: PyRef<Self>, method: Method, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+impl SyncClient {
+    pub fn request(slf: PyRef<Self>, method: Method, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         let builder = slf.as_super().create_request_builder(method, url, true)?;
-        BlockingRequestBuilder::new_py(slf.py(), builder)
+        SyncRequestBuilder::new_py(slf.py(), builder)
     }
 
-    pub fn get(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+    pub fn get(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         Self::request(slf, http::Method::GET.into(), url)
     }
 
-    pub fn post(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+    pub fn post(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         Self::request(slf, http::Method::POST.into(), url)
     }
 
-    pub fn put(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+    pub fn put(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         Self::request(slf, http::Method::PUT.into(), url)
     }
 
-    pub fn patch(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+    pub fn patch(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         Self::request(slf, http::Method::PATCH.into(), url)
     }
 
-    pub fn delete(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+    pub fn delete(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         Self::request(slf, http::Method::DELETE.into(), url)
     }
 
-    pub fn head(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<BlockingRequestBuilder>> {
+    pub fn head(slf: PyRef<Self>, url: Bound<PyAny>) -> PyResult<Py<SyncRequestBuilder>> {
         Self::request(slf, http::Method::HEAD.into(), url)
     }
 
@@ -217,7 +217,7 @@ impl BlockingClient {
         slf.as_super().close_cancellation.cancel();
     }
 }
-impl BlockingClient {
+impl SyncClient {
     pub fn new_py(py: Python, inner: BaseClient) -> PyResult<Py<Self>> {
         Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
     }

@@ -1,5 +1,5 @@
 """Middleware classes."""
 
-from pyreqwest._pyreqwest.middleware import BlockingNext, Next
+from pyreqwest._pyreqwest.middleware import Next, SyncNext
 
-__all__ = ["BlockingNext", "Next"]
+__all__ = ["Next", "SyncNext"]

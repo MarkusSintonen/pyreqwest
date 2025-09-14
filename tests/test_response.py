@@ -282,7 +282,7 @@ async def test_response_builder():
     assert await resp.bytes() == b"test1 test2"
 
 
-async def test_response_builder__blocking():
+async def test_response_builder__sync():
     def stream() -> Iterator[bytes]:
         yield b"test1 "
         yield b"test2"
@@ -293,7 +293,7 @@ async def test_response_builder__blocking():
         .header("X-Test", "Value1")
         .header("X-Test", "Value2")
         .body_stream(stream())
-        .build_blocking()
+        .build_sync()
     )
 
     assert resp.headers["X-Test"] == "Value1"
@@ -302,14 +302,14 @@ async def test_response_builder__blocking():
     assert resp.bytes() == b"test1 test2"
 
 
-async def test_response_builder__blocking_no_async() -> None:
+async def test_response_builder__sync_no_async_mix() -> None:
     async def stream() -> AsyncIterator[bytes]:
         pytest.fail("Should not be called")
         yield b""
 
     builder = ResponseBuilder().body_stream(stream())
     with pytest.raises(ValueError, match="Cannot use async iterator in a blocking context"):
-        builder.build_blocking()
+        builder.build_sync()
 
 
 def test_response_builder__circular_reference_collected() -> None:

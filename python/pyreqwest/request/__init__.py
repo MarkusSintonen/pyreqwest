@@ -2,22 +2,22 @@
 
 from pyreqwest._pyreqwest.request import (
     BaseRequestBuilder,
-    BlockingConsumedRequest,
-    BlockingRequestBuilder,
-    BlockingStreamRequest,
     ConsumedRequest,
     Request,
     RequestBuilder,
     StreamRequest,
+    SyncConsumedRequest,
+    SyncRequestBuilder,
+    SyncStreamRequest,
 )
 
 __all__ = [
     "BaseRequestBuilder",
-    "BlockingConsumedRequest",
-    "BlockingRequestBuilder",
-    "BlockingStreamRequest",
     "ConsumedRequest",
     "Request",
     "RequestBuilder",
     "StreamRequest",
+    "SyncConsumedRequest",
+    "SyncRequestBuilder",
+    "SyncStreamRequest",
 ]

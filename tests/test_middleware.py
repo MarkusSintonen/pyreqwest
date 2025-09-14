@@ -90,14 +90,15 @@ async def test_context_vars(echo_server: Server) -> None:
         assert ctx_var.get() == "val1"
         res = await next_handler.run(request)
         ctx_var.set("val2")
+        res.headers["x-test"] = "foo"
         return res
 
     client = build_client(middleware)
 
     ctx_var.set("val1")
 
-    await client.get(echo_server.url).build().send()
-
+    resp = await client.get(echo_server.url).build().send()
+    assert resp.headers["x-test"] == "foo"
     assert ctx_var.get() == "val1"
 
 

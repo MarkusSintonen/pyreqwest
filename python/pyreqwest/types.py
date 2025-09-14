@@ -8,5 +8,5 @@ QueryParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
 FormParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
 ExtensionsType = Mapping[str, Any] | Sequence[tuple[str, Any]]
 
-BlockingStream = Iterable[bytes] | Iterable[bytearray] | Iterable[memoryview]
-Stream = AsyncIterable[bytes] | AsyncIterable[bytearray] | AsyncIterable[memoryview] | BlockingStream
+SyncStream = Iterable[bytes] | Iterable[bytearray] | Iterable[memoryview]
+Stream = AsyncIterable[bytes] | AsyncIterable[bytearray] | AsyncIterable[memoryview] | SyncStream

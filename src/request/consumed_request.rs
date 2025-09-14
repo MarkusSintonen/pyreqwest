@@ -1,7 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::http::RequestBody;
 use crate::request::Request;
-use crate::response::{BlockingResponse, Response};
+use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
@@ -10,7 +10,7 @@ use pyo3::types::PyType;
 pub struct ConsumedRequest;
 
 #[pyclass(extends=Request)]
-pub struct BlockingConsumedRequest;
+pub struct SyncConsumedRequest;
 
 #[pymethods]
 impl ConsumedRequest {
@@ -39,8 +39,8 @@ impl ConsumedRequest {
 }
 
 #[pymethods]
-impl BlockingConsumedRequest {
-    pub fn send(slf: Py<Self>) -> PyResult<Py<BlockingResponse>> {
+impl SyncConsumedRequest {
+    pub fn send(slf: Py<Self>) -> PyResult<Py<SyncResponse>> {
         Request::blocking_send_inner(slf.as_any())
     }
 
@@ -58,7 +58,7 @@ impl BlockingConsumedRequest {
         Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 }
-impl BlockingConsumedRequest {
+impl SyncConsumedRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
         Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
     }

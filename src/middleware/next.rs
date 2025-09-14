@@ -1,7 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use crate::request::Request;
-use crate::response::{BlockingResponse, Response};
+use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -20,7 +20,7 @@ pub struct Next {
     task_local: TaskLocal,
 }
 #[pyclass]
-pub struct BlockingNext(NextInner);
+pub struct SyncNext(NextInner);
 
 #[pymethods]
 impl Next {
@@ -71,12 +71,12 @@ impl Next {
 }
 
 #[pymethods]
-impl BlockingNext {
-    pub fn run(&self, request: &Bound<PyAny>) -> PyResult<Py<BlockingResponse>> {
+impl SyncNext {
+    pub fn run(&self, request: &Bound<PyAny>) -> PyResult<Py<SyncResponse>> {
         let resp = self.call_next(request)?;
 
         if let Some(resp) = resp {
-            Ok(resp.downcast_into_exact::<BlockingResponse>()?.unbind())
+            Ok(resp.downcast_into_exact::<SyncResponse>()?.unbind())
         } else {
             // No more middleware, execute the request
             Request::blocking_spawn_request(&request.clone().unbind())
@@ -89,7 +89,7 @@ impl BlockingNext {
         };
 
         let py = request.py();
-        let next = BlockingNext(self.0.create_next(py)?);
+        let next = SyncNext(self.0.create_next(py)?);
         middleware.bind(py).call1((request, next)).map(Some)
     }
 
@@ -101,9 +101,9 @@ impl BlockingNext {
         self.0.__clear__()
     }
 }
-impl BlockingNext {
+impl SyncNext {
     pub fn new(inner: NextInner) -> PyResult<Self> {
-        Ok(BlockingNext(inner))
+        Ok(SyncNext(inner))
     }
 }
 

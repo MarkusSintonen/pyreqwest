@@ -15,7 +15,7 @@ from aiohttp import TCPConnector
 from granian.constants import HTTPModes
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
-from pyreqwest.client import BlockingClientBuilder, ClientBuilder
+from pyreqwest.client import ClientBuilder, SyncClientBuilder
 from pyreqwest.http import Url
 
 from tests.servers.echo_server import EchoServer
@@ -119,7 +119,7 @@ class PerformanceBenchmark:
     def benchmark_sync_pyreqwest_concurrent(self, body_size: int, concurrency: int) -> list[float]:
         body = self.generate_body(body_size)
 
-        with BlockingClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
+        with SyncClientBuilder().add_root_certificate_der(self.trust_cert_der).https_only(True).build() as client:
 
             def post_read() -> None:
                 if body_size <= self.big_body_limit:

@@ -1,7 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::http::RequestBody;
 use crate::request::Request;
-use crate::response::{BlockingResponse, Response};
+use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -12,7 +12,7 @@ use pyo3::{PyTraverseError, PyVisit};
 pub struct StreamRequest(Ctx<Response>);
 
 #[pyclass(extends=Request)]
-pub struct BlockingStreamRequest(Ctx<BlockingResponse>);
+pub struct SyncStreamRequest(Ctx<SyncResponse>);
 
 struct Ctx<T> {
     ctx_response: Option<Py<T>>,
@@ -83,8 +83,8 @@ impl StreamRequest {
 }
 
 #[pymethods]
-impl BlockingStreamRequest {
-    fn __enter__(slf: Bound<Self>) -> PyResult<Py<BlockingResponse>> {
+impl SyncStreamRequest {
+    fn __enter__(slf: Bound<Self>) -> PyResult<Py<SyncResponse>> {
         let response = Request::blocking_send_inner(slf.as_unbound().as_any())?;
 
         slf.try_borrow_mut()?.0.ctx_response = Some(response.clone_ref(slf.py()));
@@ -133,7 +133,7 @@ impl BlockingStreamRequest {
         self.0.ctx_response.take();
     }
 }
-impl BlockingStreamRequest {
+impl SyncStreamRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
         let ctx = Ctx { ctx_response: None };
         let initializer = PyClassInitializer::from(inner).add_subclass(Self(ctx));

@@ -1,4 +1,4 @@
-use crate::client::client::{BaseClient, BlockingClient};
+use crate::client::client::{BaseClient, SyncClient};
 use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime::Runtime;
 use crate::client::{Client, Handle};
@@ -33,7 +33,7 @@ pub struct BaseClientBuilder {
 pub struct ClientBuilder;
 
 #[pyclass(extends=BaseClientBuilder)]
-pub struct BlockingClientBuilder;
+pub struct SyncClientBuilder;
 
 #[pymethods]
 impl BaseClientBuilder {
@@ -430,13 +430,13 @@ impl ClientBuilder {
 }
 
 #[pymethods]
-impl BlockingClientBuilder {
+impl SyncClientBuilder {
     #[new]
     fn new() -> PyClassInitializer<Self> {
         PyClassInitializer::from(BaseClientBuilder::new()).add_subclass(Self)
     }
 
-    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingClient>> {
-        BlockingClient::new_py(py, slf.as_super().build_client_base(py)?)
+    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<SyncClient>> {
+        SyncClient::new_py(py, slf.as_super().build_client_base(py)?)
     }
 }

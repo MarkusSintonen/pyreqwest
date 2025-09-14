@@ -2,9 +2,9 @@ use crate::allow_threads::AllowThreads;
 use crate::client::internal::{SpawnRequestData, Spawner};
 use crate::http::internal::types::{Extensions, Method};
 use crate::http::{HeaderMap, RequestBody, Url, UrlType};
-use crate::middleware::{BlockingNext, Next, NextInner};
+use crate::middleware::{Next, NextInner, SyncNext};
 use crate::response::internal::BodyConsumeConfig;
-use crate::response::{BlockingResponse, Response};
+use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::prelude::*;
@@ -211,12 +211,12 @@ impl Request {
         }
     }
 
-    pub fn blocking_send_inner(py_request: &Py<PyAny>) -> PyResult<Py<BlockingResponse>> {
+    pub fn blocking_send_inner(py_request: &Py<PyAny>) -> PyResult<Py<SyncResponse>> {
         let (middlewares_next, error_for_status) = Python::attach(|py| {
             let mut req = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
             let inner = req.mut_inner()?;
             inner.body_set_task_local()?;
-            Ok::<_, PyErr>((inner.middlewares_next.take().map(BlockingNext::new).transpose()?, inner.error_for_status))
+            Ok::<_, PyErr>((inner.middlewares_next.take().map(SyncNext::new).transpose()?, inner.error_for_status))
         })?;
 
         match middlewares_next {
@@ -235,7 +235,7 @@ impl Request {
         Spawner::spawn_reqwest(Self::prepare_spawn_request(request, false)?, cancel).await
     }
 
-    pub fn blocking_spawn_request(request: &Py<PyAny>) -> PyResult<Py<BlockingResponse>> {
+    pub fn blocking_spawn_request(request: &Py<PyAny>) -> PyResult<Py<SyncResponse>> {
         Spawner::blocking_spawn_reqwest(Self::prepare_spawn_request(request, true)?)
     }
 

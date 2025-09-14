@@ -1,54 +1,74 @@
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import timedelta
 from typing import TypeVar
 
 import pytest
-from pyreqwest.client import BaseClient, BaseClientBuilder, BlockingClient, BlockingClientBuilder
+from pyreqwest.client import BaseClient, BaseClientBuilder, SyncClient, SyncClientBuilder
 from pyreqwest.exceptions import ClientClosedError, PoolTimeoutError
-from pyreqwest.middleware import BlockingNext
-from pyreqwest.middleware.types import BlockingMiddleware
-from pyreqwest.request import BaseRequestBuilder, BlockingConsumedRequest, BlockingRequestBuilder, Request
-from pyreqwest.response import BaseResponse, BlockingResponse
+from pyreqwest.middleware import SyncNext
+from pyreqwest.middleware.types import SyncMiddleware
+from pyreqwest.request import BaseRequestBuilder, Request, SyncConsumedRequest, SyncRequestBuilder
+from pyreqwest.response import BaseResponse, SyncResponse
 
 from tests.servers.server import Server
 
 T = TypeVar("T")
 
 
-def client_builder() -> BlockingClientBuilder:
-    return BlockingClientBuilder().error_for_status(True).timeout(timedelta(seconds=5))
+def client_builder() -> SyncClientBuilder:
+    return SyncClientBuilder().error_for_status(True).timeout(timedelta(seconds=5))
 
 
 @contextmanager
-def middleware_client(middleware: BlockingMiddleware) -> Generator[BlockingClient, None, None]:
+def middleware_client(middleware: SyncMiddleware) -> Generator[SyncClient, None, None]:
     with client_builder().with_middleware(middleware).build() as client:
         yield client
 
 
 @pytest.fixture
-def client() -> Generator[BlockingClient, None, None]:
+def client() -> Generator[SyncClient, None, None]:
     with client_builder().build() as client:
         yield client
 
 
-def test_send(client: BlockingClient, echo_server: Server) -> None:
-    req = client.get(echo_server.url).build()
-    assert req.send().json()["method"] == "GET"
+def test_send(client: SyncClient, echo_server: Server) -> None:
+    assert client.get(echo_server.url).build().send().json()["method"] == "GET"
 
 
 def test_middleware(echo_server: Server) -> None:
-    def middleware(request: Request, next_: BlockingNext) -> BlockingResponse:
-        request.headers["x-test"] = "foo"
-        return next_.run(req)
+    def middleware(request: Request, next_handler: SyncNext) -> SyncResponse:
+        request.headers["x-test1"] = "foo"
+        response = next_handler.run(request)
+        response.headers["x-test2"] = "bar"
+        return response
 
     with middleware_client(middleware) as client:
-        req = client.get(echo_server.url).build()
-        assert ["x-test", "foo"] in req.send().json()["headers"]
+        resp = client.get(echo_server.url).build().send()
+        assert ["x-test1", "foo"] in resp.json()["headers"]
+        assert resp.headers["x-test2"] == "bar"
 
 
-def test_stream(client: BlockingClient, echo_body_parts_server: Server) -> None:
+def test_context_vars(echo_server: Server) -> None:
+    ctx_var = ContextVar("test_var", default="default_value")
+
+    def middleware(request: Request, next_handler: SyncNext) -> SyncResponse:
+        assert ctx_var.get() == "val1"
+        res = next_handler.run(request)
+        ctx_var.set("val2")
+        res.headers["x-test"] = "foo"
+        return res
+
+    with middleware_client(middleware) as client:
+        ctx_var.set("val1")
+        resp = client.get(echo_server.url).build().send()
+        assert resp.headers["x-test"] == "foo"
+        assert ctx_var.get() == "val2"
+
+
+def test_stream(client: SyncClient, echo_body_parts_server: Server) -> None:
     def gen() -> Generator[bytes, None, None]:
         for i in range(3):
             yield f"part {i}".encode()
@@ -74,15 +94,15 @@ def test_concurrent_requests(echo_server: Server, concurrency: int, limit: int |
         assert all(fut.result()["method"] == "GET" for fut in futures)
 
 
-@pytest.mark.parametrize("value", [1, 2, None])
-def test_max_connections_pool_timeout(echo_server: Server, value: int | None):
+@pytest.mark.parametrize("max_conn", [1, 2, None])
+def test_max_connections_pool_timeout(echo_server: Server, max_conn: int | None):
     url = echo_server.url.with_query({"sleep_start": 0.1})
 
-    builder = client_builder().max_connections(value).pool_timeout(timedelta(seconds=0.05))
+    builder = client_builder().max_connections(max_conn).pool_timeout(timedelta(seconds=0.05))
 
     with builder.build() as client, ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(lambda: client.get(url).build().send().json()) for _ in range(2)]
-        if value == 1:
+        if max_conn == 1:
             with pytest.raises(PoolTimeoutError) as e:
                 _ = [fut.result() for fut in futures]
             assert isinstance(e.value, TimeoutError)
@@ -105,13 +125,13 @@ def test_use_after_close(echo_server: Server):
 
 
 def test_types(echo_server: Server) -> None:
-    builder = BlockingClientBuilder().error_for_status(True)
-    assert type(builder) is BlockingClientBuilder and isinstance(builder, BaseClientBuilder)
+    builder = SyncClientBuilder().error_for_status(True)
+    assert type(builder) is SyncClientBuilder and isinstance(builder, BaseClientBuilder)
     client = builder.build()
-    assert type(client) is BlockingClient and isinstance(client, BaseClient)
+    assert type(client) is SyncClient and isinstance(client, BaseClient)
     req_builder = client.get(echo_server.url)
-    assert type(req_builder) is BlockingRequestBuilder and isinstance(req_builder, BaseRequestBuilder)
+    assert type(req_builder) is SyncRequestBuilder and isinstance(req_builder, BaseRequestBuilder)
     req = req_builder.build()
-    assert type(req) is BlockingConsumedRequest and isinstance(req, Request)
+    assert type(req) is SyncConsumedRequest and isinstance(req, Request)
     resp = req.send()
-    assert type(resp) is BlockingResponse and isinstance(resp, BaseResponse)
+    assert type(resp) is SyncResponse and isinstance(resp, BaseResponse)

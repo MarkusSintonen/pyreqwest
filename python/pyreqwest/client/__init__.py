@@ -3,19 +3,19 @@
 from pyreqwest._pyreqwest.client import (
     BaseClient,
     BaseClientBuilder,
-    BlockingClient,
-    BlockingClientBuilder,
     Client,
     ClientBuilder,
     Runtime,
+    SyncClient,
+    SyncClientBuilder,
 )
 
 __all__ = [
     "BaseClient",
     "BaseClientBuilder",
-    "BlockingClient",
-    "BlockingClientBuilder",
     "Client",
     "ClientBuilder",
     "Runtime",
+    "SyncClient",
+    "SyncClientBuilder",
 ]

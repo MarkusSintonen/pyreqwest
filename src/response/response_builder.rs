@@ -3,7 +3,7 @@ use crate::client::Handle;
 use crate::http::internal::types::{Extensions, HeaderName, HeaderValue, JsonValue, StatusCode, Version};
 use crate::http::{HeaderMap, RequestBody};
 use crate::response::internal::{BodyConsumeConfig, StreamedReadConfig};
-use crate::response::{BaseResponse, BlockingResponse, Response};
+use crate::response::{BaseResponse, Response, SyncResponse};
 use bytes::Bytes;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -83,13 +83,13 @@ impl ResponseBuilder {
         Python::attach(|py| Response::new_py(py, resp))
     }
 
-    fn build_blocking(mut slf: PyRefMut<Self>) -> PyResult<Py<BlockingResponse>> {
+    fn build_sync(mut slf: PyRefMut<Self>) -> PyResult<Py<SyncResponse>> {
         let inner = slf.build_inner(true)?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig::default());
         let resp = Handle::global_handle()?.blocking_spawn(BaseResponse::initialize(inner, None, config, None))?;
 
-        Python::attach(|py| BlockingResponse::new_py(py, resp))
+        Python::attach(|py| SyncResponse::new_py(py, resp))
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {

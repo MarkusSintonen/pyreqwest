@@ -9,8 +9,8 @@ from typing import Any, Literal, Self, TypeVar, assert_never
 import pytest
 
 from pyreqwest.http import RequestBody
-from pyreqwest.middleware import BlockingNext, Next
-from pyreqwest.middleware.types import BlockingMiddleware, Middleware
+from pyreqwest.middleware import Next, SyncNext
+from pyreqwest.middleware.types import Middleware, SyncMiddleware
 from pyreqwest.pytest_plugin.internal.matcher import InternalMatcher
 from pyreqwest.pytest_plugin.types import (
     BodyContentMatcher,
@@ -22,8 +22,8 @@ from pyreqwest.pytest_plugin.types import (
     QueryMatcher,
     UrlMatcher,
 )
-from pyreqwest.request import BaseRequestBuilder, BlockingRequestBuilder, Request, RequestBuilder
-from pyreqwest.response import BaseResponse, BlockingResponse, Response, ResponseBuilder
+from pyreqwest.request import BaseRequestBuilder, Request, RequestBuilder, SyncRequestBuilder
+from pyreqwest.response import BaseResponse, Response, ResponseBuilder, SyncResponse
 
 _R = TypeVar("_R", bound=BaseResponse)
 
@@ -177,9 +177,9 @@ class Mock:
         response = await self._handle_callbacks(request, matches)
         return self._check_matched(request, matches, response)
 
-    def _handle_blocking(self, request: Request) -> BlockingResponse | None:
+    def _handle_sync(self, request: Request) -> SyncResponse | None:
         matches = self._handle_common_matchers(request)
-        response = self._handle_callbacks_blocking(request, matches)
+        response = self._handle_callbacks_sync(request, matches)
         return self._check_matched(request, matches, response)
 
     async def _handle_callbacks(self, request: Request, matches: dict[str, bool]) -> Response | None:
@@ -194,14 +194,14 @@ class Mock:
 
         return response if all(matches.values()) else None
 
-    def _handle_callbacks_blocking(self, request: Request, matches: dict[str, bool]) -> BlockingResponse | None:
-        matches["custom"] = self._matches_custom_blocking(request)
+    def _handle_callbacks_sync(self, request: Request, matches: dict[str, bool]) -> SyncResponse | None:
+        matches["custom"] = self._matches_custom_sync(request)
 
         if self._custom_handler:
-            response = self._handle_custom_handler_blocking(request)
+            response = self._handle_custom_handler_sync(request)
             matches["handler"] = response is not None
         else:
-            response = self._response_blocking()
+            response = self._response_sync()
             matches["handler"] = True
 
         return response if all(matches.values()) else None
@@ -231,10 +231,10 @@ class Mock:
         assert isinstance(self._built_response, Response)
         return self._built_response
 
-    def _response_blocking(self) -> BlockingResponse:
+    def _response_sync(self) -> SyncResponse:
         if self._built_response is None:
-            self._built_response = self._response_builder.build_blocking()
-        assert isinstance(self._built_response, BlockingResponse)
+            self._built_response = self._response_builder.build_sync()
+        assert isinstance(self._built_response, SyncResponse)
         return self._built_response
 
     def _matches_method(self, request: Request) -> bool:
@@ -299,7 +299,7 @@ class Mock:
         assert isinstance(res, Awaitable)
         return await res
 
-    def _matches_custom_blocking(self, request: Request) -> bool:
+    def _matches_custom_sync(self, request: Request) -> bool:
         if self._custom_matcher is None:
             return True
         res = self._custom_matcher(request)
@@ -312,10 +312,10 @@ class Mock:
         assert isinstance(res, Awaitable)
         return await res
 
-    def _handle_custom_handler_blocking(self, request: Request) -> BlockingResponse | None:
+    def _handle_custom_handler_sync(self, request: Request) -> SyncResponse | None:
         assert self._custom_handler
         res = self._custom_handler(request)
-        assert res is None or isinstance(res, BlockingResponse)
+        assert res is None or isinstance(res, SyncResponse)
         return res
 
 
@@ -402,15 +402,15 @@ class ClientMocker:
 
         return mock_middleware
 
-    def _create_blocking_middleware(self) -> BlockingMiddleware:
-        def mock_middleware(request: Request, next_handler: BlockingNext) -> BlockingResponse:
+    def _create_sync_middleware(self) -> SyncMiddleware:
+        def mock_middleware(request: Request, next_handler: SyncNext) -> SyncResponse:
             if request.body is not None and (stream := request.body.get_stream()) is not None:
                 assert isinstance(stream, Iterable)
                 body = [bytes(chunk) for chunk in stream]  # Read the body stream into bytes
                 request = request.from_request_and_body(request, RequestBody.from_bytes(b"".join(body)))
 
             for mock in self._mocks:
-                if (response := mock._handle_blocking(request)) is not None:
+                if (response := mock._handle_sync(request)) is not None:
                     return response
 
             # No rule matched
@@ -432,13 +432,13 @@ def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
         orig_build_streamed = klass.build_streamed  # type: ignore[attr-defined]
 
         def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
-            middleware = mocker._create_middleware() if is_async else mocker._create_blocking_middleware()
+            middleware = mocker._create_middleware() if is_async else mocker._create_sync_middleware()
             return orig(self._set_interceptor(middleware))  # type: ignore[attr-defined]
 
         monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
         monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
 
     setup(RequestBuilder, is_async=True)
-    setup(BlockingRequestBuilder, is_async=False)
+    setup(SyncRequestBuilder, is_async=False)
 
     return mocker

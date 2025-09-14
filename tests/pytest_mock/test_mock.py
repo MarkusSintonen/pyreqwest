@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from dirty_equals import Contains, IsPartialDict, IsStr
-from pyreqwest.client import BlockingClientBuilder, ClientBuilder
+from pyreqwest.client import ClientBuilder, SyncClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
@@ -851,10 +851,10 @@ async def test_json_body_matching_invalid(client_mocker: ClientMocker) -> None:
     assert await resp.text() == "Matched"
 
 
-def test_blocking(client_mocker: ClientMocker) -> None:
+def test_sync(client_mocker: ClientMocker) -> None:
     client_mocker.get("/data").with_body_json({"data": "value"})
 
-    client = BlockingClientBuilder().error_for_status(True).build()
+    client = SyncClientBuilder().error_for_status(True).build()
 
     resp = client.get("http://api.example.invalid/data").build().send()
     assert resp.json() == {"data": "value"}

@@ -5,8 +5,8 @@ use crate::http::{HeaderMap, RequestBody};
 use crate::middleware::NextInner;
 use crate::multipart::FormBuilder;
 use crate::request::Request;
-use crate::request::consumed_request::{BlockingConsumedRequest, ConsumedRequest};
-use crate::request::stream_request::{BlockingStreamRequest, StreamRequest};
+use crate::request::consumed_request::{ConsumedRequest, SyncConsumedRequest};
+use crate::request::stream_request::{StreamRequest, SyncStreamRequest};
 use crate::response::internal::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, StreamedReadConfig};
 use bytes::Bytes;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -32,7 +32,7 @@ pub struct BaseRequestBuilder {
 pub struct RequestBuilder;
 
 #[pyclass(extends=BaseRequestBuilder)]
-pub struct BlockingRequestBuilder;
+pub struct SyncRequestBuilder;
 
 #[pymethods]
 impl RequestBuilder {
@@ -55,20 +55,20 @@ impl RequestBuilder {
 }
 
 #[pymethods]
-impl BlockingRequestBuilder {
-    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingConsumedRequest>> {
+impl SyncRequestBuilder {
+    fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<SyncConsumedRequest>> {
         let slf_super = slf.as_super();
         let body_config = slf_super.body_consume_config(false)?;
-        BlockingConsumedRequest::new_py(py, slf_super.inner_build(body_config)?)
+        SyncConsumedRequest::new_py(py, slf_super.inner_build(body_config)?)
     }
 
-    fn build_streamed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<BlockingStreamRequest>> {
+    fn build_streamed(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<SyncStreamRequest>> {
         let slf_super = slf.as_super();
         let body_config = slf_super.body_consume_config(true)?;
-        BlockingStreamRequest::new_py(py, slf_super.inner_build(body_config)?)
+        SyncStreamRequest::new_py(py, slf_super.inner_build(body_config)?)
     }
 }
-impl BlockingRequestBuilder {
+impl SyncRequestBuilder {
     pub fn new_py(py: Python, inner: BaseRequestBuilder) -> PyResult<Py<Self>> {
         Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
     }

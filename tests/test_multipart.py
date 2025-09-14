@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pyreqwest.client import BlockingClientBuilder, Client, ClientBuilder
+from pyreqwest.client import Client, ClientBuilder, SyncClientBuilder
 from pyreqwest.exceptions import BuilderError
 from pyreqwest.multipart import FormBuilder, PartBuilder
 from requests_toolbelt import MultipartDecoder  # type: ignore[import-untyped]
@@ -76,7 +76,7 @@ async def test_multipart_with_file_upload(echo_server: Server, file: str, req: s
             form = await form.file("document", tmp_path)
         else:
             assert file == "sync"
-            form = form.blocking_file("document", tmp_path)
+            form = form.sync_file("document", tmp_path)
 
         if req == "async":
             async with ClientBuilder().error_for_status(True).build() as client:
@@ -84,7 +84,7 @@ async def test_multipart_with_file_upload(echo_server: Server, file: str, req: s
                 response_data = await resp.json()
         else:
             assert req == "sync"
-            with BlockingClientBuilder().error_for_status(True).build() as client:
+            with SyncClientBuilder().error_for_status(True).build() as client:
                 response_data = client.post(echo_server.url).multipart(form).build().send().json()
 
         decoder = decode_multipart(response_data)
@@ -112,7 +112,7 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
             file_part = await PartBuilder.from_file(Path(tmp.name))
         else:
             assert file == "sync"
-            file_part = PartBuilder.blocking_from_file(Path(tmp.name))
+            file_part = PartBuilder.from_sync_file(Path(tmp.name))
         file_part = file_part.mime_str("text/plain; charset=utf-8")
 
         form = FormBuilder().text("description", "Using Part.file").part("attachment", file_part)
@@ -123,7 +123,7 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
                 response_data = await resp.json()
         else:
             assert req == "sync"
-            with BlockingClientBuilder().error_for_status(True).build() as client:
+            with SyncClientBuilder().error_for_status(True).build() as client:
                 response_data = client.post(echo_server.url).multipart(form).build().send().json()
 
         decoder = decode_multipart(response_data)
@@ -139,9 +139,9 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
         assert file_part.headers[b"content-type"] == b"text/plain; charset=utf-8"
 
 
-@pytest.mark.parametrize("blocking", [False, True])
-async def test_multipart_with_stream_part(client: Client, echo_server: Server, blocking: bool):
-    if blocking:
+@pytest.mark.parametrize("sync", [False, True])
+async def test_multipart_with_stream_part(client: Client, echo_server: Server, sync: bool):
+    if sync:
 
         def data_stream_sync() -> Iterator[bytes]:
             yield b"First chunk"
@@ -175,7 +175,7 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server, b
     assert data_part.headers[b"content-type"] == b"application/octet-stream"
 
 
-async def test_multipart_with_stream_async_part_blocking_request(echo_server: Server):
+async def test_multipart_with_stream_async_part_sync_request(echo_server: Server):
     async def data_stream() -> AsyncGenerator[bytes, None]:
         yield b""
 
@@ -183,7 +183,7 @@ async def test_multipart_with_stream_async_part_blocking_request(echo_server: Se
         PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
     )
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
-    req_builder = BlockingClientBuilder().build().post(echo_server.url)
+    req_builder = SyncClientBuilder().build().post(echo_server.url)
     with pytest.raises(BuilderError) as e:
         req_builder.multipart(form)
     assert e.value.message == "Can not use async multipart (stream) in a blocking request"

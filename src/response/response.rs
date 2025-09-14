@@ -30,7 +30,7 @@ pub struct BaseResponse {
 #[pyclass(extends=BaseResponse)]
 pub struct Response;
 #[pyclass(extends=BaseResponse)]
-pub struct BlockingResponse;
+pub struct SyncResponse;
 
 #[pymethods]
 impl BaseResponse {
@@ -257,7 +257,7 @@ impl Response {
 }
 
 #[pymethods]
-impl BlockingResponse {
+impl SyncResponse {
     fn bytes(slf: PyRefMut<Self>) -> PyResult<PyBytes> {
         Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().bytes())
     }
@@ -279,7 +279,7 @@ impl BlockingResponse {
         Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().next_chunk())
     }
 }
-impl BlockingResponse {
+impl SyncResponse {
     pub fn new_py(py: Python, inner: BaseResponse) -> PyResult<Py<Self>> {
         Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
     }

@@ -4,7 +4,7 @@ use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{ClientClosedError, PoolTimeoutError};
 use crate::http::internal::types::Extensions;
 use crate::response::internal::BodyConsumeConfig;
-use crate::response::{BaseResponse, BlockingResponse, Response};
+use crate::response::{BaseResponse, Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
 use tokio::sync::OwnedSemaphorePermit;
@@ -71,10 +71,10 @@ impl Spawner {
         Python::attach(|py| Response::new_py(py, resp?))
     }
 
-    pub fn blocking_spawn_reqwest(request: SpawnRequestData) -> PyResult<Py<BlockingResponse>> {
+    pub fn blocking_spawn_reqwest(request: SpawnRequestData) -> PyResult<Py<SyncResponse>> {
         let rt = &request.spawner.runtime.clone();
         let resp = rt.blocking_spawn(Self::spawn_reqwest_inner(request, CancelHandle::new()))?;
-        Python::attach(|py| BlockingResponse::new_py(py, resp))
+        Python::attach(|py| SyncResponse::new_py(py, resp))
     }
 
     async fn limit_connections(

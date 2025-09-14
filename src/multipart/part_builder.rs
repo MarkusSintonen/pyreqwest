@@ -53,7 +53,7 @@ impl PartBuilder {
     }
 
     #[staticmethod]
-    fn blocking_from_file(path: PathBuf) -> PyResult<Self> {
+    fn from_sync_file(path: PathBuf) -> PyResult<Self> {
         let part = Handle::global_handle()?.blocking_spawn(reqwest::multipart::Part::file(path))?;
         Ok(Self::new(part, false))
     }
