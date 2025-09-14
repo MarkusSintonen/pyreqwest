@@ -101,11 +101,10 @@ class PerformanceBenchmark:
                     response = await client.post(self.url).body_bytes(body).build().send()
                     assert len(await response.bytes()) == body_size
                 else:
-                    buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
                     async with (
                         client.post(self.url)
                         .body_stream(self.body_parts(body))
-                        .streamed_read_buffer_limit(buffer_size)
+                        .streamed_read_buffer_limit(65536 * 2)  # Same as aiohttp read buffer high watermark
                         .build_streamed() as response
                     ):
                         tot = 0
@@ -126,11 +125,10 @@ class PerformanceBenchmark:
                     response = client.post(self.url).body_bytes(body).build().send()
                     assert len(response.bytes()) == body_size
                 else:
-                    buffer_size = 65536 * 2  # Same as aiohttp read buffer high watermark
                     with (
                         client.post(self.url)
                         .body_stream(self.body_parts_sync(body))
-                        .streamed_read_buffer_limit(buffer_size)
+                        .streamed_read_buffer_limit(65536 * 2)  # Same as aiohttp read buffer high watermark
                         .build_streamed() as response
                     ):
                         tot = 0
