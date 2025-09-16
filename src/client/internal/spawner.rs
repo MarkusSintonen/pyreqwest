@@ -2,9 +2,10 @@ use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{ClientClosedError, PoolTimeoutError};
+use crate::http::internal::json::JsonHandler;
 use crate::http::internal::types::Extensions;
+use crate::response::BaseResponse;
 use crate::response::internal::BodyConsumeConfig;
-use crate::response::{BaseResponse, Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
 use tokio::sync::OwnedSemaphorePermit;
@@ -12,14 +13,14 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Spawner {
     client: reqwest::Client,
-    runtime: runtime::Handle,
+    runtime: runtime::RuntimeHandle,
     connection_limiter: Option<ConnectionLimiter>,
     close_cancellation: CancellationToken,
 }
 impl Spawner {
     pub fn new(
         client: reqwest::Client,
-        runtime: runtime::Handle,
+        runtime: runtime::RuntimeHandle,
         connection_limiter: Option<ConnectionLimiter>,
         close_cancellation: CancellationToken,
     ) -> Self {
@@ -50,31 +51,32 @@ impl Spawner {
                 .map(|ext| ext.into_response(resp.extensions_mut()))
                 .transpose()?;
 
-            BaseResponse::initialize(resp, permit, request.body_consume_config, Some(runtime)).await
+            BaseResponse::initialize(
+                resp,
+                permit,
+                request.body_consume_config,
+                runtime,
+                request.json_handler,
+                request.error_for_status,
+            )
+            .await
         };
 
         let fut = spawner.runtime.spawn_handled(fut, cancel);
 
-        let response = tokio::select! {
+        tokio::select! {
             res = fut => res?,
             _ = spawner.close_cancellation.cancelled() => Err(ClientClosedError::from_causes("Client was closed", vec![]),)
-        }?;
-
-        if request.error_for_status {
-            response.error_for_status()?;
         }
-        Ok(response)
     }
 
-    pub async fn spawn_reqwest(request: SpawnRequestData, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let resp = Self::spawn_reqwest_inner(request, cancel).await;
-        Python::attach(|py| Response::new_py(py, resp?))
+    pub async fn spawn_reqwest(request: SpawnRequestData, cancel: CancelHandle) -> PyResult<BaseResponse> {
+        Self::spawn_reqwest_inner(request, cancel).await
     }
 
-    pub fn blocking_spawn_reqwest(request: SpawnRequestData) -> PyResult<Py<SyncResponse>> {
+    pub fn blocking_spawn_reqwest(request: SpawnRequestData) -> PyResult<BaseResponse> {
         let rt = &request.spawner.runtime.clone();
-        let resp = rt.blocking_spawn(Self::spawn_reqwest_inner(request, CancelHandle::new()))?;
-        Python::attach(|py| SyncResponse::new_py(py, resp))
+        rt.blocking_spawn(Self::spawn_reqwest_inner(request, CancelHandle::new()))
     }
 
     async fn limit_connections(
@@ -112,6 +114,7 @@ pub struct SpawnRequestData {
     pub spawner: Spawner,
     pub request: reqwest::Request,
     pub extensions: Option<Extensions>,
-    pub error_for_status: bool,
     pub body_consume_config: BodyConsumeConfig,
+    pub json_handler: Option<JsonHandler>,
+    pub error_for_status: bool,
 }

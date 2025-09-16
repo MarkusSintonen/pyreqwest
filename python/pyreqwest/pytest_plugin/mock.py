@@ -43,9 +43,7 @@ class Mock:
 
         self._matched_requests: list[Request] = []
         self._unmatched_requests_repr_parts: list[dict[str, str | None]] = []
-
         self._using_response_builder = False
-        self._built_response: BaseResponse | None = None
 
     def assert_called(
         self,
@@ -226,16 +224,14 @@ class Mock:
         return ResponseBuilder()
 
     async def _response(self) -> Response:
-        if self._built_response is None:
-            self._built_response = await self._response_builder.build()
-        assert isinstance(self._built_response, Response)
-        return self._built_response
+        built_response = await self._response_builder.copy().build()
+        assert isinstance(built_response, Response)
+        return built_response
 
     def _response_sync(self) -> SyncResponse:
-        if self._built_response is None:
-            self._built_response = self._response_builder.build_sync()
-        assert isinstance(self._built_response, SyncResponse)
-        return self._built_response
+        built_response = self._response_builder.copy().build_sync()
+        assert isinstance(built_response, SyncResponse)
+        return built_response
 
     def _matches_method(self, request: Request) -> bool:
         return self._method_matcher is None or self._method_matcher.matches(request.method)

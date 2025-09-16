@@ -1,10 +1,11 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::internal::{SpawnRequestData, Spawner};
+use crate::http::internal::json::JsonHandler;
 use crate::http::internal::types::{Extensions, Method};
 use crate::http::{HeaderMap, RequestBody, Url, UrlType};
 use crate::middleware::{Next, NextInner, SyncNext};
+use crate::response::BaseResponse;
 use crate::response::internal::BodyConsumeConfig;
-use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError};
 use pyo3::prelude::*;
@@ -21,6 +22,7 @@ struct Inner {
     headers: Option<ReqHeaders>,
     extensions: Option<Extensions>,
     middlewares_next: Option<NextInner>,
+    json_handler: Option<JsonHandler>,
     error_for_status: bool,
     body_consume_config: BodyConsumeConfig,
 }
@@ -172,6 +174,7 @@ impl Request {
         body: Option<RequestBody>,
         extensions: Option<Extensions>,
         middlewares_next: Option<NextInner>,
+        json_handler: Option<JsonHandler>,
         error_for_status: bool,
         body_consume_config: BodyConsumeConfig,
     ) -> Self {
@@ -182,60 +185,47 @@ impl Request {
             body: body.map(ReqBody::Body),
             headers: None,
             middlewares_next,
+            json_handler,
             error_for_status,
             body_consume_config,
         }))
     }
 
-    pub async fn send_inner(py_request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let (middlewares_next, error_for_status) = Python::attach(|py| -> PyResult<_> {
+    pub async fn send_inner(py_request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<BaseResponse> {
+        let middlewares_next = Python::attach(|py| -> PyResult<_> {
             let mut req = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
             let inner = req.mut_inner()?;
             inner.body_set_task_local()?;
-            Ok((
-                inner.middlewares_next.take().map(|v| Next::new(v, py)).transpose()?,
-                inner.error_for_status,
-            ))
+            inner.middlewares_next.take().map(|v| Next::new(v, py)).transpose()
         })?;
 
         match middlewares_next {
-            Some(middlewares_next) => {
-                let middleware_resp = AllowThreads(middlewares_next.run_inner(py_request, cancel)).await?;
-
-                if error_for_status {
-                    Python::attach(|py| middleware_resp.bind(py).as_super().try_borrow()?.error_for_status())?;
-                }
-                Ok(middleware_resp)
-            }
+            Some(middlewares_next) => AllowThreads(middlewares_next.run_inner(py_request, cancel)).await,
             None => Self::spawn_request(py_request, cancel).await,
-        }
+        }?
+        .check_error_for_status()
     }
 
-    pub fn blocking_send_inner(py_request: &Py<PyAny>) -> PyResult<Py<SyncResponse>> {
-        let (middlewares_next, error_for_status) = Python::attach(|py| {
+    pub fn blocking_send_inner(py_request: &Py<PyAny>) -> PyResult<BaseResponse> {
+        let middlewares_next = Python::attach(|py| {
             let mut req = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
             let inner = req.mut_inner()?;
             inner.body_set_task_local()?;
-            Ok::<_, PyErr>((inner.middlewares_next.take().map(SyncNext::new).transpose()?, inner.error_for_status))
+            inner.middlewares_next.take().map(SyncNext::new).transpose()
         })?;
 
         match middlewares_next {
-            Some(middlewares_next) => Python::attach(|py| {
-                let middleware_resp = middlewares_next.run(py_request.bind(py))?;
-                if error_for_status {
-                    middleware_resp.bind(py).as_super().try_borrow()?.error_for_status()?;
-                }
-                Ok(middleware_resp)
-            }),
+            Some(middlewares_next) => Python::attach(|py| middlewares_next.run_inner(py_request.bind(py))),
             None => Self::blocking_spawn_request(py_request),
-        }
+        }?
+        .check_error_for_status()
     }
 
-    pub async fn spawn_request(request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
+    pub async fn spawn_request(request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<BaseResponse> {
         Spawner::spawn_reqwest(Self::prepare_spawn_request(request, false)?, cancel).await
     }
 
-    pub fn blocking_spawn_request(request: &Py<PyAny>) -> PyResult<Py<SyncResponse>> {
+    pub fn blocking_spawn_request(request: &Py<PyAny>) -> PyResult<BaseResponse> {
         Spawner::blocking_spawn_reqwest(Self::prepare_spawn_request(request, true)?)
     }
 
@@ -268,8 +258,9 @@ impl Request {
             request: this.reqwest,
             spawner: this.spawner.clone(),
             extensions: this.extensions.take(),
-            error_for_status: this.error_for_status,
             body_consume_config: this.body_consume_config,
+            json_handler: this.json_handler.take(),
+            error_for_status: this.error_for_status,
         })
     }
 
@@ -300,6 +291,10 @@ impl Request {
                 headers,
                 extensions: inner.extensions.as_ref().map(|ext| ext.copy()).transpose()?,
                 middlewares_next: inner.middlewares_next.as_ref().map(|next| next.clone_ref()),
+                json_handler: inner
+                    .json_handler
+                    .as_ref()
+                    .map(|v| Python::attach(|py| v.clone_ref(py))),
                 error_for_status: inner.error_for_status,
                 body_consume_config: inner.body_consume_config,
             })))
@@ -329,6 +324,7 @@ impl Request {
             headers,
             extensions: inner.extensions.as_ref().map(|ext| ext.copy()).transpose()?,
             middlewares_next: inner.middlewares_next.as_ref().map(|next| next.clone_ref()),
+            json_handler: inner.json_handler.as_ref().map(|v| v.clone_ref(request.py())),
             error_for_status: inner.error_for_status,
             body_consume_config: inner.body_consume_config,
         })))

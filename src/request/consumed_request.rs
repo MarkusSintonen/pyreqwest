@@ -15,7 +15,8 @@ pub struct SyncConsumedRequest;
 #[pymethods]
 impl ConsumedRequest {
     pub async fn send(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        AllowThreads(Request::send_inner(slf.as_any(), cancel)).await
+        let resp = AllowThreads(Request::send_inner(slf.as_any(), cancel)).await?;
+        Python::attach(|py| Response::new_py(py, resp))
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
@@ -40,8 +41,9 @@ impl ConsumedRequest {
 
 #[pymethods]
 impl SyncConsumedRequest {
-    pub fn send(slf: Py<Self>) -> PyResult<Py<SyncResponse>> {
-        Request::blocking_send_inner(slf.as_any())
+    pub fn send(slf: Py<Self>, py: Python) -> PyResult<Py<SyncResponse>> {
+        let resp = Request::blocking_send_inner(slf.as_any())?;
+        SyncResponse::new_py(py, resp)
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {

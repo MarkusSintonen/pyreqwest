@@ -103,9 +103,9 @@ async def test_body_stream(client: Client, echo_body_parts_server: Server):
         yield b"part 1"
 
     resp = await client.post(echo_body_parts_server.url).body_stream(body_stream()).build().send()
-    assert (await resp.next_chunk()) == b"part 0"
-    assert (await resp.next_chunk()) == b"part 1"
-    assert (await resp.next_chunk()) is None
+    assert (await resp.body_reader.read_chunk()) == b"part 0"
+    assert (await resp.body_reader.read_chunk()) == b"part 1"
+    assert (await resp.body_reader.read_chunk()) is None
 
 
 @pytest.mark.parametrize("server_sleep", [0.1, 0.01, None])

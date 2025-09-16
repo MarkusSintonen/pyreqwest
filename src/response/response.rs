@@ -1,9 +1,14 @@
 use crate::allow_threads::AllowThreads;
-use crate::client::Handle;
+use crate::asyncio::{TaskLocal, py_coro_waiter};
+use crate::client::RuntimeHandle;
 use crate::exceptions::{JSONDecodeError, RequestError, StatusError};
+use crate::http::internal::json::{JsonHandler, JsonLoadsContext};
 use crate::http::internal::types::{Extensions, HeaderValue, JsonValue, StatusCode, Version};
 use crate::http::{HeaderMap, Mime};
+use crate::response::SyncResponseBodyReader;
 use crate::response::internal::{BodyConsumeConfig, BodyReader, DEFAULT_READ_BUFFER_LIMIT};
+use crate::response::response_body_reader::{BaseResponseBodyReader, ResponseBodyReader};
+use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -14,17 +19,16 @@ use serde_json::json;
 use tokio::sync::OwnedSemaphorePermit;
 
 #[pyclass(subclass)]
-pub struct BaseResponse {
-    #[pyo3(get, set)]
+pub struct BaseResponse(Option<Inner>);
+pub struct Inner {
     status: StatusCode,
-    #[pyo3(get, set)]
     version: Version,
-
     headers: Option<RespHeaders>,
     extensions: Option<RespExtensions>,
-
-    body_reader: BodyReader,
-    runtime: Option<Handle>,
+    body_reader: Option<RespReader>,
+    runtime: RuntimeHandle,
+    json_handler: Option<JsonHandler>,
+    error_for_status: bool,
 }
 
 #[pyclass(extends=BaseResponse)]
@@ -35,60 +39,87 @@ pub struct SyncResponse;
 #[pymethods]
 impl BaseResponse {
     #[getter]
-    fn get_headers(&mut self, py: Python) -> PyResult<&Py<HeaderMap>> {
-        if self.headers.is_none() {
+    fn get_status(&self) -> PyResult<u16> {
+        Ok(self.ref_inner()?.status.0.as_u16())
+    }
+
+    #[setter]
+    fn set_status(&mut self, status: StatusCode) -> PyResult<()> {
+        self.mut_inner()?.status = status;
+        Ok(())
+    }
+
+    #[getter]
+    fn get_version(&self) -> PyResult<Version> {
+        Ok(self.ref_inner()?.version.clone())
+    }
+
+    #[setter]
+    fn set_version(&mut self, version: Version) -> PyResult<()> {
+        self.mut_inner()?.version = version;
+        Ok(())
+    }
+
+    #[getter]
+    fn get_headers(&mut self, py: Python) -> PyResult<Py<HeaderMap>> {
+        let inner = self.mut_inner()?;
+        if inner.headers.is_none() {
             return Err(PyRuntimeError::new_err("Expected headers"));
         };
-        if let RespHeaders::Headers(headers) = self.headers.as_mut().unwrap() {
+        if let RespHeaders::Headers(headers) = inner.headers.as_mut().unwrap() {
             let py_headers = Py::new(py, HeaderMap::from(headers.try_take_inner()?))?;
-            self.headers = Some(RespHeaders::PyHeaders(py_headers));
+            inner.headers = Some(RespHeaders::PyHeaders(py_headers));
         }
-        match self.headers.as_ref().unwrap() {
-            RespHeaders::PyHeaders(py_headers) => Ok(py_headers),
+        match inner.headers.as_ref().unwrap() {
+            RespHeaders::PyHeaders(py_headers) => Ok(py_headers.clone_ref(py)),
             RespHeaders::Headers(_) => Err(PyRuntimeError::new_err("Expected PyHeaders")),
         }
     }
 
     #[setter]
     fn set_headers(&mut self, value: Py<HeaderMap>) -> PyResult<()> {
-        self.headers = Some(RespHeaders::PyHeaders(value));
+        self.mut_inner()?.headers = Some(RespHeaders::PyHeaders(value));
         Ok(())
     }
 
     #[getter]
-    fn get_extensions(&mut self, py: Python) -> PyResult<&Py<PyDict>> {
-        if self.extensions.is_none() {
+    fn get_extensions(&mut self, py: Python) -> PyResult<Py<PyDict>> {
+        let inner = self.mut_inner()?;
+        if inner.extensions.is_none() {
             return Err(PyRuntimeError::new_err("Expected extensions"));
         };
-        if let RespExtensions::Extensions(ext) = self.extensions.as_mut().unwrap() {
+        if let RespExtensions::Extensions(ext) = inner.extensions.as_mut().unwrap() {
             let py_ext = ext
                 .remove::<Extensions>()
                 .unwrap_or_else(|| Extensions(PyDict::new(py).unbind()))
                 .0;
-            self.extensions = Some(RespExtensions::PyExtensions(py_ext));
+            inner.extensions = Some(RespExtensions::PyExtensions(py_ext));
         }
-        match self.extensions.as_ref().unwrap() {
-            RespExtensions::PyExtensions(py_ext) => Ok(py_ext),
+        match inner.extensions.as_ref().unwrap() {
+            RespExtensions::PyExtensions(py_ext) => Ok(py_ext.clone_ref(py)),
             RespExtensions::Extensions(_) => Err(PyRuntimeError::new_err("Expected PyExtensions")),
         }
     }
 
     #[setter]
-    fn set_extensions(&mut self, extensions: Extensions) {
-        self.extensions = Some(RespExtensions::PyExtensions(extensions.0));
+    fn set_extensions(&mut self, extensions: Extensions) -> PyResult<()> {
+        let inner = self.mut_inner()?;
+        inner.extensions = Some(RespExtensions::PyExtensions(extensions.0));
+        Ok(())
     }
 
-    pub fn error_for_status(&self) -> PyResult<()> {
-        if self.status.0.is_success() {
+    fn error_for_status(&self) -> PyResult<()> {
+        let inner = self.ref_inner()?;
+        if inner.status.0.is_success() {
             return Ok(());
         }
-        let msg = if self.status.0.is_client_error() {
+        let msg = if inner.status.0.is_client_error() {
             "HTTP status client error"
         } else {
-            debug_assert!(self.status.0.is_server_error());
+            debug_assert!(inner.status.0.is_server_error());
             "HTTP status server error"
         };
-        Err(StatusError::from_custom(msg, json!({"status": self.status.0.as_u16()})))
+        Err(StatusError::from_custom(msg, json!({"status": inner.status.0.as_u16()})))
     }
 
     fn get_header(&self, py: Python, name: &str) -> PyResult<Option<HeaderValue>> {
@@ -104,27 +135,38 @@ impl BaseResponse {
     }
 
     async fn bytes(&mut self) -> PyResult<PyBytes> {
-        AllowThreads(async {
-            let bytes = self.body_reader.read_all_once().await?;
-            Ok(PyBytes::new(bytes))
-        })
-        .await
+        AllowThreads(async { self.bytes_inner().await.map(PyBytes::new) }).await
     }
 
-    async fn json(&mut self) -> PyResult<JsonValue> {
-        AllowThreads(async {
-            let bytes = self.body_reader.read_all_once().await?;
-            match serde_json::from_slice(&bytes) {
-                Ok(v) => Ok(v),
-                Err(e) => Err(self.json_error(&e).await?),
-            }
-        })
-        .await
+    async fn json(&mut self) -> PyResult<Py<PyAny>> {
+        if self.ref_inner()?.json_handler.as_ref().is_some_and(|v| v.has_loads()) {
+            let coro = Python::attach(|py| {
+                let task_local = TaskLocal::current(py)?;
+                let ctx = JsonLoadsContext {
+                    body_reader: self.get_body_reader_inner(py, false)?,
+                    headers: self.get_headers(py)?,
+                    extensions: self.get_extensions(py)?,
+                };
+                let coro = self.ref_inner()?.json_handler.as_ref().unwrap().call_loads(py, ctx)?;
+                py_coro_waiter(coro, &task_local)
+            })?;
+            AllowThreads(coro).await
+        } else {
+            let serde_val: serde_json::Value = AllowThreads(async {
+                let bytes = self.bytes_inner().await?;
+                match serde_json::from_slice(&bytes) {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(self.json_error(&e).await?),
+                }
+            })
+            .await?;
+            Python::attach(|py| Ok(JsonValue(serde_val).into_pyobject(py)?.unbind()))
+        }
     }
 
     async fn text(&mut self) -> PyResult<String> {
         AllowThreads(async {
-            let bytes = self.body_reader.read_all_once().await?;
+            let bytes = self.bytes_inner().await?;
             let encoding = self
                 .content_type_mime_inner()?
                 .and_then(|mime| mime.get_param("charset").map(String::from))
@@ -138,26 +180,35 @@ impl BaseResponse {
 
     #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
     async fn read(&mut self, amount: usize) -> PyResult<PyBytes> {
-        AllowThreads(async { self.body_reader.read(amount).await.map(PyBytes::from) }).await
-    }
-
-    async fn next_chunk(&mut self) -> PyResult<Option<PyBytes>> {
-        AllowThreads(async { Ok(self.body_reader.next_chunk().await?.map(PyBytes::from)) }).await
+        AllowThreads(async {
+            match self.mut_inner()?.body_reader.as_mut() {
+                Some(RespReader::Reader(reader)) => reader.read(amount).await.map(PyBytes::from),
+                Some(RespReader::PyReader(reader)) => reader.get().read_inner(amount).await.map(PyBytes::from),
+                None => Err(PyRuntimeError::new_err("Expected body_reader")),
+            }
+        })
+        .await
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        if let Some(RespHeaders::PyHeaders(py_headers)) = &self.headers {
+        let Ok(inner) = self.ref_inner() else {
+            return Ok(());
+        };
+        if let Some(RespHeaders::PyHeaders(py_headers)) = &inner.headers {
             visit.call(py_headers)?;
         }
-        if let Some(RespExtensions::PyExtensions(py_ext)) = &self.extensions {
+        if let Some(RespExtensions::PyExtensions(py_ext)) = &inner.extensions {
             visit.call(py_ext)?;
         }
         Ok(())
     }
 
     fn __clear__(&mut self) {
-        self.headers = None;
-        self.extensions = None;
+        let Ok(inner) = self.mut_inner() else {
+            return;
+        };
+        inner.headers = None;
+        inner.extensions = None;
     }
 }
 impl BaseResponse {
@@ -165,24 +216,39 @@ impl BaseResponse {
         response: reqwest::Response,
         request_semaphore_permit: Option<OwnedSemaphorePermit>,
         consume_body: BodyConsumeConfig,
-        runtime: Option<Handle>,
+        runtime: RuntimeHandle,
+        json_handler: Option<JsonHandler>,
+        error_for_status: bool,
     ) -> PyResult<Self> {
         let (body_reader, head) =
             BodyReader::initialize(response, request_semaphore_permit, consume_body, runtime.clone()).await?;
 
-        let resp = BaseResponse {
+        let resp = BaseResponse(Some(Inner {
             status: StatusCode(head.status),
             version: Version(head.version),
             headers: Some(RespHeaders::Headers(HeaderMap::from(head.headers))),
             extensions: Some(RespExtensions::Extensions(head.extensions)),
-            body_reader,
+            body_reader: Some(RespReader::Reader(body_reader)),
             runtime,
-        };
+            json_handler,
+            error_for_status,
+        }));
         Ok(resp)
     }
 
+    pub fn check_error_for_status(self) -> PyResult<Self> {
+        if self.ref_inner()?.error_for_status {
+            self.error_for_status()?;
+        }
+        Ok(self)
+    }
+
+    pub fn take_inner(&mut self) -> PyResult<BaseResponse> {
+        Ok(BaseResponse(self.0.take()))
+    }
+
     fn get_header_inner(&self, name: &str) -> PyResult<Option<HeaderValue>> {
-        match self.headers {
+        match self.ref_inner()?.headers {
             Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
             Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.get().get_one(name),
             None => Err(PyRuntimeError::new_err("Expected headers")),
@@ -190,7 +256,7 @@ impl BaseResponse {
     }
 
     fn get_header_all_inner(&self, name: &str) -> PyResult<Vec<HeaderValue>> {
-        match self.headers {
+        match self.ref_inner()?.headers {
             Some(RespHeaders::Headers(ref headers)) => headers.get_all(name),
             Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.get().get_all(name),
             None => Err(PyRuntimeError::new_err("Expected headers")),
@@ -210,8 +276,51 @@ impl BaseResponse {
         Ok(Some(Mime::new(mime)))
     }
 
-    pub fn inner_close(&self) {
-        self.body_reader.close() // Close the receiver to stop the reader background task
+    async fn bytes_inner(&mut self) -> PyResult<Bytes> {
+        match self.mut_inner()?.body_reader.as_mut() {
+            Some(RespReader::Reader(reader)) => reader.bytes().await,
+            Some(RespReader::PyReader(reader)) => reader.get().bytes_inner().await,
+            None => Err(PyRuntimeError::new_err("Expected body_reader")),
+        }
+    }
+
+    fn get_body_reader_inner(&mut self, py: Python, is_blocking: bool) -> PyResult<Py<BaseResponseBodyReader>> {
+        let inner = self.mut_inner()?;
+        if inner.body_reader.is_none() {
+            return Err(PyRuntimeError::new_err("Expected body_reader"));
+        };
+        if let RespReader::Reader(_) = inner.body_reader.as_ref().unwrap() {
+            if let RespReader::Reader(reader) = inner.body_reader.take().unwrap() {
+                let py_body_reader = if is_blocking {
+                    SyncResponseBodyReader::new_py(py, reader)?
+                        .into_bound(py)
+                        .cast_into::<BaseResponseBodyReader>()?
+                } else {
+                    ResponseBodyReader::new_py(py, reader)?
+                        .into_bound(py)
+                        .cast_into::<BaseResponseBodyReader>()?
+                };
+                inner.body_reader = Some(RespReader::PyReader(py_body_reader.unbind()));
+            }
+        }
+        match inner.body_reader.as_ref().unwrap() {
+            RespReader::PyReader(py_reader) => Ok(py_reader.clone_ref(py)),
+            RespReader::Reader(_) => Err(PyRuntimeError::new_err("Expected PyReader")),
+        }
+    }
+
+    pub async fn inner_close(&self) -> PyResult<()> {
+        match self.ref_inner()?.body_reader.as_ref() {
+            Some(RespReader::Reader(reader)) => {
+                reader.close();
+                Ok(())
+            }
+            Some(RespReader::PyReader(reader)) => {
+                reader.get().close().await;
+                Ok(())
+            }
+            None => Err(PyRuntimeError::new_err("Expected body_reader")),
+        }
     }
 
     async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
@@ -243,13 +352,32 @@ impl BaseResponse {
             })
             .sum::<usize>()
     }
-}
-impl Drop for BaseResponse {
-    fn drop(&mut self) {
-        self.inner_close()
+
+    fn ref_inner(&self) -> PyResult<&Inner> {
+        self.0
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Response already consumed"))
+    }
+
+    fn mut_inner(&mut self) -> PyResult<&mut Inner> {
+        self.0
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("Response already consumed"))
     }
 }
 
+#[pymethods]
+impl Response {
+    #[getter]
+    fn get_body_reader(mut slf: PyRefMut<'_, Self>, py: Python) -> PyResult<Py<ResponseBodyReader>> {
+        Ok(slf
+            .as_super()
+            .get_body_reader_inner(py, false)?
+            .into_bound(py)
+            .cast_into::<ResponseBodyReader>()?
+            .unbind())
+    }
+}
 impl Response {
     pub fn new_py(py: Python, inner: BaseResponse) -> PyResult<Py<Self>> {
         Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
@@ -258,12 +386,37 @@ impl Response {
 
 #[pymethods]
 impl SyncResponse {
+    #[getter]
+    fn get_body_reader<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, SyncResponseBodyReader>> {
+        Ok(slf
+            .as_super()
+            .get_body_reader_inner(py, true)?
+            .into_bound(py)
+            .cast_into::<SyncResponseBodyReader>()?)
+    }
+
     fn bytes(slf: PyRefMut<Self>) -> PyResult<PyBytes> {
         Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().bytes())
     }
 
-    fn json(slf: PyRefMut<Self>) -> PyResult<JsonValue> {
-        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json())
+    fn json(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<PyAny>> {
+        let json_handler = slf.as_super().ref_inner()?.json_handler.as_ref();
+        if json_handler.is_some_and(|v| v.has_loads()) {
+            let json_handler = json_handler.unwrap().clone_ref(py);
+            let ctx = JsonLoadsContext {
+                headers: slf.as_super().get_headers(py)?,
+                extensions: slf.as_super().get_extensions(py)?,
+                body_reader: SyncResponse::get_body_reader(slf, py)?
+                    .cast_into::<BaseResponseBodyReader>()?
+                    .unbind(),
+            };
+            Ok(json_handler.call_loads(py, ctx)?.unbind())
+        } else {
+            Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json())
+        }
     }
 
     fn text(slf: PyRefMut<Self>) -> PyResult<String> {
@@ -274,22 +427,20 @@ impl SyncResponse {
     fn read(slf: PyRefMut<Self>, amount: usize) -> PyResult<PyBytes> {
         Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().read(amount))
     }
-
-    fn next_chunk(slf: PyRefMut<Self>) -> PyResult<Option<PyBytes>> {
-        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().next_chunk())
-    }
 }
 impl SyncResponse {
     pub fn new_py(py: Python, inner: BaseResponse) -> PyResult<Py<Self>> {
         Py::new(py, PyClassInitializer::from(inner).add_subclass(Self))
     }
 
-    fn runtime(slf: &BaseResponse) -> PyResult<Handle> {
-        match slf.runtime.clone() {
-            Some(r) => Ok(r),
-            None => Ok(Handle::global_handle()?.clone()),
-        }
+    pub fn runtime(slf: &BaseResponse) -> PyResult<RuntimeHandle> {
+        Ok(slf.ref_inner()?.runtime.clone())
     }
+}
+
+enum RespReader {
+    Reader(BodyReader),
+    PyReader(Py<BaseResponseBodyReader>), // In Python heap
 }
 
 enum RespHeaders {

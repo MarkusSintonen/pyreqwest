@@ -1,12 +1,13 @@
 use crate::allow_threads::AllowThreads;
 use crate::http::RequestBody;
 use crate::request::Request;
-use crate::response::{Response, SyncResponse};
+use crate::response::{BaseResponse, Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::pyclass::boolean_struct::False;
 use pyo3::types::PyType;
-use pyo3::{PyTraverseError, PyVisit};
+use pyo3::{PyClass, PyTraverseError, PyVisit};
 
 #[pyclass(extends=Request)]
 pub struct StreamRequest(Ctx<Response>);
@@ -14,20 +15,20 @@ pub struct StreamRequest(Ctx<Response>);
 #[pyclass(extends=Request)]
 pub struct SyncStreamRequest(Ctx<SyncResponse>);
 
-struct Ctx<T> {
+struct Ctx<T: PyClass<BaseType = BaseResponse, Frozen = False>> {
     ctx_response: Option<Py<T>>,
 }
 
 #[pymethods]
 impl StreamRequest {
     async fn __aenter__(slf: Py<Self>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        let response = AllowThreads(Request::send_inner(slf.as_any(), cancel)).await?;
+        let resp = AllowThreads(Request::send_inner(slf.as_any(), cancel)).await?;
 
         Python::attach(|py| -> PyResult<_> {
+            let response = Response::new_py(py, resp)?;
             slf.try_borrow_mut(py)?.0.ctx_response = Some(response.clone_ref(py));
-            Ok(())
-        })?;
-        Ok(response)
+            Ok(response)
+        })
     }
 
     async fn __aexit__(
@@ -36,17 +37,8 @@ impl StreamRequest {
         _exc_val: Py<PyAny>,
         _traceback: Py<PyAny>,
     ) -> PyResult<()> {
-        Python::attach(|py| {
-            slf.try_borrow_mut(py)?
-                .0
-                .ctx_response
-                .take()
-                .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
-                .try_borrow(py)?
-                .as_super()
-                .inner_close();
-            Ok(())
-        })
+        let resp = Python::attach(|py| slf.try_borrow_mut(py)?.0.take_response(py))?;
+        AllowThreads(resp.inner_close()).await
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
@@ -85,8 +77,9 @@ impl StreamRequest {
 #[pymethods]
 impl SyncStreamRequest {
     fn __enter__(slf: Bound<Self>) -> PyResult<Py<SyncResponse>> {
-        let response = Request::blocking_send_inner(slf.as_unbound().as_any())?;
+        let resp = Request::blocking_send_inner(slf.as_unbound().as_any())?;
 
+        let response = SyncResponse::new_py(slf.py(), resp)?;
         slf.try_borrow_mut()?.0.ctx_response = Some(response.clone_ref(slf.py()));
         Ok(response)
     }
@@ -98,13 +91,8 @@ impl SyncStreamRequest {
         _traceback: Py<PyAny>,
         py: Python,
     ) -> PyResult<()> {
-        self.0
-            .ctx_response
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
-            .try_borrow(py)?
-            .as_super()
-            .inner_close();
+        let resp = self.0.take_response(py)?;
+        SyncResponse::runtime(&resp)?.blocking_spawn(resp.inner_close())?;
         Ok(())
     }
 
@@ -138,5 +126,16 @@ impl SyncStreamRequest {
         let ctx = Ctx { ctx_response: None };
         let initializer = PyClassInitializer::from(inner).add_subclass(Self(ctx));
         Py::new(py, initializer)
+    }
+}
+
+impl<T: PyClass<BaseType = BaseResponse, Frozen = False>> Ctx<T> {
+    pub fn take_response(&mut self, py: Python) -> PyResult<BaseResponse> {
+        self.ctx_response
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
+            .try_borrow_mut(py)?
+            .into_super()
+            .take_inner()
     }
 }

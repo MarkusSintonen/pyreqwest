@@ -1,6 +1,7 @@
 use crate::client::internal::ConnectionLimiter;
 use crate::client::internal::Spawner;
-use crate::client::runtime::Handle;
+use crate::client::runtime::RuntimeHandle;
+use crate::http::internal::json::JsonHandler;
 use crate::http::internal::types::Method;
 use crate::http::{HeaderMap, Url, UrlType};
 use crate::middleware::NextInner;
@@ -15,8 +16,9 @@ use tokio_util::sync::CancellationToken;
 pub struct BaseClient {
     client: reqwest::Client,
     base_url: Option<Url>,
-    runtime: Handle,
+    runtime: RuntimeHandle,
     middlewares: Option<Arc<Vec<Py<PyAny>>>>,
+    json_handler: Option<JsonHandler>,
     total_timeout: Option<Duration>,
     connection_limiter: Option<ConnectionLimiter>,
     error_for_status: bool,
@@ -38,14 +40,18 @@ impl BaseClient {
                 visit.call(mw)?;
             }
         }
+        if let Some(json_handler) = &self.json_handler {
+            json_handler.__traverse__(&visit)?;
+        }
         Ok(())
     }
 }
 impl BaseClient {
     pub fn new(
         client: reqwest::Client,
-        runtime: Handle,
+        runtime: RuntimeHandle,
         middlewares: Option<Vec<Py<PyAny>>>,
+        json_handler: Option<JsonHandler>,
         total_timeout: Option<Duration>,
         connection_limiter: Option<ConnectionLimiter>,
         error_for_status: bool,
@@ -56,6 +62,7 @@ impl BaseClient {
             client,
             runtime,
             middlewares: middlewares.map(Arc::new),
+            json_handler,
             total_timeout,
             connection_limiter,
             error_for_status,
@@ -77,6 +84,7 @@ impl BaseClient {
             Some(base_url) => base_url.join(url.extract()?)?.into(),
             None => url.extract::<UrlType>()?.0,
         };
+        let json_handler = self.json_handler.as_ref().map(|v| v.clone_ref(py));
 
         py.detach(|| {
             let spawner = Spawner::new(
@@ -93,6 +101,7 @@ impl BaseClient {
                 reqwest_request_builder,
                 spawner,
                 middlewares_next,
+                json_handler,
                 self.error_for_status,
                 is_blocking,
             );

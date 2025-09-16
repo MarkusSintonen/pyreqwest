@@ -1,7 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::asyncio::{PyCoroWaiter, TaskLocal, py_coro_waiter};
 use crate::request::Request;
-use crate::response::{Response, SyncResponse};
+use crate::response::{BaseResponse, Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -25,7 +25,8 @@ pub struct SyncNext(NextInner);
 #[pymethods]
 impl Next {
     pub async fn run(&self, request: Py<PyAny>, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<Response>> {
-        self.run_inner(&request, cancel).await
+        let resp = self.run_inner(&request, cancel).await?;
+        Python::attach(|py| Response::new_py(py, resp))
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -41,12 +42,18 @@ impl Next {
         })
     }
 
-    pub async fn run_inner(&self, request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<Py<Response>> {
+    pub async fn run_inner(&self, request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<BaseResponse> {
         let next_waiter = Python::attach(|py| self.call_next(request.bind(py)))?;
 
         if let Some(next_waiter) = next_waiter {
             let resp = AllowThreads(next_waiter).await?;
-            Python::attach(|py| Ok(resp.into_bound(py).downcast_into_exact::<Response>()?.unbind()))
+            Python::attach(|py| {
+                resp.into_bound(py)
+                    .downcast_into_exact::<Response>()?
+                    .into_super()
+                    .try_borrow_mut()?
+                    .take_inner()
+            })
         } else {
             // No more middleware, execute the request
             AllowThreads(Request::spawn_request(request, cancel)).await
@@ -73,10 +80,18 @@ impl Next {
 #[pymethods]
 impl SyncNext {
     pub fn run(&self, request: &Bound<PyAny>) -> PyResult<Py<SyncResponse>> {
+        let resp = self.run_inner(request)?;
+        Python::attach(|py| SyncResponse::new_py(py, resp))
+    }
+
+    pub fn run_inner(&self, request: &Bound<PyAny>) -> PyResult<BaseResponse> {
         let resp = self.call_next(request)?;
 
         if let Some(resp) = resp {
-            Ok(resp.downcast_into_exact::<SyncResponse>()?.unbind())
+            resp.downcast_into_exact::<SyncResponse>()?
+                .into_super()
+                .try_borrow_mut()?
+                .take_inner()
         } else {
             // No more middleware, execute the request
             Request::blocking_spawn_request(&request.clone().unbind())

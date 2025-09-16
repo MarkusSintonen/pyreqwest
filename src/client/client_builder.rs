@@ -1,12 +1,15 @@
+use crate::client::Client;
 use crate::client::client::{BaseClient, SyncClient};
 use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime::Runtime;
-use crate::client::{Client, Handle};
+use crate::client::runtime::RuntimeHandle;
+use crate::http::internal::json::JsonHandler;
 use crate::http::{CookieStore, CookieStorePyProxy};
 use crate::http::{HeaderMap, Url, UrlType};
 use crate::proxy::ProxyBuilder;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::{PyTraverseError, PyVisit};
 use pyo3_bytes::PyBytes;
 use reqwest::redirect;
@@ -20,6 +23,7 @@ use std::time::Duration;
 pub struct BaseClientBuilder {
     inner: Option<reqwest::ClientBuilder>,
     middlewares: Option<Vec<Py<PyAny>>>,
+    json_handler: Option<JsonHandler>,
     max_connections: Option<usize>,
     total_timeout: Option<Duration>,
     pool_timeout: Option<Duration>,
@@ -54,9 +58,24 @@ impl BaseClientBuilder {
 
     fn with_middleware(mut slf: PyRefMut<Self>, middleware: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
-        match slf.middlewares.as_mut() {
-            Some(middlewares) => middlewares.push(middleware),
-            None => slf.middlewares = Some(vec![middleware]),
+        slf.middlewares.get_or_insert_with(Vec::new).push(middleware);
+        Ok(slf)
+    }
+
+    #[pyo3(signature = (*, **kwargs))]
+    fn json_handler<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        slf.check_inner()?;
+        let json_handler = slf.json_handler.get_or_insert_default();
+        if let Some(kwargs) = kwargs {
+            if kwargs.contains("loads")? {
+                json_handler.set_loads(kwargs.get_item("loads")?);
+            }
+            if kwargs.contains("dumps")? {
+                json_handler.set_dumps(kwargs.get_item("dumps")?);
+            }
         }
         Ok(slf)
     }
@@ -338,11 +357,15 @@ impl BaseClientBuilder {
                 visit.call(mw)?;
             }
         }
+        if let Some(json_handler) = &self.json_handler {
+            json_handler.__traverse__(&visit)?;
+        }
         visit.call(&self.runtime)
     }
 
     fn __clear__(&mut self) {
         self.middlewares = None;
+        self.json_handler = None;
         self.runtime = None;
     }
 }
@@ -357,7 +380,7 @@ impl BaseClientBuilder {
     fn build_client_base(&mut self, py: Python) -> PyResult<BaseClient> {
         let runtime = match self.runtime.take() {
             Some(runtime) => runtime.try_borrow(py)?.handle().clone(),
-            None => Handle::global_handle()?.clone(),
+            None => RuntimeHandle::global_handle()?.clone(),
         };
 
         py.detach(|| {
@@ -373,6 +396,7 @@ impl BaseClientBuilder {
                 inner_client,
                 runtime,
                 self.middlewares.take(),
+                self.json_handler.take(),
                 self.total_timeout,
                 self.max_connections
                     .map(|max| ConnectionLimiter::new(max, self.pool_timeout)),

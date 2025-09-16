@@ -1,4 +1,4 @@
-use crate::client::Handle;
+use crate::client::RuntimeHandle;
 use crate::exceptions::utils::map_read_error;
 use bytes::{Bytes, BytesMut};
 use http_body_util::BodyExt;
@@ -16,13 +16,14 @@ pub struct BodyReader {
     fully_consumed_body: Option<Bytes>,
     content_length: Option<usize>,
     read_bytes: usize,
+    runtime: RuntimeHandle,
 }
 impl BodyReader {
     pub async fn initialize(
         mut response: reqwest::Response,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
         read_config: BodyConsumeConfig,
-        runtime: Option<Handle>,
+        runtime: RuntimeHandle,
     ) -> PyResult<(Self, http::response::Parts)> {
         let buffer_limit = match read_config {
             BodyConsumeConfig::FullyConsumed => None,
@@ -35,7 +36,8 @@ impl BodyReader {
         let mut body_receiver: Option<Receiver> = None;
         if let Some(buffer_limit) = buffer_limit {
             if has_more {
-                body_receiver = Some(Reader::start(body, request_semaphore_permit.take(), buffer_limit, runtime));
+                body_receiver =
+                    Some(Reader::start(body, request_semaphore_permit.take(), buffer_limit, runtime.clone()));
             }
         } else {
             assert!(!has_more, "Should have fully consumed the response");
@@ -52,6 +54,7 @@ impl BodyReader {
             fully_consumed_body: None,
             content_length: Self::content_length(&head.headers),
             read_bytes: 0,
+            runtime,
         };
         Ok((body_reader, head))
     }
@@ -91,7 +94,7 @@ impl BodyReader {
         }
     }
 
-    pub async fn read_all_once(&mut self) -> PyResult<Bytes> {
+    pub async fn bytes(&mut self) -> PyResult<Bytes> {
         if let Some(fully_consumed_body) = self.fully_consumed_body.as_ref() {
             return Ok(fully_consumed_body.clone()); // Zero-copy clone
         }
@@ -147,6 +150,10 @@ impl BodyReader {
         if let Some(body_rx) = self.body_receiver.as_ref() {
             body_rx.close();
         }
+    }
+
+    pub fn runtime(&self) -> &RuntimeHandle {
+        &self.runtime
     }
 
     fn response_parts(response: reqwest::Response) -> (http::response::Parts, reqwest::Body) {
@@ -214,7 +221,7 @@ impl Reader {
         mut body: reqwest::Body,
         mut request_semaphore_permit: Option<OwnedSemaphorePermit>,
         buffer_size: usize,
-        runtime: Option<Handle>,
+        runtime: RuntimeHandle,
     ) -> Receiver {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
         let close_token = CancellationToken::new();
@@ -226,7 +233,6 @@ impl Reader {
             buffer_size,
             tx,
         };
-        let runtime = runtime.unwrap_or_else(Handle::current);
 
         let _ = runtime.spawn(async move {
             let fut = async move {

@@ -132,10 +132,10 @@ async def test_streaming(asgi_client: Client):
     async with asgi_client.post("/stream").body_stream(generate_stream()).build_streamed() as response:
         assert response.status == 200
 
-        assert await response.next_chunk() == b"echo_data_chunk_0_"
-        assert await response.next_chunk() == b"echo_data_chunk_1_"
-        assert await response.next_chunk() == b"echo_data_chunk_2_"
-        assert await response.next_chunk() is None
+        assert await response.body_reader.read_chunk() == b"echo_data_chunk_0_"
+        assert await response.body_reader.read_chunk() == b"echo_data_chunk_1_"
+        assert await response.body_reader.read_chunk() == b"echo_data_chunk_2_"
+        assert await response.body_reader.read_chunk() is None
 
 
 async def test_scope_override(starlette_app: Starlette):

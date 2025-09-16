@@ -1,10 +1,11 @@
 use crate::allow_threads::AllowThreads;
-use crate::client::Handle;
+use crate::client::RuntimeHandle;
 use crate::http::internal::types::{Extensions, HeaderName, HeaderValue, JsonValue, StatusCode, Version};
 use crate::http::{HeaderMap, RequestBody};
 use crate::response::internal::{BodyConsumeConfig, StreamedReadConfig};
 use crate::response::{BaseResponse, Response, SyncResponse};
 use bytes::Bytes;
+use http::header::CONTENT_TYPE;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{PyTraverseError, PyVisit};
@@ -12,7 +13,7 @@ use pyo3_bytes::PyBytes;
 
 #[pyclass]
 pub struct ResponseBuilder {
-    inner: Option<http::response::Builder>,
+    head: Option<http::response::Parts>,
     body: Option<RequestBody>,
     extensions: Option<Extensions>,
 }
@@ -24,26 +25,30 @@ impl ResponseBuilder {
         Self::new()
     }
 
-    fn status(slf: PyRefMut<Self>, value: StatusCode) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.status(value.0)))
+    fn status(mut slf: PyRefMut<Self>, status: StatusCode) -> PyResult<PyRefMut<Self>> {
+        let head = slf.mut_head()?;
+        head.status = status.0;
+        Ok(slf)
     }
 
-    fn version(slf: PyRefMut<Self>, value: Version) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.version(value.0)))
+    fn version(mut slf: PyRefMut<Self>, version: Version) -> PyResult<PyRefMut<Self>> {
+        let head = slf.mut_head()?;
+        head.version = version.0;
+        Ok(slf)
     }
 
-    fn header(slf: PyRefMut<Self>, name: HeaderName, value: HeaderValue) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.header(name.0, value.0)))
+    fn header(mut slf: PyRefMut<Self>, name: HeaderName, value: HeaderValue) -> PyResult<PyRefMut<Self>> {
+        let head = slf.mut_head()?;
+        head.headers
+            .try_append(name.0, value.0)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(slf)
     }
 
-    fn headers(slf: PyRefMut<'_, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
-        Self::apply(slf, |mut builder| {
-            let headers_mut = builder
-                .headers_mut()
-                .ok_or_else(|| PyRuntimeError::new_err("ResponseBuilder has an error"))?;
-            headers.extend_into_inner(headers_mut)?;
-            Ok(builder)
-        })
+    fn headers(mut slf: PyRefMut<'_, Self>, headers: HeaderMap) -> PyResult<PyRefMut<'_, Self>> {
+        let head = slf.mut_head()?;
+        headers.extend_into_inner(&mut head.headers)?;
+        Ok(slf)
     }
 
     fn extensions(mut slf: PyRefMut<Self>, value: Extensions) -> PyRefMut<Self> {
@@ -61,12 +66,14 @@ impl ResponseBuilder {
         Ok(slf)
     }
 
-    fn body_json(mut slf: PyRefMut<'_, Self>, data: JsonValue) -> PyResult<PyRefMut<'_, Self>> {
-        let bytes = slf
-            .py()
-            .detach(|| serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string())))?;
+    fn body_json<'py>(mut slf: PyRefMut<'py, Self>, data: JsonValue, py: Python<'py>) -> PyResult<PyRefMut<'py, Self>> {
+        let bytes = py.detach(|| serde_json::to_vec(&data).map_err(|e| PyValueError::new_err(e.to_string())))?;
         slf.body = Some(RequestBody::from(Bytes::from(bytes)));
-        Self::apply(slf, |builder| Ok(builder.header("content-type", "application/json")))
+        slf.mut_head()?
+            .headers
+            .try_append(CONTENT_TYPE, "application/json".parse().unwrap())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(slf)
     }
 
     fn body_stream<'py>(mut slf: PyRefMut<'py, Self>, stream: Bound<'py, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
@@ -78,7 +85,8 @@ impl ResponseBuilder {
         let inner = Python::attach(|py| slf.bind(py).try_borrow_mut()?.build_inner(false))?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig::default());
-        let resp = AllowThreads(BaseResponse::initialize(inner, None, config, None)).await?;
+        let runtime = RuntimeHandle::global_handle()?.clone();
+        let resp = AllowThreads(BaseResponse::initialize(inner, None, config, runtime, None, false)).await?;
 
         Python::attach(|py| Response::new_py(py, resp))
     }
@@ -87,9 +95,28 @@ impl ResponseBuilder {
         let inner = slf.build_inner(true)?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig::default());
-        let resp = Handle::global_handle()?.blocking_spawn(BaseResponse::initialize(inner, None, config, None))?;
+        let runtime = RuntimeHandle::global_handle()?;
+        let resp =
+            runtime.blocking_spawn(BaseResponse::initialize(inner, None, config, runtime.clone(), None, false))?;
 
         Python::attach(|py| SyncResponse::new_py(py, resp))
+    }
+
+    fn copy(&self) -> PyResult<Self> {
+        self.__copy__()
+    }
+
+    fn __copy__(&self) -> PyResult<Self> {
+        Ok(Self {
+            head: Some(
+                self.head
+                    .as_ref()
+                    .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?
+                    .clone(),
+            ),
+            body: self.body.as_ref().map(|b| b.try_clone()).transpose()?,
+            extensions: self.extensions.as_ref().map(|e| e.copy()).transpose()?,
+        })
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -116,8 +143,9 @@ impl Default for ResponseBuilder {
 
 impl ResponseBuilder {
     pub fn new() -> Self {
+        let (head, _) = http::response::Response::new(()).into_parts();
         Self {
-            inner: Some(http::response::Builder::new()),
+            head: Some(head),
             body: None,
             extensions: None,
         }
@@ -134,28 +162,19 @@ impl ResponseBuilder {
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));
 
-        let mut resp = self
-            .inner
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?
-            .body(body)
-            .map_err(|e| PyValueError::new_err(format!("Failed to build response: {}", e)))?;
-
-        self.extensions.take().map(|ext| resp.extensions_mut().insert(ext));
-
-        Ok(reqwest::Response::from(resp))
-    }
-
-    fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
-    where
-        F: FnOnce(http::response::Builder) -> PyResult<http::response::Builder>,
-        F: Send,
-    {
-        let builder = slf
-            .inner
+        let mut head = self
+            .head
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?;
-        slf.inner = Some(slf.py().detach(|| fun(builder))?);
-        Ok(slf)
+
+        self.extensions.take().map(|ext| head.extensions.insert(ext));
+
+        Ok(reqwest::Response::from(http::response::Response::from_parts(head, body)))
+    }
+
+    fn mut_head(&mut self) -> PyResult<&mut http::response::Parts> {
+        self.head
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))
     }
 }

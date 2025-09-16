@@ -23,7 +23,7 @@ async def client() -> AsyncGenerator[Client, None]:
 
 
 async def read_chunks(resp: Response):
-    while (chunk := await resp.next_chunk()) is not None:
+    while (chunk := await resp.body_reader.read_chunk()) is not None:
         yield chunk
 
 
@@ -170,9 +170,9 @@ async def test_body_stream__timeout(
                 pytest.fail("Should have raised")
     else:
         async with req as resp:
-            assert (await resp.next_chunk()) == orjson.dumps({"sleep": 0.0})
+            assert (await resp.body_reader.read_chunk()) == orjson.dumps({"sleep": 0.0})
             with pytest.raises(ReadTimeoutError):
-                await resp.next_chunk()
+                await resp.body_reader.read_chunk()
 
 
 @pytest.mark.parametrize("read_buffer_limit", [None, 0, 5, 999999])
@@ -243,7 +243,7 @@ async def test_body_consumed(client: Client, echo_server: EchoServer):
     assert b'"path":"/"' in first
     assert await resp.bytes() == first
 
-    assert (await resp.next_chunk()) is None
+    assert (await resp.body_reader.read_chunk()) is None
 
 
 async def test_body_consumed__already_started(client: Client, echo_body_parts_server: EchoBodyPartsServer):
@@ -253,7 +253,7 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
 
-    assert await resp.next_chunk() == b"part 0"
+    assert await resp.body_reader.read_chunk() == b"part 0"
 
     with pytest.raises(RuntimeError, match="Response body already consumed"):
         await resp.json()
@@ -262,8 +262,8 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
     with pytest.raises(RuntimeError, match="Response body already consumed"):
         await resp.bytes()
 
-    assert await resp.next_chunk() == b"part 1"
-    assert not await resp.next_chunk()
+    assert await resp.body_reader.read_chunk() == b"part 1"
+    assert not await resp.body_reader.read_chunk()
 
 
 async def test_body_response_empty(client: Client, echo_body_parts_server: EchoBodyPartsServer):
@@ -277,4 +277,4 @@ async def test_body_response_empty(client: Client, echo_body_parts_server: EchoB
     cases = [yield_empty(), no_yield()]
     for case in cases:
         async with client.post(echo_body_parts_server.url).body_stream(case).build_streamed() as resp:
-            assert await resp.next_chunk() is None
+            assert await resp.body_reader.read_chunk() is None

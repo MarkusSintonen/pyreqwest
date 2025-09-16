@@ -1,17 +1,20 @@
+import json
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import timedelta
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import pytest
 from pyreqwest.client import BaseClient, BaseClientBuilder, SyncClient, SyncClientBuilder
+from pyreqwest.client.types import SyncJsonLoadsContext
 from pyreqwest.exceptions import ClientClosedError, PoolTimeoutError
+from pyreqwest.http import HeaderMap
 from pyreqwest.middleware import SyncNext
 from pyreqwest.middleware.types import SyncMiddleware
 from pyreqwest.request import BaseRequestBuilder, Request, SyncConsumedRequest, SyncRequestBuilder
-from pyreqwest.response import BaseResponse, SyncResponse
+from pyreqwest.response import BaseResponse, SyncResponse, SyncResponseBodyReader
 
 from tests.servers.server import Server
 
@@ -74,10 +77,10 @@ def test_stream(client: SyncClient, echo_body_parts_server: Server) -> None:
             yield f"part {i}".encode()
 
     with client.post(echo_body_parts_server.url).body_stream(gen()).build_streamed() as resp:
-        assert resp.next_chunk() == b"part 0"
-        assert resp.next_chunk() == b"part 1"
-        assert resp.next_chunk() == b"part 2"
-        assert resp.next_chunk() is None
+        assert resp.body_reader.read_chunk() == b"part 0"
+        assert resp.body_reader.read_chunk() == b"part 1"
+        assert resp.body_reader.read_chunk() == b"part 2"
+        assert resp.body_reader.read_chunk() is None
 
 
 @pytest.mark.parametrize("concurrency", [1, 2, 10])
@@ -108,6 +111,33 @@ def test_max_connections_pool_timeout(echo_server: Server, max_conn: int | None)
             assert isinstance(e.value, TimeoutError)
         else:
             assert all(fut.result()["method"] == "GET" for fut in futures)
+
+
+def test_json_loads_callback(echo_server: Server):
+    called = 0
+
+    def custom_loads(ctx: SyncJsonLoadsContext) -> Any:
+        nonlocal called
+        called += 1
+        assert ctx.headers["Content-Type"] == "application/json"
+        assert ctx.extensions == {"my_ext": "foo"}
+        content = ctx.body_reader.bytes().to_bytes()
+
+        assert type(ctx.body_reader) is SyncResponseBodyReader
+        assert type(ctx.headers) is HeaderMap
+        assert type(ctx.extensions) is dict
+
+        return {**json.loads(content), "test": "bar"}
+
+    with SyncClientBuilder().json_handler(loads=custom_loads).error_for_status(True).build() as client:
+        resp = client.get(echo_server.url).extensions({"my_ext": "foo"}).build().send()
+        assert called == 0
+        res = resp.json()
+        assert called == 1
+        assert res.pop("test") == "bar"
+        assert json.loads((resp.bytes()).to_bytes()) == res
+        assert resp.json() == {**res, "test": "bar"}
+        assert called == 2
 
 
 def test_use_after_close(echo_server: Server):

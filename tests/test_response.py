@@ -97,9 +97,9 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
     if kind == "chunk":
-        assert (await resp.next_chunk()) == b'{"foo": "bar", "test": "value"'
-        assert (await resp.next_chunk()) == b', "baz": 123}'
-        assert (await resp.next_chunk()) is None
+        assert (await resp.body_reader.read_chunk()) == b'{"foo": "bar", "test": "value"'
+        assert (await resp.body_reader.read_chunk()) == b', "baz": 123}'
+        assert (await resp.body_reader.read_chunk()) is None
         with pytest.raises(RuntimeError, match="Response body already consumed"):
             await resp.bytes()
         with pytest.raises(RuntimeError, match="Response body already consumed"):
@@ -109,16 +109,16 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
     elif kind == "bytes":
         assert (await resp.bytes()) == b'{"foo": "bar", "test": "value", "baz": 123}'
         assert (await resp.bytes()) == b'{"foo": "bar", "test": "value", "baz": 123}'
-        assert (await resp.next_chunk()) is None
+        assert (await resp.body_reader.read_chunk()) is None
     elif kind == "text":
         assert (await resp.text()) == '{"foo": "bar", "test": "value", "baz": 123}'
         assert (await resp.text()) == '{"foo": "bar", "test": "value", "baz": 123}'
-        assert (await resp.next_chunk()) is None
+        assert (await resp.body_reader.read_chunk()) is None
     else:
         assert kind == "json"
         assert (await resp.json()) == {"foo": "bar", "test": "value", "baz": 123}
         assert (await resp.json()) == {"foo": "bar", "test": "value", "baz": 123}
-        assert (await resp.next_chunk()) is None
+        assert (await resp.body_reader.read_chunk()) is None
 
 
 async def test_read(client: Client, echo_body_parts_server: Server) -> None:

@@ -5,4 +5,4 @@ mod runtime;
 
 pub use client::{BaseClient, Client, SyncClient};
 pub use client_builder::{BaseClientBuilder, ClientBuilder, SyncClientBuilder};
-pub use runtime::{Handle, Runtime};
+pub use runtime::{Runtime, RuntimeHandle};

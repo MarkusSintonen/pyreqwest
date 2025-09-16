@@ -13,8 +13,8 @@ static GLOBAL_HANDLE: LazyLock<PyResult<InnerRuntime>> = LazyLock::new(|| {
 });
 
 #[derive(Clone)]
-pub struct Handle(tokio::runtime::Handle);
-impl Handle {
+pub struct RuntimeHandle(tokio::runtime::Handle);
+impl RuntimeHandle {
     pub fn spawn<F, T>(&self, future: F) -> PyResult<tokio::task::JoinHandle<T>>
     where
         F: Future<Output = T> + Send + 'static,
@@ -60,7 +60,7 @@ impl Handle {
 }
 
 pub struct InnerRuntime {
-    handle: Handle,
+    handle: RuntimeHandle,
     close_tx: tokio::sync::mpsc::Sender<()>,
 }
 
@@ -85,11 +85,14 @@ impl Runtime {
     }
 }
 impl Runtime {
-    pub fn handle(&self) -> &Handle {
+    pub fn handle(&self) -> &RuntimeHandle {
         &self.0.handle
     }
 
-    fn new_handle(thread_name: Option<String>, mut close_rx: tokio::sync::mpsc::Receiver<()>) -> PyResult<Handle> {
+    fn new_handle(
+        thread_name: Option<String>,
+        mut close_rx: tokio::sync::mpsc::Receiver<()>,
+    ) -> PyResult<RuntimeHandle> {
         let (handle_tx, handle_rx) = std::sync::mpsc::channel::<PyResult<tokio::runtime::Handle>>();
 
         std::thread::spawn(move || {
@@ -115,7 +118,7 @@ impl Runtime {
         let handle = handle_rx
             .recv()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to recv tokio runtime: {}", e)))??;
-        Ok(Handle(handle))
+        Ok(RuntimeHandle(handle))
     }
 }
 impl Drop for Runtime {

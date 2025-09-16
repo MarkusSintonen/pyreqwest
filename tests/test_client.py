@@ -1,12 +1,15 @@
 import asyncio
+import json
 from collections.abc import Mapping
 from datetime import timedelta
+from typing import Any
 
 import pytest
 import trustme
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from pyreqwest.client import BaseClient, BaseClientBuilder, Client, ClientBuilder, Runtime
+from pyreqwest.client.types import JsonDumpsContext, JsonLoadsContext
 from pyreqwest.exceptions import (
     BuilderError,
     ClientClosedError,
@@ -18,7 +21,7 @@ from pyreqwest.exceptions import (
 )
 from pyreqwest.http import HeaderMap, Url
 from pyreqwest.request import BaseRequestBuilder, ConsumedRequest, Request, RequestBuilder
-from pyreqwest.response import BaseResponse, Response
+from pyreqwest.response import BaseResponse, Response, ResponseBodyReader
 
 from .servers.echo_server import EchoServer
 from .servers.server import find_free_port
@@ -245,6 +248,52 @@ async def test_https__accept_invalid_certs(https_echo_server: EchoServer):
     async with builder.build() as client:
         resp = await client.get(https_echo_server.url).build().send()
         assert (await resp.json())["scheme"] == "https"
+
+
+@pytest.mark.parametrize("returns", [bytes, bytearray, memoryview])
+async def test_json_dumps_callback(echo_server: EchoServer, returns: type[bytes | bytearray | memoryview]):
+    called = 0
+
+    def custom_dumps(ctx: JsonDumpsContext) -> bytes | bytearray | memoryview:
+        nonlocal called
+        called += 1
+        assert isinstance(ctx.data, dict)
+        return returns(json.dumps({**ctx.data, "test": 1}).encode())
+
+    async with ClientBuilder().json_handler(dumps=custom_dumps).error_for_status(True).build() as client:
+        assert called == 0
+        req = client.post(echo_server.url).body_json({"original": "data"})
+        assert called == 1
+        resp = await req.build().send()
+        assert (await resp.json())["body_parts"] == ['{"original": "data", "test": 1}']
+        assert called == 1
+
+
+async def test_json_loads_callback(echo_server: EchoServer):
+    called = 0
+
+    async def custom_loads(ctx: JsonLoadsContext) -> Any:
+        nonlocal called
+        called += 1
+        assert ctx.headers["Content-Type"] == "application/json"
+        assert ctx.extensions == {"my_ext": "foo"}
+        content = (await ctx.body_reader.bytes()).to_bytes()
+
+        assert type(ctx.body_reader) is ResponseBodyReader
+        assert type(ctx.headers) is HeaderMap
+        assert type(ctx.extensions) is dict
+
+        return {**json.loads(content), "test": "bar"}
+
+    async with ClientBuilder().json_handler(loads=custom_loads).error_for_status(True).build() as client:
+        resp = await client.get(echo_server.url).extensions({"my_ext": "foo"}).build().send()
+        assert called == 0
+        res = await resp.json()
+        assert called == 1
+        assert res.pop("test") == "bar"
+        assert json.loads((await resp.bytes()).to_bytes()) == res
+        assert (await resp.json()) == {**res, "test": "bar"}
+        assert called == 2
 
 
 async def test_different_runtimes(echo_server: EchoServer):
