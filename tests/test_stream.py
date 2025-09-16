@@ -278,3 +278,24 @@ async def test_body_response_empty(client: Client, echo_body_parts_server: EchoB
     for case in cases:
         async with client.post(echo_body_parts_server.url).body_stream(case).build_streamed() as resp:
             assert await resp.body_reader.read_chunk() is None
+
+
+async def test_use_after_close(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+    async def stream_gen() -> AsyncGenerator[bytes]:
+        yield b"part 0"
+        yield b"part 1"
+
+    req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
+
+    async with req as resp:
+        assert await resp.body_reader.read_chunk() == b"part 0"
+
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        _ = resp.body_reader
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        await resp.json()
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        await resp.text()
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        await resp.bytes()
+    assert resp.headers["content-type"] == "application/json"

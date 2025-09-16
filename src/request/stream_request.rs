@@ -1,23 +1,18 @@
 use crate::allow_threads::AllowThreads;
 use crate::http::RequestBody;
 use crate::request::Request;
-use crate::response::{BaseResponse, Response, SyncResponse};
+use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::pyclass::boolean_struct::False;
 use pyo3::types::PyType;
-use pyo3::{PyClass, PyTraverseError, PyVisit};
+use pyo3::{PyTraverseError, PyVisit};
 
 #[pyclass(extends=Request)]
-pub struct StreamRequest(Ctx<Response>);
+pub struct StreamRequest(Option<Py<Response>>);
 
 #[pyclass(extends=Request)]
-pub struct SyncStreamRequest(Ctx<SyncResponse>);
-
-struct Ctx<T: PyClass<BaseType = BaseResponse, Frozen = False>> {
-    ctx_response: Option<Py<T>>,
-}
+pub struct SyncStreamRequest(Option<Py<SyncResponse>>);
 
 #[pymethods]
 impl StreamRequest {
@@ -26,7 +21,7 @@ impl StreamRequest {
 
         Python::attach(|py| -> PyResult<_> {
             let response = Response::new_py(py, resp)?;
-            slf.try_borrow_mut(py)?.0.ctx_response = Some(response.clone_ref(py));
+            slf.try_borrow_mut(py)?.0 = Some(response.clone_ref(py));
             Ok(response)
         })
     }
@@ -37,62 +32,17 @@ impl StreamRequest {
         _exc_val: Py<PyAny>,
         _traceback: Py<PyAny>,
     ) -> PyResult<()> {
-        let resp = Python::attach(|py| slf.try_borrow_mut(py)?.0.take_response(py))?;
-        AllowThreads(resp.inner_close()).await
-    }
-
-    fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
-    }
-
-    #[classmethod]
-    pub fn from_request_and_body(
-        _cls: &Bound<'_, PyType>,
-        py: Python,
-        request: Bound<PyAny>,
-        body: Option<Bound<RequestBody>>,
-    ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
-    }
-
-    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        let Some(resp) = self.0.ctx_response.as_ref() else {
-            return Ok(());
-        };
-        visit.call(resp)
-    }
-
-    fn __clear__(&mut self) {
-        self.0.ctx_response.take();
-    }
-}
-impl StreamRequest {
-    pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
-        let ctx = Ctx { ctx_response: None };
-        let initializer = PyClassInitializer::from(inner).add_subclass(Self(ctx));
-        Py::new(py, initializer)
-    }
-}
-
-#[pymethods]
-impl SyncStreamRequest {
-    fn __enter__(slf: Bound<Self>) -> PyResult<Py<SyncResponse>> {
-        let resp = Request::blocking_send_inner(slf.as_unbound().as_any())?;
-
-        let response = SyncResponse::new_py(slf.py(), resp)?;
-        slf.try_borrow_mut()?.0.ctx_response = Some(response.clone_ref(slf.py()));
-        Ok(response)
-    }
-
-    fn __exit__(
-        &mut self,
-        _exc_type: Py<PyAny>,
-        _exc_val: Py<PyAny>,
-        _traceback: Py<PyAny>,
-        py: Python,
-    ) -> PyResult<()> {
-        let resp = self.0.take_response(py)?;
-        SyncResponse::runtime(&resp)?.blocking_spawn(resp.inner_close())?;
+        let body = Python::attach(|py| {
+            slf.try_borrow_mut(py)?
+                .0
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
+                .into_bound(py)
+                .into_super()
+                .try_borrow_mut()?
+                .take_body_reader()
+        })?;
+        AllowThreads(body.close()).await;
         Ok(())
     }
 
@@ -111,31 +61,78 @@ impl SyncStreamRequest {
     }
 
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        let Some(resp) = self.0.ctx_response.as_ref() else {
+        let Some(resp) = self.0.as_ref() else {
             return Ok(());
         };
         visit.call(resp)
     }
 
     fn __clear__(&mut self) {
-        self.0.ctx_response.take();
+        self.0.take();
+    }
+}
+impl StreamRequest {
+    pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self(None)))
+    }
+}
+
+#[pymethods]
+impl SyncStreamRequest {
+    fn __enter__(slf: Bound<Self>) -> PyResult<Py<SyncResponse>> {
+        let resp = Request::blocking_send_inner(slf.as_unbound().as_any())?;
+
+        let response = SyncResponse::new_py(slf.py(), resp)?;
+        slf.try_borrow_mut()?.0 = Some(response.clone_ref(slf.py()));
+        Ok(response)
+    }
+
+    fn __exit__(
+        &mut self,
+        _exc_type: Py<PyAny>,
+        _exc_val: Py<PyAny>,
+        _traceback: Py<PyAny>,
+        py: Python,
+    ) -> PyResult<()> {
+        let mut resp = self
+            .0
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
+            .into_bound(py)
+            .into_super()
+            .try_borrow_mut()?;
+        let body = resp.take_body_reader()?;
+        SyncResponse::runtime(&resp)?.blocking_spawn(body.close());
+        Ok(())
+    }
+
+    fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
+        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+    }
+
+    #[classmethod]
+    pub fn from_request_and_body(
+        _cls: &Bound<'_, PyType>,
+        py: Python,
+        request: Bound<PyAny>,
+        body: Option<Bound<RequestBody>>,
+    ) -> PyResult<Py<Self>> {
+        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
+    }
+
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        let Some(resp) = self.0.as_ref() else {
+            return Ok(());
+        };
+        visit.call(resp)
+    }
+
+    fn __clear__(&mut self) {
+        self.0.take();
     }
 }
 impl SyncStreamRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
-        let ctx = Ctx { ctx_response: None };
-        let initializer = PyClassInitializer::from(inner).add_subclass(Self(ctx));
-        Py::new(py, initializer)
-    }
-}
-
-impl<T: PyClass<BaseType = BaseResponse, Frozen = False>> Ctx<T> {
-    pub fn take_response(&mut self, py: Python) -> PyResult<BaseResponse> {
-        self.ctx_response
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Must be used as a context manager"))?
-            .try_borrow_mut(py)?
-            .into_super()
-            .take_inner()
+        Py::new(py, PyClassInitializer::from(inner).add_subclass(Self(None)))
     }
 }

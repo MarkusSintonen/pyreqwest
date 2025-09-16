@@ -184,7 +184,7 @@ impl BaseResponse {
             match self.mut_inner()?.body_reader.as_mut() {
                 Some(RespReader::Reader(reader)) => reader.read(amount).await.map(PyBytes::from),
                 Some(RespReader::PyReader(reader)) => reader.get().read_inner(amount).await.map(PyBytes::from),
-                None => Err(PyRuntimeError::new_err("Expected body_reader")),
+                None => Err(PyRuntimeError::new_err("Response body reader is closed")),
             }
         })
         .await
@@ -244,7 +244,18 @@ impl BaseResponse {
     }
 
     pub fn take_inner(&mut self) -> PyResult<BaseResponse> {
-        Ok(BaseResponse(self.0.take()))
+        let inner = self
+            .0
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Response already consumed"))?;
+        Ok(BaseResponse(Some(inner)))
+    }
+
+    pub fn take_body_reader(&mut self) -> PyResult<RespReader> {
+        self.mut_inner()?
+            .body_reader
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("Response body already taken"))
     }
 
     fn get_header_inner(&self, name: &str) -> PyResult<Option<HeaderValue>> {
@@ -280,14 +291,14 @@ impl BaseResponse {
         match self.mut_inner()?.body_reader.as_mut() {
             Some(RespReader::Reader(reader)) => reader.bytes().await,
             Some(RespReader::PyReader(reader)) => reader.get().bytes_inner().await,
-            None => Err(PyRuntimeError::new_err("Expected body_reader")),
+            None => Err(PyRuntimeError::new_err("Response body reader is closed")),
         }
     }
 
     fn get_body_reader_inner(&mut self, py: Python, is_blocking: bool) -> PyResult<Py<BaseResponseBodyReader>> {
         let inner = self.mut_inner()?;
         if inner.body_reader.is_none() {
-            return Err(PyRuntimeError::new_err("Expected body_reader"));
+            return Err(PyRuntimeError::new_err("Response body reader is closed"));
         };
         if let RespReader::Reader(_) = inner.body_reader.as_ref().unwrap() {
             if let RespReader::Reader(reader) = inner.body_reader.take().unwrap() {
@@ -306,20 +317,6 @@ impl BaseResponse {
         match inner.body_reader.as_ref().unwrap() {
             RespReader::PyReader(py_reader) => Ok(py_reader.clone_ref(py)),
             RespReader::Reader(_) => Err(PyRuntimeError::new_err("Expected PyReader")),
-        }
-    }
-
-    pub async fn inner_close(&self) -> PyResult<()> {
-        match self.ref_inner()?.body_reader.as_ref() {
-            Some(RespReader::Reader(reader)) => {
-                reader.close();
-                Ok(())
-            }
-            Some(RespReader::PyReader(reader)) => {
-                reader.get().close().await;
-                Ok(())
-            }
-            None => Err(PyRuntimeError::new_err("Expected body_reader")),
         }
     }
 
@@ -438,9 +435,17 @@ impl SyncResponse {
     }
 }
 
-enum RespReader {
+pub enum RespReader {
     Reader(BodyReader),
     PyReader(Py<BaseResponseBodyReader>), // In Python heap
+}
+impl RespReader {
+    pub async fn close(&self) {
+        match self {
+            RespReader::Reader(reader) => reader.close(),
+            RespReader::PyReader(reader) => reader.get().close().await,
+        }
+    }
 }
 
 enum RespHeaders {

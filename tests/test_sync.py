@@ -1,5 +1,5 @@
 import json
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -152,6 +152,27 @@ def test_use_after_close(echo_server: Server):
     req = client.get(echo_server.url).build()
     with pytest.raises(ClientClosedError, match="Client was closed"):
         req.send()
+
+
+def test_stream_use_after_close(client: SyncClient, echo_body_parts_server: Server):
+    def stream_gen() -> Iterator[bytes]:
+        yield b"part 0"
+        yield b"part 1"
+
+    req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
+
+    with req as resp:
+        assert resp.body_reader.read_chunk() == b"part 0"
+
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        _ = resp.body_reader
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        resp.json()
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        resp.text()
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        resp.bytes()
+    assert resp.headers["content-type"] == "application/json"
 
 
 def test_types(echo_server: Server) -> None:
