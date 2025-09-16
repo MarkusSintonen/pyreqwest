@@ -176,8 +176,8 @@ impl<'py> FromPyObject<'py> for Extensions {
     }
 }
 impl Extensions {
-    pub fn copy(&self) -> PyResult<Extensions> {
-        Python::attach(|py| Ok(Extensions(self.0.bind(py).copy()?.unbind())))
+    pub fn copy(&self, py: Python) -> PyResult<Extensions> {
+        Ok(Extensions(self.0.bind(py).copy()?.unbind()))
     }
 
     pub fn into_response(self, response_extensions: &mut http::Extensions) -> PyResult<()> {

@@ -7,6 +7,7 @@ use crate::middleware::NextInner;
 use crate::multipart::FormBuilder;
 use crate::request::Request;
 use crate::request::consumed_request::{ConsumedRequest, SyncConsumedRequest};
+use crate::request::request::RequestData;
 use crate::request::stream_request::{StreamRequest, SyncStreamRequest};
 use crate::response::internal::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, StreamedReadConfig};
 use bytes::Bytes;
@@ -166,7 +167,7 @@ impl BaseRequestBuilder {
 
     fn extensions(mut slf: PyRefMut<'_, Self>, extensions: Extensions) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
-        slf.extensions = Some(extensions.copy()?);
+        slf.extensions = Some(extensions.copy(slf.py())?);
         Ok(slf)
     }
 
@@ -253,19 +254,18 @@ impl BaseRequestBuilder {
             return Err(BuilderError::from_causes("Can not set body when multipart or form is used", vec![]));
         }
 
-        let request = Request::new(
-            request,
-            self.spawner
+        let request_data = RequestData {
+            spawner: self
+                .spawner
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Request was already built"))?,
-            self.body.take(),
-            self.extensions.take(),
-            self.middlewares_next.take(),
-            self.json_handler.take(),
-            self.error_for_status,
-            consume_body,
-        );
-        Ok(request)
+            reqwest: request,
+            extensions: self.extensions.take(),
+            body_consume_config: consume_body,
+            json_handler: self.json_handler.take(),
+            error_for_status: self.error_for_status,
+        };
+        Ok(Request::new(request_data, self.body.take(), self.middlewares_next.take()))
     }
 
     fn body_consume_config(&self, is_streamed: bool) -> PyResult<BodyConsumeConfig> {

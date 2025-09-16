@@ -2,4 +2,4 @@ mod connection_limiter;
 mod spawner;
 
 pub use connection_limiter::ConnectionLimiter;
-pub use spawner::{SpawnRequestData, Spawner};
+pub use spawner::Spawner;

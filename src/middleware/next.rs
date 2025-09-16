@@ -162,11 +162,11 @@ impl NextInner {
         Ok(())
     }
 
-    pub fn clone_ref(&self) -> Self {
+    pub fn clone_ref(&self, py: Python) -> Self {
         let override_middlewares = self
             .override_middlewares
             .as_ref()
-            .map(|m| Python::attach(|py| m.iter().map(|v| v.clone_ref(py)).collect::<Vec<_>>()));
+            .map(|m| m.iter().map(|v| v.clone_ref(py)).collect::<Vec<_>>());
 
         NextInner {
             middlewares: self.middlewares.clone(),

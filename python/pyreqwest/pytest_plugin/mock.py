@@ -1,7 +1,8 @@
 """Module providing HTTP request mocking capabilities for pyreqwest clients in tests."""
 
 import json
-from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterable, Awaitable, Callable, Generator, Iterable
+from contextlib import contextmanager
 from functools import cached_property
 from re import Pattern
 from typing import Any, Literal, Self, TypeVar, assert_never
@@ -418,23 +419,31 @@ class ClientMocker:
         return mock_middleware
 
 
+@contextmanager
+def client_mocker_context() -> Generator[ClientMocker, None, None]:
+    """Context manager that provides a ClientMocker for mocking HTTP requests in tests."""
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        mocker = ClientMocker()
+
+        def setup(klass: type[BaseRequestBuilder], *, is_async: bool) -> None:
+            orig_build_consumed = klass.build  # type: ignore[attr-defined]
+            orig_build_streamed = klass.build_streamed  # type: ignore[attr-defined]
+
+            def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
+                middleware = mocker._create_middleware() if is_async else mocker._create_sync_middleware()
+                return orig(self._set_interceptor(middleware))  # type: ignore[attr-defined]
+
+            monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
+            monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
+
+        setup(RequestBuilder, is_async=True)
+        setup(SyncRequestBuilder, is_async=False)
+
+        yield mocker
+
+
 @pytest.fixture
-def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
+def client_mocker() -> Generator[ClientMocker, None, None]:
     """Fixture that provides a ClientMocker for mocking HTTP requests in tests."""
-    mocker = ClientMocker()
-
-    def setup(klass: type[BaseRequestBuilder], *, is_async: bool) -> None:
-        orig_build_consumed = klass.build  # type: ignore[attr-defined]
-        orig_build_streamed = klass.build_streamed  # type: ignore[attr-defined]
-
-        def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
-            middleware = mocker._create_middleware() if is_async else mocker._create_sync_middleware()
-            return orig(self._set_interceptor(middleware))  # type: ignore[attr-defined]
-
-        monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
-        monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
-
-    setup(RequestBuilder, is_async=True)
-    setup(SyncRequestBuilder, is_async=False)
-
-    return mocker
+    with client_mocker_context() as mocker:
+        yield mocker

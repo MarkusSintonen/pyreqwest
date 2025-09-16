@@ -2,10 +2,8 @@ use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime;
 use crate::exceptions::utils::map_send_error;
 use crate::exceptions::{ClientClosedError, PoolTimeoutError};
-use crate::http::internal::json::JsonHandler;
-use crate::http::internal::types::Extensions;
+use crate::request::RequestData;
 use crate::response::BaseResponse;
-use crate::response::internal::BodyConsumeConfig;
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;
 use tokio::sync::OwnedSemaphorePermit;
@@ -32,7 +30,7 @@ impl Spawner {
         }
     }
 
-    async fn spawn_reqwest_inner(mut request: SpawnRequestData, cancel: CancelHandle) -> PyResult<BaseResponse> {
+    async fn spawn_reqwest_inner(mut request: RequestData, cancel: CancelHandle) -> PyResult<BaseResponse> {
         let spawner = &request.spawner;
         let client = spawner.client.clone();
         let connection_limiter = spawner.connection_limiter.clone();
@@ -40,11 +38,11 @@ impl Spawner {
 
         let fut = async move {
             let permit = match connection_limiter.as_ref() {
-                Some(lim) => Some(Self::limit_connections(lim, &mut request.request).await?),
+                Some(lim) => Some(Self::limit_connections(lim, &mut request.reqwest).await?),
                 _ => None,
             };
 
-            let mut resp = client.execute(request.request).await.map_err(map_send_error)?;
+            let mut resp = client.execute(request.reqwest).await.map_err(map_send_error)?;
 
             request
                 .extensions
@@ -70,11 +68,11 @@ impl Spawner {
         }
     }
 
-    pub async fn spawn_reqwest(request: SpawnRequestData, cancel: CancelHandle) -> PyResult<BaseResponse> {
+    pub async fn spawn_reqwest(request: RequestData, cancel: CancelHandle) -> PyResult<BaseResponse> {
         Self::spawn_reqwest_inner(request, cancel).await
     }
 
-    pub fn blocking_spawn_reqwest(request: SpawnRequestData) -> PyResult<BaseResponse> {
+    pub fn blocking_spawn_reqwest(request: RequestData) -> PyResult<BaseResponse> {
         let rt = &request.spawner.runtime.clone();
         rt.blocking_spawn(Self::spawn_reqwest_inner(request, CancelHandle::new()))
     }
@@ -108,13 +106,4 @@ impl Clone for Spawner {
             close_cancellation: self.close_cancellation.child_token(),
         }
     }
-}
-
-pub struct SpawnRequestData {
-    pub spawner: Spawner,
-    pub request: reqwest::Request,
-    pub extensions: Option<Extensions>,
-    pub body_consume_config: BodyConsumeConfig,
-    pub json_handler: Option<JsonHandler>,
-    pub error_for_status: bool,
 }

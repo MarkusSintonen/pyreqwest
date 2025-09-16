@@ -102,11 +102,11 @@ impl ResponseBuilder {
         Python::attach(|py| SyncResponse::new_py(py, resp))
     }
 
-    fn copy(&self) -> PyResult<Self> {
-        self.__copy__()
+    fn copy(&self, py: Python) -> PyResult<Self> {
+        self.__copy__(py)
     }
 
-    fn __copy__(&self) -> PyResult<Self> {
+    fn __copy__(&self, py: Python) -> PyResult<Self> {
         Ok(Self {
             head: Some(
                 self.head
@@ -115,7 +115,7 @@ impl ResponseBuilder {
                     .clone(),
             ),
             body: self.body.as_ref().map(|b| b.try_clone()).transpose()?,
-            extensions: self.extensions.as_ref().map(|e| e.copy()).transpose()?,
+            extensions: self.extensions.as_ref().map(|e| e.copy(py)).transpose()?,
         })
     }
 
