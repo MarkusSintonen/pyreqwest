@@ -119,6 +119,7 @@ impl ResponseBuilder {
         })
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(ext) = &self.extensions {
             visit.call(&ext.0)?;
@@ -132,7 +133,7 @@ impl ResponseBuilder {
     fn __clear__(&mut self) {
         self.body = None;
         self.extensions = None;
-    }
+    } // :NOCOV_END
 }
 
 impl Default for ResponseBuilder {

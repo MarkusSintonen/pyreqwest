@@ -3,6 +3,7 @@ use crate::client::client::{BaseClient, SyncClient};
 use crate::client::internal::ConnectionLimiter;
 use crate::client::runtime::Runtime;
 use crate::client::runtime::RuntimeHandle;
+use crate::exceptions::BuilderError;
 use crate::http::internal::json::JsonHandler;
 use crate::http::{CookieStore, CookieStorePyProxy};
 use crate::http::{HeaderMap, Url, UrlType};
@@ -248,6 +249,7 @@ impl BaseClientBuilder {
         })
     }
 
+    // :NOCOV_START
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn interface(slf: PyRefMut<Self>, value: String) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.interface(value.as_str())))
@@ -256,7 +258,7 @@ impl BaseClientBuilder {
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn interface(slf: PyRefMut<Self>, value: String) -> PyResult<PyRefMut<Self>> {
         Err(PyValueError::new_err("interface is not supported on this platform"))
-    }
+    } // :NOCOV_END
 
     fn tcp_keepalive(slf: PyRefMut<Self>, value: Option<Duration>) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.tcp_keepalive(value)))
@@ -270,6 +272,7 @@ impl BaseClientBuilder {
         Self::apply(slf, |builder| Ok(builder.tcp_keepalive_retries(value)))
     }
 
+    // :NOCOV_START
     #[cfg(target_os = "linux")]
     fn tcp_user_timeout(slf: PyRefMut<Self>, timeout: Option<Duration>) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.tcp_user_timeout(timeout)))
@@ -278,7 +281,7 @@ impl BaseClientBuilder {
     #[cfg(not(target_os = "linux"))]
     fn tcp_user_timeout(_slf: PyRefMut<Self>, _timeout: Option<Duration>) -> PyResult<PyRefMut<Self>> {
         Err(PyValueError::new_err("tcp_user_timeout is not supported on this platform"))
-    }
+    } // :NOCOV_END
 
     fn add_root_certificate_der(slf: PyRefMut<Self>, cert: PyBytes) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| {
@@ -351,6 +354,7 @@ impl BaseClientBuilder {
         })
     }
 
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(middlewares) = &self.middlewares {
             for mw in middlewares.iter() {
@@ -367,7 +371,7 @@ impl BaseClientBuilder {
         self.middlewares = None;
         self.json_handler = None;
         self.runtime = None;
-    }
+    } // :NOCOV_END
 }
 impl BaseClientBuilder {
     fn new() -> Self {
@@ -390,7 +394,7 @@ impl BaseClientBuilder {
                 .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?
                 .use_rustls_tls()
                 .build()
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| BuilderError::from_err("builder error", &e))?;
 
             let client = BaseClient::new(
                 inner_client,

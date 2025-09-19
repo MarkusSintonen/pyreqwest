@@ -1,4 +1,3 @@
-use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -132,17 +131,11 @@ impl Cookie {
     }
 
     fn __eq__(&self, other: Bound<PyAny>) -> PyResult<bool> {
-        let Ok(other) = other.extract::<CookieType>() else {
-            return self.__str__(other.py()).rich_compare(other, CompareOp::Eq)?.extract();
-        };
-        Ok(self.0 == other.0)
+        other.extract::<CookieType>().map_or(Ok(false), |c| Ok(c.0 == self.0))
     }
 
     fn __ne__(&self, other: Bound<PyAny>) -> PyResult<bool> {
-        let Ok(other) = other.extract::<CookieType>() else {
-            return self.__str__(other.py()).rich_compare(other, CompareOp::Ne)?.extract();
-        };
-        Ok(self.0 != other.0)
+        other.extract::<CookieType>().map_or(Ok(true), |c| Ok(c.0 != self.0))
     }
 
     // Sequence methods
@@ -191,16 +184,6 @@ impl Cookie {
 impl Cookie {
     fn parse_inner(cookie: &str) -> PyResult<cookie::Cookie<'_>> {
         cookie::Cookie::parse(cookie).map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-}
-impl From<cookie::Cookie<'_>> for Cookie {
-    fn from(cookie: cookie::Cookie<'_>) -> Self {
-        Cookie(cookie.into_owned())
-    }
-}
-impl From<&cookie::Cookie<'_>> for Cookie {
-    fn from(cookie: &cookie::Cookie<'_>) -> Self {
-        Cookie(cookie.clone().into_owned())
     }
 }
 impl From<cookie_store::Cookie<'_>> for Cookie {

@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import Mapping
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ from pyreqwest.exceptions import (
     ClientClosedError,
     ConnectError,
     ConnectTimeoutError,
+    DecodeError,
     PoolTimeoutError,
     ReadTimeoutError,
     StatusError,
@@ -68,14 +70,17 @@ async def test_error_for_status(echo_server: EchoServer, value: bool):
 
 
 @pytest.mark.parametrize("value", [1, 2, None])
-async def test_max_connections_pool_timeout(echo_server: EchoServer, value: int | None):
+@pytest.mark.parametrize("timeout_val", [timedelta(seconds=0.05), None])
+async def test_max_connections_pool_timeout(echo_server: EchoServer, value: int | None, timeout_val: timedelta | None):
     url = echo_server.url.with_query({"sleep_start": 0.1})
 
-    builder = ClientBuilder().max_connections(value).pool_timeout(timedelta(seconds=0.05)).error_for_status(True)
+    builder = ClientBuilder().max_connections(value).error_for_status(True)
+    if timeout_val:
+        builder = builder.pool_timeout(timeout_val)
 
     async with builder.build() as client:
         coros = [client.get(url).build().send() for _ in range(2)]
-        if value == 1:
+        if value == 1 and timeout_val:
             with pytest.raises(PoolTimeoutError) as e:
                 await asyncio.gather(*coros)
             assert isinstance(e.value, TimeoutError)
@@ -83,18 +88,37 @@ async def test_max_connections_pool_timeout(echo_server: EchoServer, value: int 
             await asyncio.gather(*coros)
 
 
-@pytest.mark.parametrize("value", [0.05, 0.2, None])
+async def test_max_connections_full_timeout(echo_server: EchoServer):
+    url = echo_server.url.with_query({"sleep_start": 0.01})
+
+    builder = ClientBuilder().max_connections(1).timeout(timedelta(seconds=0.05)).error_for_status(True)
+
+    async with builder.build() as client:
+        coros = [client.get(url).build().send() for _ in range(10)]
+        with pytest.raises(PoolTimeoutError) as e:
+            await asyncio.gather(*coros)
+        assert isinstance(e.value, TimeoutError)
+
+
+@pytest.mark.parametrize("timeout_value", [0.05, 0.2, None])
 @pytest.mark.parametrize("sleep_kind", ["sleep_start", "sleep_body"])
-async def test_timeout(echo_server: EchoServer, value: float | None, sleep_kind: str):
+@pytest.mark.parametrize("timeout_kind", ["total", "read", "connect"])
+async def test_timeout(echo_server: EchoServer, timeout_value: float | None, sleep_kind: str, timeout_kind: str):
     url = echo_server.url.with_query({sleep_kind: 0.1})
 
     builder = ClientBuilder().error_for_status(True)
-    if value is not None:
-        builder = builder.timeout(timedelta(seconds=value))
+    if timeout_value is not None:
+        if timeout_kind == "total":
+            builder = builder.timeout(timedelta(seconds=timeout_value))
+        elif timeout_kind == "read":
+            builder = builder.read_timeout(timedelta(seconds=timeout_value))
+        else:
+            assert timeout_kind == "connect"
+            builder = builder.connect_timeout(timedelta(seconds=timeout_value))
 
     async with builder.build() as client:
         req = client.get(url).build()
-        if value and value < 0.2:
+        if timeout_value and timeout_value < 0.2 and timeout_kind != "connect":
             exc = ConnectTimeoutError if sleep_kind == "sleep_start" else ReadTimeoutError
             with pytest.raises(exc) as e:
                 await req.send()
@@ -151,6 +175,10 @@ async def test_response_compression(echo_server: EchoServer):
         assert resp.headers["x-content-encoding"] == "gzip"
         assert await resp.json()
 
+        with pytest.raises(DecodeError, match="error decoding response body") as e:
+            await client.get(echo_server.url.with_query({"compress": "gzip_invalid"})).build().send()
+        assert e.value.details and {"message": "Invalid gzip header"} in e.value.details["causes"]
+
     async with ClientBuilder().gzip(False).error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build().send()).json()
         assert ["accept-encoding", "br, zstd, deflate"] in res["headers"]
@@ -171,6 +199,8 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
             assert (await response.json())["method"] == "PATCH"
         async with client.delete(url).build_streamed() as response:
             assert (await response.json())["method"] == "DELETE"
+        async with client.head(url).build_streamed() as response:
+            assert response.headers["content-type"] == "application/json"
         async with client.request("QUERY", url).build_streamed() as response:
             assert (await response.json())["method"] == "QUERY"
 
@@ -294,6 +324,84 @@ async def test_json_loads_callback(echo_server: EchoServer):
         assert json.loads((await resp.bytes()).to_bytes()) == res
         assert (await resp.json()) == {**res, "test": "bar"}
         assert called == 2
+
+
+async def test_various_builder_functions(
+    https_echo_server: EchoServer, echo_server: EchoServer, cert_authority: trustme.CA, localhost_cert: trustme.LeafCert
+):
+    client = (
+        ClientBuilder()
+        .cookie_store(True)
+        .brotli(False)
+        .zstd(False)
+        .deflate(False)
+        .max_redirects(1)
+        .referer(True)
+        .no_proxy()
+        .pool_idle_timeout(timedelta(seconds=1))
+        .pool_max_idle_per_host(1)
+        .http1_title_case_headers()
+        .http1_allow_obsolete_multiline_headers_in_responses(True)
+        .http1_ignore_invalid_headers_in_responses(True)
+        .http1_allow_spaces_after_header_name_in_responses(True)
+        .http1_only()
+        .tcp_nodelay(True)
+        .local_address("127.0.0.1")
+        .tcp_keepalive(timedelta(seconds=1))
+        .tcp_keepalive_interval(timedelta(seconds=1))
+        .tcp_keepalive_retries(1)
+        .tls_built_in_root_certs(True)
+        .tls_built_in_webpki_certs(True)
+        .danger_accept_invalid_hostnames(True)
+        .tls_sni(True)
+        .min_tls_version("TLSv1.0")
+        .max_tls_version("TLSv1.3")
+        .add_root_certificate_pem(cert_authority.cert_pem.bytes())
+        .identity_pem(localhost_cert.private_key_and_cert_chain_pem.bytes())
+        .build()
+    )
+    async with client:
+        resp = await client.get(https_echo_server.url).build().send()
+        assert resp.status == 200
+
+    async with ClientBuilder().http09_responses().error_for_status(True).build() as client:
+        await client.get(echo_server.url).build().send()
+
+    ClientBuilder().add_crl_pem((Path(__file__).parent / "samples" / "crl.pem").read_bytes())
+
+
+async def test_http2_builder_functions(https_echo_server: EchoServer, cert_authority: trustme.CA):
+    client = (
+        ClientBuilder()
+        .add_root_certificate_pem(cert_authority.cert_pem.bytes())
+        .http2_prior_knowledge()
+        .http2_adaptive_window(True)
+        .http2_initial_connection_window_size(65535)
+        .http2_initial_stream_window_size(65535)
+        .http2_max_frame_size(65535)
+        .http2_max_header_list_size(16384)
+        .http2_keep_alive_interval(timedelta(seconds=1))
+        .http2_keep_alive_timeout(timedelta(seconds=1))
+        .http2_keep_alive_while_idle(True)
+        .build()
+    )
+    async with client:
+        resp = await client.get(https_echo_server.url).build().send()
+        assert resp.status == 200 and resp.version == "HTTP/2.0"
+
+
+async def test_resolve(echo_server: EchoServer):
+    assert echo_server.url.port
+    async with ClientBuilder().resolve("foobar.local", "127.0.0.1", echo_server.url.port).build() as client:
+        resp = await client.get("http://foobar.local").build().send()
+        assert resp.status == 200
+
+
+def test_bad_tls_version():
+    with pytest.raises(ValueError, match="Invalid TLS version"):
+        ClientBuilder().min_tls_version("bad")
+    with pytest.raises(ValueError, match="Invalid TLS version"):
+        ClientBuilder().max_tls_version("bad")
 
 
 async def test_different_runtimes(echo_server: EchoServer):

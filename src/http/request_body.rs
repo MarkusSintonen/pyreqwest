@@ -35,7 +35,7 @@ impl RequestBody {
         match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(bytes)) => Ok(Some(PyBytes::from(bytes.clone()))),
             Some(InnerBody::Stream(_)) => Ok(None),
-            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
+            None => Err(PyRuntimeError::new_err("Request body already consumed")),
         }
     }
 
@@ -43,7 +43,7 @@ impl RequestBody {
         match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(_)) => Ok(None),
             Some(InnerBody::Stream(stream)) => Ok(Some(stream.get_stream()?.clone_ref(py))),
-            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
+            None => Err(PyRuntimeError::new_err("Request body already consumed")),
         }
     }
 
@@ -63,6 +63,7 @@ impl RequestBody {
         }
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         let Ok(inner) = self.lock() else {
             return Ok(());
@@ -72,7 +73,7 @@ impl RequestBody {
             Some(InnerBody::Stream(stream)) => stream.__traverse__(visit),
             None => Ok(()),
         }
-    }
+    } // :NOCOV_END
 }
 impl RequestBody {
     fn new(body: InnerBody) -> Self {
@@ -83,7 +84,7 @@ impl RequestBody {
         let body = match self.lock()?.as_ref() {
             Some(InnerBody::Bytes(bytes)) => InnerBody::Bytes(bytes.clone()),
             Some(InnerBody::Stream(stream)) => InnerBody::Stream(Python::attach(|py| stream.try_clone(py))?),
-            None => return Err(PyRuntimeError::new_err("RequestBody already consumed")),
+            None => return Err(PyRuntimeError::new_err("Request body already consumed")),
         };
         Ok(Self::new(body))
     }
@@ -92,7 +93,7 @@ impl RequestBody {
         Ok(Self::new(
             self.lock()?
                 .take()
-                .ok_or_else(|| PyRuntimeError::new_err("RequestBody already consumed"))?,
+                .ok_or_else(|| PyRuntimeError::new_err("Request body already consumed"))?,
         ))
     }
 
@@ -100,7 +101,7 @@ impl RequestBody {
         match self.lock()?.as_mut() {
             Some(InnerBody::Bytes(_)) => Ok(()),
             Some(InnerBody::Stream(stream)) => stream.set_task_local(),
-            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
+            None => Err(PyRuntimeError::new_err("Request body already consumed")),
         }
     }
 
@@ -109,7 +110,7 @@ impl RequestBody {
         match self.lock()?.take() {
             Some(InnerBody::Bytes(bytes)) => Ok(reqwest::Body::from(bytes)),
             Some(InnerBody::Stream(stream)) => stream.into_reqwest(is_blocking),
-            None => Err(PyRuntimeError::new_err("RequestBody already consumed")),
+            None => Err(PyRuntimeError::new_err("Request body already consumed")),
         }
     }
 
@@ -292,6 +293,7 @@ impl BodyStream {
         })
     }
 
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.stream)?;
         visit.call(&self.py_iter)?;
@@ -304,7 +306,7 @@ impl BodyStream {
         self.py_iter = None;
         self.task_local = None;
         self.cur_waiter = None;
-    }
+    } // :NOCOV_END
 }
 
 fn is_async_iter(obj: &Bound<PyAny>) -> PyResult<bool> {

@@ -151,7 +151,7 @@ async def test_body__stream_error_already_used(client: Client, echo_server: Serv
 
     req = client.post(echo_server.url).build()
     req.body = body
-    with pytest.raises(RuntimeError, match="RequestBody already consumed"):
+    with pytest.raises(RuntimeError, match="Request body already consumed"):
         await req.send()
 
 
@@ -255,6 +255,21 @@ async def test_cancel_stream_request(client: Client, echo_body_parts_server: Ser
     with pytest.raises(asyncio.CancelledError):
         await task
     assert time.time() - start < 1
+
+
+async def test_use_after_send(client: Client, echo_server: Server) -> None:
+    req = client.get(echo_server.url).build()
+    await req.send()
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        _ = req.method
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        _ = req.url
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        _ = req.headers
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        _ = req.body
+    with pytest.raises(RuntimeError, match="Request was already sent"):
+        _ = req.extensions
 
 
 class StreamRepr:

@@ -138,6 +138,7 @@ impl Request {
         Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         let Some(inner) = self.0.as_ref() else { return Ok(()) };
 
@@ -160,7 +161,7 @@ impl Request {
 
     fn __clear__(&mut self) {
         self.0.take();
-    }
+    } // :NOCOV_END
 }
 impl Request {
     pub fn new(request: RequestData, body: Option<RequestBody>, middlewares_next: Option<NextInner>) -> Self {

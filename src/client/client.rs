@@ -34,6 +34,7 @@ pub struct SyncClient;
 
 #[pymethods]
 impl BaseClient {
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(middlewares) = &self.middlewares {
             for mw in middlewares.iter() {
@@ -44,7 +45,7 @@ impl BaseClient {
             json_handler.__traverse__(&visit)?;
         }
         Ok(())
-    }
+    } // :NOCOV_END
 }
 impl BaseClient {
     pub fn new(

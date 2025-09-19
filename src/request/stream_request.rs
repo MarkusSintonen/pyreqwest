@@ -60,6 +60,7 @@ impl StreamRequest {
         Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         let Some(resp) = self.0.as_ref() else {
             return Ok(());
@@ -69,7 +70,7 @@ impl StreamRequest {
 
     fn __clear__(&mut self) {
         self.0.take();
-    }
+    } // :NOCOV_END
 }
 impl StreamRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {
@@ -120,6 +121,7 @@ impl SyncStreamRequest {
         Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         let Some(resp) = self.0.as_ref() else {
             return Ok(());
@@ -129,7 +131,7 @@ impl SyncStreamRequest {
 
     fn __clear__(&mut self) {
         self.0.take();
-    }
+    } // :NOCOV_END
 }
 impl SyncStreamRequest {
     pub fn new_py(py: Python, inner: Request) -> PyResult<Py<Self>> {

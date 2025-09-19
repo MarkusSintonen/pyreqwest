@@ -13,10 +13,8 @@ pub struct ConnectionLimiter {
 
 impl ConnectionLimiter {
     pub fn new(limit: usize, timeout: Option<Duration>) -> Self {
-        Self {
-            semaphore: Arc::new(Semaphore::new(limit)),
-            timeout,
-        }
+        let semaphore = Arc::new(Semaphore::new(limit));
+        Self { semaphore, timeout }
     }
 
     pub async fn limit_connections(&self, request_timeout: Option<Duration>) -> PyResult<OwnedSemaphorePermit> {

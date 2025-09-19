@@ -30,10 +30,6 @@ pub struct JsonHandler {
     loads: Option<Py<PyAny>>,
 }
 impl JsonHandler {
-    pub fn new(dumps: Option<Py<PyAny>>, loads: Option<Py<PyAny>>) -> Self {
-        JsonHandler { dumps, loads }
-    }
-
     pub fn set_loads(&mut self, loads: Option<Bound<PyAny>>) {
         self.loads = loads.map(|v| v.unbind());
     }
@@ -76,6 +72,7 @@ impl JsonHandler {
         }
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: &PyVisit) -> Result<(), pyo3::PyTraverseError> {
         visit.call(&self.loads)?;
         visit.call(&self.dumps)
@@ -84,21 +81,23 @@ impl JsonHandler {
     pub fn __clear__(&mut self) {
         self.loads = None;
         self.dumps = None;
-    }
+    } // :NOCOV_END
 }
 
 #[pymethods]
 impl JsonLoadsContext {
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
         visit.call(&self.body_reader)?;
         visit.call(&self.headers)?;
         visit.call(&self.extensions)
-    }
+    } // :NOCOV_END
 }
 
 #[pymethods]
 impl JsonDumpsContext {
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
         visit.call(&self.data)
-    }
+    } // :NOCOV_END
 }

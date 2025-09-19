@@ -29,10 +29,11 @@ impl Next {
         Python::attach(|py| Response::new_py(py, resp))
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.inner.__traverse__(&visit)?;
         self.task_local.__traverse__(&visit)
-    }
+    } // :NOCOV_END
 }
 impl Next {
     pub fn new(inner: NextInner, py: Python) -> PyResult<Self> {
@@ -108,13 +109,14 @@ impl SyncNext {
         middleware.bind(py).call1((request, next)).map(Some)
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.0.__traverse__(&visit)
     }
 
     pub fn __clear__(&mut self) {
         self.0.__clear__()
-    }
+    } // :NOCOV_END
 }
 impl SyncNext {
     pub fn new(inner: NextInner) -> PyResult<Self> {
@@ -175,6 +177,7 @@ impl NextInner {
         }
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(middlewares) = &self.middlewares {
             for mw in middlewares.iter() {
@@ -192,5 +195,5 @@ impl NextInner {
     pub fn __clear__(&mut self) {
         self.middlewares = None;
         self.override_middlewares = None;
-    }
+    } // :NOCOV_END
 }

@@ -260,20 +260,8 @@ impl HeaderMap {
         Ok(format!("HeaderMap({})", repr.to_str()?))
     }
 }
-impl Default for HeaderMap {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl HeaderMap {
-    pub fn new() -> Self {
-        let inner = Inner {
-            map: Some(http::HeaderMap::new()),
-        };
-        HeaderMap(Arc::new(Mutex::new(inner)))
-    }
-
     pub fn get_one(&self, key: &str) -> PyResult<Option<HeaderValue>> {
         self.ref_map(|map| Ok(map.get(key).map(|v| HeaderValue(v.clone()))))
     }

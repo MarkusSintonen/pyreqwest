@@ -7,11 +7,11 @@ install:
 .PHONY: build
 build:
 	uv sync
-	uv run maturin develop
+	uv run maturin develop --uv
 
 .PHONY: test
 test:
-	uv run maturin develop
+	uv run maturin develop --uv
 	uv run pytest
 
 .PHONY: lint
@@ -40,10 +40,33 @@ check: static-checks test
 
 .PHONY: bench
 bench:
-	uv run maturin develop --release
+	uv run maturin develop --uv --release
 	uv run python -m tests.bench.benchmark_performance --lib $(lib)
 
 .PHONY: clean
 clean:
 	rm -rf target/
-	rm -f python/pyreqwest/_pyreqwest.cpython*
+	rm -f python/pyreqwest/*.so
+	rm -f *.profraw
+	rm -rf coverage/
+
+.PHONY: testcov
+testcov:
+	rm -f python/pyreqwest/*.so
+	rm -f *.profraw
+	rm -rf coverage/
+	RUSTFLAGS='-C instrument-coverage' uv run maturin develop --uv
+	uv run pytest
+	grcov . \
+		--binary-path ./python/pyreqwest/*.so \
+		--source-dir ./src \
+		--output-type html \
+		--output-path ./coverage \
+		--html-resources=cdn \
+		--branch \
+		--ignore-not-existing \
+		--ignore '**/build.rs' \
+		--excl-start ':NOCOV_START' \
+		--excl-stop ':NOCOV_END' \
+		--excl-line ':NOCOV|^( )+}$$|unreachable!|^#\['
+	rm -f *.profraw

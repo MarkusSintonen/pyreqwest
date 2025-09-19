@@ -19,7 +19,7 @@ pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult
     let event_loop = task_local.event_loop()?;
 
     let task_creator = TaskCreator {
-        callback: Py::new(py, TaskCallback { tx: Some(tx) })?,
+        on_done_callback: Py::new(py, TaskDoneCallback { tx: Some(tx) })?,
         event_loop: Some(event_loop.clone_ref(py)),
         coro: Some(py_coro.unbind()),
     };
@@ -33,7 +33,7 @@ pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult
 
 #[pyclass]
 struct TaskCreator {
-    callback: Py<TaskCallback>,
+    on_done_callback: Py<TaskDoneCallback>,
     event_loop: Option<Py<PyAny>>,
     coro: Option<Py<PyAny>>,
 }
@@ -42,20 +42,20 @@ impl TaskCreator {
     fn __call__(&self, py: Python) -> PyResult<()> {
         match self.create_task(py) {
             Ok(_) => Ok(()),
-            Err(e) => self.callback.try_borrow_mut(py)?.tx_send(Err(e)),
+            Err(e) => self.on_done_callback.try_borrow_mut(py)?.tx_send(Err(e)),
         }
     }
 
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.event_loop)?;
-        visit.call(&self.coro)?;
-        Ok(())
+        visit.call(&self.coro)
     }
 
     fn __clear__(&mut self) {
         self.event_loop = None;
         self.coro = None;
-    }
+    } // :NOCOV_END
 }
 impl TaskCreator {
     fn create_task(&self, py: Python) -> PyResult<()> {
@@ -65,7 +65,7 @@ impl TaskCreator {
             .ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))?
             .bind(py)
             .call_method1(intern!(py, "create_task"), (&self.coro,))?;
-        py_task.call_method1(intern!(py, "add_done_callback"), (&self.callback,))?;
+        py_task.call_method1(intern!(py, "add_done_callback"), (&self.on_done_callback,))?;
         Ok(())
     }
 }
@@ -78,9 +78,11 @@ impl Future for PyCoroWaiter {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.get_mut().rx.poll_unpin(cx) {
-            Poll::Ready(Ok(res)) => Poll::Ready(res),
-            Poll::Ready(Err(e)) => {
-                Poll::Ready(Err(PyRuntimeError::new_err(format!("Failed to receive task result: {}", e))))
+            Poll::Ready(ready) => {
+                let res = ready
+                    .map_err(|e| PyRuntimeError::new_err(format!("Failed to receive task result: {}", e)))
+                    .flatten();
+                Poll::Ready(res)
             }
             Poll::Pending => Poll::Pending,
         }
@@ -88,29 +90,16 @@ impl Future for PyCoroWaiter {
 }
 
 #[pyclass]
-struct TaskCallback {
+struct TaskDoneCallback {
     tx: Option<tokio::sync::oneshot::Sender<PyResult<Py<PyAny>>>>,
 }
 #[pymethods]
-impl TaskCallback {
+impl TaskDoneCallback {
     fn __call__(&mut self, task: Bound<PyAny>) -> PyResult<()> {
-        self.tx_send(self.get_task_result(task).map(|res| res.unbind()))
+        self.tx_send(task.call_method0(intern!(task.py(), "result")).map(|res| res.unbind()))
     }
 }
-impl TaskCallback {
-    fn get_task_result<'py>(&self, task: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        match task.call_method0(intern!(task.py(), "exception")) {
-            Ok(task_exc) => {
-                if task_exc.is_none() {
-                    task.call_method0(intern!(task.py(), "result"))
-                } else {
-                    Err(PyErr::from_value(task_exc))
-                }
-            }
-            Err(err) => Err(err),
-        }
-    }
-
+impl TaskDoneCallback {
     pub fn tx_send(&mut self, res: PyResult<Py<PyAny>>) -> PyResult<()> {
         self.tx
             .take()
@@ -162,6 +151,7 @@ impl TaskLocal {
         })
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.event_loop)?;
         visit.call(&self.context)?;
@@ -171,5 +161,5 @@ impl TaskLocal {
     pub fn __clear__(&mut self) {
         self.event_loop = None;
         self.context = None;
-    }
+    } // :NOCOV_END
 }

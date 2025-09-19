@@ -1,4 +1,5 @@
 import json
+import string
 from collections.abc import Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -39,6 +40,58 @@ def client() -> Generator[SyncClient, None, None]:
 
 def test_send(client: SyncClient, echo_server: Server) -> None:
     assert client.get(echo_server.url).build().send().json()["method"] == "GET"
+
+
+@pytest.mark.parametrize("str_url", [False, True])
+def test_http_methods(echo_server: Server, str_url: bool):
+    url = str(echo_server.url) if str_url else echo_server.url
+    with SyncClientBuilder().error_for_status(True).build() as client:
+        with client.get(url).build_streamed() as response:
+            assert response.json()["method"] == "GET"
+            assert response.json()["scheme"] == "http"
+        with client.post(url).build_streamed() as response:
+            assert response.json()["method"] == "POST"
+        with client.put(url).build_streamed() as response:
+            assert response.json()["method"] == "PUT"
+        with client.patch(url).build_streamed() as response:
+            assert response.json()["method"] == "PATCH"
+        with client.delete(url).build_streamed() as response:
+            assert response.json()["method"] == "DELETE"
+        with client.head(url).build_streamed() as response:
+            assert response.headers["content-type"] == "application/json"
+        with client.request("QUERY", url).build_streamed() as response:
+            assert response.json()["method"] == "QUERY"
+
+
+@pytest.mark.parametrize("took_reader", [False, True])
+@pytest.mark.parametrize("use_reader", [False, True])
+def test_read(client: SyncClient, echo_body_parts_server: Server, took_reader: bool, use_reader: bool) -> None:
+    def get_reader(resp: SyncResponse) -> SyncResponse | SyncResponseBodyReader:
+        if took_reader:
+            body_reader = resp.body_reader
+            if use_reader:
+                return body_reader
+        return resp
+
+    chars = string.ascii_letters + string.digits
+    body = b"".join(chars[v % len(chars)].encode() for v in range(131072))
+
+    def stream_gen() -> Iterator[bytes]:
+        yield body
+
+    resp = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
+    reader = get_reader(resp)
+    assert reader.read() == body[:65536]
+    assert reader.read() == body[65536:]
+    assert reader.read() == b""
+
+    resp = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
+    reader = get_reader(resp)
+    assert reader.read(0) == b""
+    assert reader.read(100) == body[:100]
+    assert reader.read(100) == body[100:200]
+    assert reader.read(131072) == body[200:]
+    assert reader.read(10) == b""
 
 
 def test_middleware(echo_server: Server) -> None:
@@ -172,6 +225,8 @@ def test_stream_use_after_close(client: SyncClient, echo_body_parts_server: Serv
         resp.text()
     with pytest.raises(RuntimeError, match="Response body reader is closed"):
         resp.bytes()
+    with pytest.raises(RuntimeError, match="Response body reader is closed"):
+        resp.read(100)
     assert resp.headers["content-type"] == "application/json"
 
 

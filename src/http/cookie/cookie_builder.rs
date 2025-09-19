@@ -27,10 +27,6 @@ impl CookieBuilder {
     }
 
     fn expires(slf: PyRefMut<'_, Self>, expires: Option<OffsetDateTime>) -> PyResult<PyRefMut<'_, Self>> {
-        let expires = match expires {
-            Some(dt) => cookie::Expiration::DateTime(dt),
-            None => cookie::Expiration::Session,
-        };
         Self::apply(slf, |b| Ok(b.expires(expires)))
     }
 
@@ -59,7 +55,7 @@ impl CookieBuilder {
             "Strict" => cookie::SameSite::Strict,
             "Lax" => cookie::SameSite::Lax,
             "None" => cookie::SameSite::None,
-            _ => return Err(PyValueError::new_err("same_site must be 'Strict', 'Lax', or 'None'")),
+            _ => return Err(PyValueError::new_err("invalid SameSite, expected 'Strict', 'Lax', or 'None'")),
         };
         Self::apply(slf, |b| Ok(b.same_site(same_site)))
     }

@@ -47,10 +47,6 @@ impl RuntimeHandle {
         Python::attach(|py| py.detach(|| self.0.block_on(future)))
     }
 
-    pub fn current() -> Self {
-        Self(tokio::runtime::Handle::current())
-    }
-
     pub fn global_handle() -> PyResult<&'static Self> {
         let inner = GLOBAL_HANDLE
             .as_ref()
@@ -96,23 +92,22 @@ impl Runtime {
         let (handle_tx, handle_rx) = std::sync::mpsc::channel::<PyResult<tokio::runtime::Handle>>();
 
         std::thread::spawn(move || {
-            let rt_res = tokio::runtime::Builder::new_current_thread()
+            tokio::runtime::Builder::new_current_thread()
                 .thread_name(thread_name.unwrap_or("pyreqwest-worker".to_string()))
                 .enable_all()
-                .build();
-
-            match rt_res {
-                Ok(rt) => {
+                .build()
+                .map_err(|e| {
+                    handle_tx  // :NOCOV_START:
+                        .send(Err(PyRuntimeError::new_err(format!("Failed to create tokio runtime: {}", e))))
+                        .unwrap()
+                }) // :NOCOV_END:
+                .map(|rt| {
                     rt.block_on(async {
                         handle_tx.send(Ok(tokio::runtime::Handle::current())).unwrap();
                     });
                     let _ = rt.block_on(close_rx.recv());
-                    rt.shutdown_background();
-                }
-                Err(e) => handle_tx
-                    .send(Err(PyRuntimeError::new_err(format!("Failed to create tokio runtime: {}", e))))
-                    .unwrap(),
-            }
+                    rt.shutdown_background()
+                })
         });
 
         let handle = handle_rx

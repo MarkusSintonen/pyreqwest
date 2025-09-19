@@ -195,6 +195,7 @@ impl BaseRequestBuilder {
         Ok(slf)
     }
 
+    // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         if let Some(extensions) = &self.extensions {
             visit.call(&extensions.0)?;
@@ -218,7 +219,7 @@ impl BaseRequestBuilder {
         self.extensions = None;
         self.middlewares_next = None;
         self.json_handler = None;
-    }
+    } // :NOCOV_END
 }
 impl BaseRequestBuilder {
     pub fn new(

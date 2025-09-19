@@ -88,7 +88,7 @@ impl Spawner {
         let elapsed = now.elapsed();
         if let Some(req_timeout) = req_timeout {
             if elapsed >= req_timeout {
-                return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", vec![]));
+                return Err(PoolTimeoutError::from_causes("Timeout acquiring semaphore", vec![])); // :NOCOV
             } else {
                 *request.timeout_mut() = Some(req_timeout - elapsed);
             }

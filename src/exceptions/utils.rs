@@ -82,10 +82,10 @@ fn inner_py_err(err: &(dyn Error + 'static)) -> Option<PyErr> {
 
 fn is_body_error<E: Error + 'static>(err: &E) -> bool {
     for e in error_causes_iter(err) {
-        if let Some(e) = e.downcast_ref::<reqwest::Error>() {
-            if e.is_body() {
-                return true;
-            }
+        if let Some(e) = e.downcast_ref::<reqwest::Error>()
+            && e.is_body()
+        {
+            return true;
         }
     }
     false

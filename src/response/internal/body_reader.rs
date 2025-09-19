@@ -42,11 +42,11 @@ impl BodyReader {
         } else {
             assert!(!has_more, "Should have fully consumed the response");
         }
-        if body_receiver.is_none() {
-            if let Some(a) = request_semaphore_permit.take() {
-                drop(a)
-            } // No more body to read, release the semaphore permit
-        }
+        if body_receiver.is_none()
+            && let Some(a) = request_semaphore_permit.take()
+        {
+            drop(a)
+        } // No more body to read, release the semaphore permit
 
         let body_reader = BodyReader {
             body_receiver,
@@ -72,9 +72,6 @@ impl BodyReader {
             let Some(buffer) = body_rx.recv().await? else {
                 return Ok(None); // No more data
             };
-            if buffer.is_empty() {
-                return Ok(None); // No more data
-            }
 
             let mut buffer_iter = buffer.into_iter();
             let first_chunk = buffer_iter.next().unwrap();
@@ -178,10 +175,10 @@ impl BodyReader {
                 consumed_bytes += chunk.len();
                 init_chunks.push_back(chunk);
 
-                if let Some(byte_limit) = byte_limit {
-                    if consumed_bytes >= byte_limit {
-                        break;
-                    }
+                if let Some(byte_limit) = byte_limit
+                    && consumed_bytes >= byte_limit
+                {
+                    break;
                 }
             } else {
                 has_more = false;
@@ -247,10 +244,11 @@ impl Reader {
                             break; // All was consumed
                         }
                         Ok(Some(frame)) => {
-                            if let Ok(chunk) = frame.into_data() {
-                                if !reader.send_chunk(chunk).await {
-                                    break; // Receiver was dropped
-                                }
+                            if let Ok(chunk) = frame.into_data()
+                                && !chunk.is_empty()
+                                && !reader.send_chunk(chunk).await
+                            {
+                                break; // Receiver was dropped :NOCOV:
                             }
                         }
                     }
@@ -270,7 +268,7 @@ impl Reader {
 
     async fn send_chunk(&mut self, chunk: Bytes) -> bool {
         let Some(buffer) = self.buffer.as_mut() else {
-            return false; // Already finalized
+            return false; // Already finalized :NOCOV:
         };
 
         self.tot_bytes += chunk.len();
@@ -287,11 +285,11 @@ impl Reader {
     }
 
     async fn finalize(&mut self) {
-        if let Some(buffer) = self.buffer.take() {
-            if !buffer.is_empty() {
-                _ = self.tx.send(Ok(buffer)).await;
-            }
-        };
+        if let Some(buffer) = self.buffer.take()
+            && !buffer.is_empty()
+        {
+            _ = self.tx.send(Ok(buffer)).await;
+        }
     }
 }
 

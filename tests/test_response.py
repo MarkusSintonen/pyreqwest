@@ -10,7 +10,7 @@ import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import DecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
-from pyreqwest.response import ResponseBuilder
+from pyreqwest.response import Response, ResponseBodyReader, ResponseBuilder
 
 from .servers.server import Server
 
@@ -41,23 +41,30 @@ async def test_status(client: Client, echo_server: Server) -> None:
 async def test_headers(client: Client, echo_server: Server) -> None:
     req = (
         client.get(echo_server.url)
-        .query(
-            [("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")],
-        )
+        .query([("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")])
         .build()
     )
     resp = await req.send()
 
-    assert type(resp.headers) is HeaderMap and isinstance(resp.headers, MutableMapping)
-
+    assert resp.get_header("x-test1") == "Value1" and resp.get_header("x-test2") == "Value3"
+    assert resp.get_header_all("x-test1") == ["Value1", "Value2"] and resp.get_header_all("x-test2") == ["Value3"]
     assert resp.headers.getall("X-Test1") == ["Value1", "Value2"] and resp.headers["x-test1"] == "Value1"
     assert resp.headers.getall("X-Test2") == ["Value3"] and resp.headers["x-test2"] == "Value3"
 
     resp.headers["X-Test2"] = "Value4"
     assert resp.headers["X-Test2"] == "Value4" and resp.headers["x-test2"] == "Value4"
+    assert resp.get_header("x-test2") == "Value4" and resp.get_header_all("x-test2") == ["Value4"]
 
     assert resp.headers.popall("x-test1") == ["Value1", "Value2"]
     assert "X-Test1" not in resp.headers and "x-test1" not in resp.headers
+    assert resp.get_header("x-test1") is None
+    assert resp.get_header("Content-Type") == "application/json"
+
+    resp.headers = {"X-New": "NewValue"}
+    assert list(resp.headers.items()) == [("x-new", "NewValue")]
+    assert resp.get_header("Content-Type") is None
+
+    assert type(resp.headers) is HeaderMap and isinstance(resp.headers, MutableMapping)
 
 
 @pytest.mark.parametrize("proto", ["http", "https"])
@@ -121,7 +128,16 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
         assert (await resp.body_reader.read_chunk()) is None
 
 
-async def test_read(client: Client, echo_body_parts_server: Server) -> None:
+@pytest.mark.parametrize("took_reader", [False, True])
+@pytest.mark.parametrize("use_reader", [False, True])
+async def test_read(client: Client, echo_body_parts_server: Server, took_reader: bool, use_reader: bool) -> None:
+    def get_reader(resp: Response) -> Response | ResponseBodyReader:
+        if took_reader:
+            body_reader = resp.body_reader
+            if use_reader:
+                return body_reader
+        return resp
+
     chars = string.ascii_letters + string.digits
     body = b"".join(chars[v % len(chars)].encode() for v in range(131072))
 
@@ -129,16 +145,18 @@ async def test_read(client: Client, echo_body_parts_server: Server) -> None:
         yield body
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
-    assert (await resp.read()) == body[:65536]
-    assert (await resp.read()) == body[65536:]
-    assert (await resp.read()) == b""
+    reader = get_reader(resp)
+    assert (await reader.read()) == body[:65536]
+    assert (await reader.read()) == body[65536:]
+    assert (await reader.read()) == b""
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
-    assert (await resp.read(0)) == b""
-    assert (await resp.read(100)) == body[:100]
-    assert (await resp.read(100)) == body[100:200]
-    assert (await resp.read(131072)) == body[200:]
-    assert (await resp.read(10)) == b""
+    reader = get_reader(resp)
+    assert (await reader.read(0)) == b""
+    assert (await reader.read(100)) == body[:100]
+    assert (await reader.read(100)) == body[100:200]
+    assert (await reader.read(131072)) == body[200:]
+    assert (await reader.read(10)) == b""
 
 
 ASCII_TEST = b"""
@@ -180,7 +198,7 @@ async def test_bad_json(client: Client, echo_body_parts_server: Server, body: st
     assert isinstance(e.value, json.JSONDecodeError)
     assert isinstance(e.value, DecodeError)
 
-    with pytest.raises(json.JSONDecodeError) as std_err:
+    with pytest.raises(json.JSONDecodeError) as std_err:  # Compare error against standard json decoder
         json.loads(body)
 
     last_line = body_str.split("\n")[e.value.lineno - 1]
@@ -261,6 +279,11 @@ async def test_error_for_status(echo_server: Server) -> None:
             resp.error_for_status()
         assert e.value.details and e.value.details["status"] == 404
 
+        resp = await client.get(echo_server.url).query([("status", 500)]).build().send()
+        with pytest.raises(StatusError, match="HTTP status server error") as e:
+            resp.error_for_status()
+        assert e.value.details and e.value.details["status"] == 500
+
 
 async def test_response_builder():
     async def stream() -> AsyncIterator[bytes]:
@@ -272,14 +295,18 @@ async def test_response_builder():
         .status(201)
         .header("X-Test", "Value1")
         .header("X-Test", "Value2")
+        .extensions({"foo": "bar"})
+        .version("HTTP/2.0")
         .body_stream(stream())
         .build()
     )
 
     assert resp.headers["X-Test"] == "Value1"
     assert resp.headers.getall("X-Test") == ["Value1", "Value2"]
+    assert resp.extensions == {"foo": "bar"}
     assert resp.status == 201
     assert await resp.bytes() == b"test1 test2"
+    assert resp.version == "HTTP/2.0"
 
 
 async def test_response_builder__sync():

@@ -23,8 +23,8 @@ pub struct BaseResponse(Option<Inner>);
 pub struct Inner {
     status: StatusCode,
     version: Version,
-    headers: Option<RespHeaders>,
-    extensions: Option<RespExtensions>,
+    headers: RespHeaders,
+    extensions: RespExtensions,
     body_reader: Option<RespReader>,
     runtime: RuntimeHandle,
     json_handler: Option<JsonHandler>,
@@ -63,48 +63,41 @@ impl BaseResponse {
     #[getter]
     fn get_headers(&mut self, py: Python) -> PyResult<Py<HeaderMap>> {
         let inner = self.mut_inner()?;
-        if inner.headers.is_none() {
-            return Err(PyRuntimeError::new_err("Expected headers"));
-        };
-        if let RespHeaders::Headers(headers) = inner.headers.as_mut().unwrap() {
+        if let RespHeaders::Headers(headers) = &inner.headers {
             let py_headers = Py::new(py, HeaderMap::from(headers.try_take_inner()?))?;
-            inner.headers = Some(RespHeaders::PyHeaders(py_headers));
+            inner.headers = RespHeaders::PyHeaders(py_headers);
         }
-        match inner.headers.as_ref().unwrap() {
+        match &inner.headers {
             RespHeaders::PyHeaders(py_headers) => Ok(py_headers.clone_ref(py)),
-            RespHeaders::Headers(_) => Err(PyRuntimeError::new_err("Expected PyHeaders")),
+            RespHeaders::Headers(_) => unreachable!("Expected PyHeaders"),
         }
     }
 
     #[setter]
-    fn set_headers(&mut self, value: Py<HeaderMap>) -> PyResult<()> {
-        self.mut_inner()?.headers = Some(RespHeaders::PyHeaders(value));
+    fn set_headers(&mut self, value: HeaderMap) -> PyResult<()> {
+        self.mut_inner()?.headers = RespHeaders::Headers(value);
         Ok(())
     }
 
     #[getter]
     fn get_extensions(&mut self, py: Python) -> PyResult<Py<PyDict>> {
         let inner = self.mut_inner()?;
-        if inner.extensions.is_none() {
-            return Err(PyRuntimeError::new_err("Expected extensions"));
-        };
-        if let RespExtensions::Extensions(ext) = inner.extensions.as_mut().unwrap() {
+        if let RespExtensions::Extensions(ext) = &mut inner.extensions {
             let py_ext = ext
                 .remove::<Extensions>()
                 .unwrap_or_else(|| Extensions(PyDict::new(py).unbind()))
                 .0;
-            inner.extensions = Some(RespExtensions::PyExtensions(py_ext));
+            inner.extensions = RespExtensions::PyExtensions(py_ext);
         }
-        match inner.extensions.as_ref().unwrap() {
+        match &inner.extensions {
             RespExtensions::PyExtensions(py_ext) => Ok(py_ext.clone_ref(py)),
-            RespExtensions::Extensions(_) => Err(PyRuntimeError::new_err("Expected PyExtensions")),
+            RespExtensions::Extensions(_) => unreachable!("Expected PyExtensions"),
         }
     }
 
     #[setter]
     fn set_extensions(&mut self, extensions: Extensions) -> PyResult<()> {
-        let inner = self.mut_inner()?;
-        inner.extensions = Some(RespExtensions::PyExtensions(extensions.0));
+        self.mut_inner()?.extensions = RespExtensions::PyExtensions(extensions.0);
         Ok(())
     }
 
@@ -190,26 +183,19 @@ impl BaseResponse {
         .await
     }
 
+    // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         let Ok(inner) = self.ref_inner() else {
             return Ok(());
         };
-        if let Some(RespHeaders::PyHeaders(py_headers)) = &inner.headers {
+        if let RespHeaders::PyHeaders(py_headers) = &inner.headers {
             visit.call(py_headers)?;
         }
-        if let Some(RespExtensions::PyExtensions(py_ext)) = &inner.extensions {
+        if let RespExtensions::PyExtensions(py_ext) = &inner.extensions {
             visit.call(py_ext)?;
         }
         Ok(())
-    }
-
-    fn __clear__(&mut self) {
-        let Ok(inner) = self.mut_inner() else {
-            return;
-        };
-        inner.headers = None;
-        inner.extensions = None;
-    }
+    } // :NOCOV_END
 }
 impl BaseResponse {
     pub async fn initialize(
@@ -226,8 +212,8 @@ impl BaseResponse {
         let resp = BaseResponse(Some(Inner {
             status: StatusCode(head.status),
             version: Version(head.version),
-            headers: Some(RespHeaders::Headers(HeaderMap::from(head.headers))),
-            extensions: Some(RespExtensions::Extensions(head.extensions)),
+            headers: RespHeaders::Headers(HeaderMap::from(head.headers)),
+            extensions: RespExtensions::Extensions(head.extensions),
             body_reader: Some(RespReader::Reader(body_reader)),
             runtime,
             json_handler,
@@ -255,22 +241,20 @@ impl BaseResponse {
         self.mut_inner()?
             .body_reader
             .take()
-            .ok_or_else(|| PyRuntimeError::new_err("Response body already taken"))
+            .ok_or_else(|| PyRuntimeError::new_err("Response body reader is closed"))
     }
 
     fn get_header_inner(&self, name: &str) -> PyResult<Option<HeaderValue>> {
         match self.ref_inner()?.headers {
-            Some(RespHeaders::Headers(ref headers)) => headers.get_one(name),
-            Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.get().get_one(name),
-            None => Err(PyRuntimeError::new_err("Expected headers")),
+            RespHeaders::Headers(ref headers) => headers.get_one(name),
+            RespHeaders::PyHeaders(ref py_headers) => py_headers.get().get_one(name),
         }
     }
 
     fn get_header_all_inner(&self, name: &str) -> PyResult<Vec<HeaderValue>> {
         match self.ref_inner()?.headers {
-            Some(RespHeaders::Headers(ref headers)) => headers.get_all(name),
-            Some(RespHeaders::PyHeaders(ref py_headers)) => py_headers.get().get_all(name),
-            None => Err(PyRuntimeError::new_err("Expected headers")),
+            RespHeaders::Headers(ref headers) => headers.get_all(name),
+            RespHeaders::PyHeaders(ref py_headers) => py_headers.get().get_all(name),
         }
     }
 
@@ -300,23 +284,23 @@ impl BaseResponse {
         if inner.body_reader.is_none() {
             return Err(PyRuntimeError::new_err("Response body reader is closed"));
         };
-        if let RespReader::Reader(_) = inner.body_reader.as_ref().unwrap() {
-            if let RespReader::Reader(reader) = inner.body_reader.take().unwrap() {
-                let py_body_reader = if is_blocking {
-                    SyncResponseBodyReader::new_py(py, reader)?
-                        .into_bound(py)
-                        .cast_into::<BaseResponseBodyReader>()?
-                } else {
-                    ResponseBodyReader::new_py(py, reader)?
-                        .into_bound(py)
-                        .cast_into::<BaseResponseBodyReader>()?
-                };
-                inner.body_reader = Some(RespReader::PyReader(py_body_reader.unbind()));
-            }
+        if let RespReader::Reader(_) = inner.body_reader.as_ref().unwrap()
+            && let RespReader::Reader(reader) = inner.body_reader.take().unwrap()
+        {
+            let py_body_reader = if is_blocking {
+                SyncResponseBodyReader::new_py(py, reader)?
+                    .into_bound(py)
+                    .cast_into::<BaseResponseBodyReader>()?
+            } else {
+                ResponseBodyReader::new_py(py, reader)?
+                    .into_bound(py)
+                    .cast_into::<BaseResponseBodyReader>()?
+            };
+            inner.body_reader = Some(RespReader::PyReader(py_body_reader.unbind()));
         }
-        match inner.body_reader.as_ref().unwrap() {
-            RespReader::PyReader(py_reader) => Ok(py_reader.clone_ref(py)),
-            RespReader::Reader(_) => Err(PyRuntimeError::new_err("Expected PyReader")),
+        match inner.body_reader.as_ref() {
+            Some(RespReader::PyReader(py_reader)) => Ok(py_reader.clone_ref(py)),
+            _ => unreachable!("Expected PyReader"),
         }
     }
 
@@ -328,9 +312,6 @@ impl BaseResponse {
 
     fn json_error_pos(content: &str, e: &serde_json::error::Error) -> usize {
         let (line, column) = (e.line(), e.column());
-        if line == 0 {
-            return 1; // Error at the start of the content
-        }
         // Use byte position to have error case efficient
         content
             .split('\n')

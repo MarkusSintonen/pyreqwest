@@ -10,3 +10,5 @@ target
 
 /python/pyreqwest/*.so
 __pycache__
+
+coverage

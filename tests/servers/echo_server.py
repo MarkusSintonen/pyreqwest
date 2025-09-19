@@ -44,8 +44,10 @@ class EchoServer(Server):
             resp_body = json_dump(resp)
             resp_headers = [[b"content-type", b"application/json"]]
 
-        if query_dict.get("compress") == "gzip":
+        if query_dict.get("compress") in ("gzip", "gzip_invalid"):
             resp_body = gzip.compress(resp_body)
+            if query_dict.get("compress") == "gzip_invalid":
+                resp_body = resp_body[5:]
             resp_headers.extend([[b"content-encoding", b"gzip"], [b"x-content-encoding", b"gzip"]])
 
         for k, v in query:
