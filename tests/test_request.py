@@ -139,6 +139,27 @@ async def test_body__stream_class(client: Client, echo_server: Server) -> None:
     assert (await resp.json())["body_parts"] == ["test1", "test2"]
 
 
+async def test_body__stream_error(client: Client, echo_server: Server) -> None:
+    class StreamGen:
+        def __aiter__(self) -> AsyncGenerator[bytes]:
+            raise TypeError("test error")
+
+    with pytest.raises(TypeError, match="test error"):
+        client.post(echo_server.url).body_stream(StreamGen())
+
+    class StreamGen2:
+        def __aiter__(self) -> AsyncGenerator[bytes]:
+            async def gen() -> AsyncGenerator[bytes]:
+                yield b"test"
+                raise TypeError("test error")
+
+            return gen()
+
+    req = client.post(echo_server.url).body_stream(StreamGen2()).build()
+    with pytest.raises(TypeError, match="test error"):
+        await req.send()
+
+
 async def test_body__stream_error_already_used(client: Client, echo_server: Server) -> None:
     async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"test1"
@@ -148,6 +169,17 @@ async def test_body__stream_error_already_used(client: Client, echo_server: Serv
     req.body = body
     resp = await req.send()
     assert (await resp.json())["body_parts"] == ["test1"]
+
+    req = client.post(echo_server.url).build()
+    req.body = body
+    with pytest.raises(RuntimeError, match="Request body already consumed"):
+        await req.send()
+    with pytest.raises(RuntimeError, match="Request body already consumed"):
+        _ = body.copy_bytes()
+    with pytest.raises(RuntimeError, match="Request body already consumed"):
+        _ = body.get_stream()
+    with pytest.raises(RuntimeError, match="Request body already consumed"):
+        copy.copy(body)
 
     req = client.post(echo_server.url).build()
     req.body = body
@@ -164,14 +196,34 @@ async def test_extensions(client: Client, echo_server: Server) -> None:
 
 
 @pytest.mark.parametrize("call", ["copy", "__copy__"])
-@pytest.mark.parametrize("build", ["consumed", "streamed"])
-async def test_copy(client: Client, echo_server: Server, call: str, build: str) -> None:
-    builder = client.get(echo_server.url).body_text("test1").header("X-Test1", "Val1")
-    if build == "consumed":
-        req1: Request = builder.build()
+@pytest.mark.parametrize("build_streamed", [False, True])
+@pytest.mark.parametrize("body_streamed", [False, True])
+async def test_copy(client: Client, echo_server: Server, call: str, build_streamed: bool, body_streamed: bool) -> None:
+    builder = client.get(echo_server.url).header("X-Test1", "Val1")
+    stream_copied = False
+
+    if body_streamed:
+
+        class StreamGen:
+            def __aiter__(self) -> AsyncGenerator[bytes]:
+                async def gen() -> AsyncGenerator[bytes]:
+                    yield b"test1"
+
+                return gen()
+
+            def __copy__(self) -> "StreamGen":
+                nonlocal stream_copied
+                stream_copied = True
+                return StreamGen()
+
+        builder = builder.body_stream(StreamGen())
     else:
-        assert build == "streamed"
-        req1 = builder.build_streamed()
+        builder = builder.body_text("test1")
+
+    if build_streamed:
+        req1: Request = builder.build_streamed()
+    else:
+        req1 = builder.build()
 
     if call == "copy":
         req2 = req1.copy()
@@ -182,18 +234,23 @@ async def test_copy(client: Client, echo_server: Server, call: str, build: str) 
     assert req1.method == req2.method == "GET"
     assert req1.url == req2.url
     assert req1.headers["x-test1"] == req2.headers["x-test1"] == "Val1"
-    assert req1.body and req2.body and req1.body.copy_bytes() == req2.body.copy_bytes() == b"test1"
 
-    if build == "consumed":
+    if body_streamed:
+        assert stream_copied
+        assert req1.body and req2.body and req1.body.get_stream() is not req2.body.get_stream()
+    else:
+        assert req1.body and req2.body and req1.body.copy_bytes() == req2.body.copy_bytes() == b"test1"
+        assert req1.body is not req2.body
+
+    if build_streamed:
+        assert isinstance(req1, StreamRequest) and isinstance(req2, StreamRequest)
+        async with req1 as resp1, req2 as resp2:
+            assert (await resp1.json()) == (await resp2.json())
+    else:
         assert isinstance(req1, ConsumedRequest) and isinstance(req2, ConsumedRequest)
         resp1 = await req1.send()
         resp2 = await req2.send()
         assert (await resp1.json()) == (await resp2.json())
-    else:
-        assert build == "streamed"
-        assert isinstance(req1, StreamRequest) and isinstance(req2, StreamRequest)
-        async with req1 as resp1, req2 as resp2:
-            assert (await resp1.json()) == (await resp2.json())
 
 
 async def test_duplicate_send_fails(client: Client, echo_server: Server) -> None:
@@ -283,26 +340,31 @@ class StreamRepr:
         return "StreamRepr()"
 
 
-def test_repr(snapshot: SnapshotAssertion):
+async def test_repr(snapshot: SnapshotAssertion):
     client = ClientBuilder().build()
     url = "https://example.com/test?foo=bar"
     headers = HeaderMap({"X-Test": "Value"})
     headers.append("X-Another", "AnotherValue", is_sensitive=True)
-    req = client.get(url).headers(headers).build()
-    assert repr(req) == snapshot(name="repr_sensitive")
-    assert req.repr_full() == snapshot(name="repr_full")
+    req1 = client.get(url).headers(headers).build()
+    assert repr(req1) == snapshot(name="repr_sensitive")
+    assert req1.repr_full() == snapshot(name="repr_full")
 
-    req = client.get("https://example.com").body_text("test").build()
-    assert repr(req) == snapshot(name="repr_body")
-    assert req.repr_full() == snapshot(name="repr_full_body")
+    req2 = client.get("https://example.com").body_text("test").build()
+    assert repr(req2) == snapshot(name="repr_body")
+    assert req2.repr_full() == snapshot(name="repr_full_body")
 
-    req = client.get("https://example.com").body_stream(StreamRepr()).build()
-    assert repr(req) == snapshot(name="repr_stream_body")
-    assert req.repr_full() == snapshot(name="repr_full_stream_body")
+    req3 = client.get("https://example.com").body_stream(StreamRepr()).build()
+    assert repr(req3) == snapshot(name="repr_stream_body")
+    assert req3.repr_full() == snapshot(name="repr_full_stream_body")
 
     streamed = client.get("https://example.com").body_stream(StreamRepr()).build_streamed()
-    assert repr(streamed) == repr(req)
-    assert streamed.repr_full() == req.repr_full()
+    assert repr(streamed) == repr(req3)
+    assert streamed.repr_full() == req3.repr_full()
+
+    assert repr(req3.body) == "RequestBody(stream=StreamRepr())"
+    body = req3.body
+    await req3.send()
+    assert repr(body) == "RequestBody(<already consumed>)"
 
 
 def test_circular_reference_collected(echo_server: Server) -> None:

@@ -39,8 +39,8 @@ pub struct SyncResponse;
 #[pymethods]
 impl BaseResponse {
     #[getter]
-    fn get_status(&self) -> PyResult<u16> {
-        Ok(self.ref_inner()?.status.0.as_u16())
+    fn get_status(&self) -> PyResult<StatusCode> {
+        Ok(self.ref_inner()?.status.0.into())
     }
 
     #[setter]

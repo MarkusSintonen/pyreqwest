@@ -13,6 +13,7 @@ def test_mime():
     assert mime.suffix is None
     assert mime.parameters == []
     assert mime.get_param("charset") is None
+    assert mime.essence_str == "text/plain"
 
     mime = Mime.parse("application/json; charset=utf-8")
     assert mime.type_ == "application"
@@ -20,37 +21,43 @@ def test_mime():
     assert mime.suffix is None
     assert mime.parameters == [("charset", "utf-8")]
     assert mime.get_param("charset") == "utf-8"
+    assert mime.essence_str == "application/json"
 
     mime = Mime.parse("multipart/form-data; boundary=----FooBar")
     assert mime.type_ == "multipart"
     assert mime.subtype == "form-data"
     assert mime.suffix is None
     assert mime.parameters == [("boundary", "----FooBar")]
+    assert mime.essence_str == "multipart/form-data"
 
     mime = Mime.parse("image/svg+xml")
     assert mime.type_ == "image"
     assert mime.subtype == "svg"
     assert mime.suffix == "xml"
     assert mime.parameters == []
+    assert mime.essence_str == "image/svg+xml"
 
 
 def test_eq():
-    mime1 = Mime.parse("text/plain")
-    mime2 = Mime.parse("text/plain")
-    mime3 = Mime.parse("application/json")
+    mime = Mime.parse("text/plain")
+    assert mime == Mime.parse("text/plain")
+    assert mime == "text/plain"
+    assert mime != Mime.parse("application/json")
+    assert mime != "application/json"
 
-    assert mime1 == mime2
-    assert mime1 != mime3
-    assert mime2 != mime3
+    mime2 = Mime.parse("text/plain; charset=utf-8")
+    assert mime2 == Mime.parse("text/plain;charset=utf-8")
+    assert mime2 == "text/plain;charset=utf-8"
+    assert mime2 != mime
 
-    mime4 = Mime.parse("text/plain; charset=utf-8")
-    mime5 = Mime.parse("text/plain;charset=utf-8")
-    assert mime4 == mime5
-    assert mime1 != mime4
-
-
-def test_eq_support():
     assert Mime.parse("application/json") == Contains("json")
+
+
+def test_cmp():
+    mime1 = Mime.parse("text/plain")
+    mime2 = Mime.parse("text/plain; charset=utf-8")
+    assert mime1 < mime2 and mime1 <= mime2
+    assert mime2 > mime1 and mime2 >= mime1
 
 
 def test_copy():

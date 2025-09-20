@@ -324,10 +324,14 @@ def test_eq(kind: type):
     assert url1 != kind(str(url3))
     assert url2 != kind(str(url3))
     assert not (url1 != kind("http://example.com"))
-
-
-def test_eq_support():
     assert Url("http://example.com") == Contains("example")
+
+
+def test_cmp():
+    url1 = Url("http://a.example.com")
+    url2 = Url("http://b.example.com")
+    assert url1 < url2 and url1 <= url2
+    assert url2 > url1 and url2 >= url1
 
 
 @pytest.mark.parametrize("url_str", ["http://example.com/path", "http://example.com/path/"])

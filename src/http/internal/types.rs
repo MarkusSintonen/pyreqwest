@@ -78,7 +78,7 @@ impl<'py> IntoPyObject<'py> for HeaderValue {
     type Output = Bound<'py, PyString>;
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(PyString::new(py, &HeaderValue::inner_str(&self.0)))
+        Ok(PyString::new(py, &HeaderValue::inner_str(&self.0)?))
     }
 }
 impl<'py> FromPyObject<'py> for HeaderValue {
@@ -89,11 +89,9 @@ impl<'py> FromPyObject<'py> for HeaderValue {
     }
 }
 impl HeaderValue {
-    pub fn inner_str(v: &http::HeaderValue) -> Cow<'_, str> {
-        match v.to_str() {
-            Ok(s) => Cow::Borrowed(s),
-            Err(_) => String::from_utf8_lossy(v.as_bytes()),
-        }
+    pub fn inner_str(v: &http::HeaderValue) -> PyResult<Cow<'_, str>> {
+        let v = v.to_str().map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Cow::Borrowed(v))
     }
 }
 impl TryFrom<&str> for HeaderValue {
@@ -157,11 +155,6 @@ impl<'py> FromPyObject<'py> for Version {
         })
     }
 }
-impl From<reqwest::Version> for Version {
-    fn from(version: reqwest::Version) -> Self {
-        Version(version)
-    }
-}
 
 impl<'py> FromPyObject<'py> for Extensions {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -178,18 +171,6 @@ impl<'py> FromPyObject<'py> for Extensions {
 impl Extensions {
     pub fn copy(&self, py: Python) -> PyResult<Extensions> {
         Ok(Extensions(self.0.bind(py).copy()?.unbind()))
-    }
-
-    pub fn into_response(self, response_extensions: &mut http::Extensions) -> PyResult<()> {
-        Python::attach(|py| {
-            let result_ext = self.0.into_bound(py);
-            if let Some(resp_ext) = response_extensions.remove::<Extensions>() {
-                let resp_ext = resp_ext.0.into_bound(py);
-                result_ext.update(resp_ext.as_mapping())?;
-            }
-            response_extensions.insert(Extensions(result_ext.unbind()));
-            Ok(())
-        })
     }
 }
 impl Clone for Extensions {

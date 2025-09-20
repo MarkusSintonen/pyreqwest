@@ -35,10 +35,7 @@ impl HeaderMapItemsView {
     }
 
     fn __richcmp__(&self, other: Bound<PyAny>, op: CompareOp) -> PyResult<bool> {
-        match convert_vec(other) {
-            Ok(other) => Ok(richcmp(self.to_vec()?, other, op)),
-            Err(_) => Ok(false),
-        }
+        Ok(richcmp(self.to_vec()?, other, op))
     }
 
     fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
@@ -82,6 +79,10 @@ impl HeaderMapItemsView {
 
     fn __rxor__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         set_op(self.to_vec()?, intern!(py, "__rxor__"), other)
+    }
+
+    fn isdisjoint<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        set_op(self.to_vec()?, intern!(py, "isdisjoint"), other)
     }
 }
 impl HeaderMapItemsView {
@@ -134,10 +135,7 @@ impl HeaderMapKeysView {
     }
 
     fn __richcmp__(&self, other: Bound<PyAny>, op: CompareOp) -> PyResult<bool> {
-        match convert_vec(other) {
-            Ok(other) => Ok(richcmp(self.to_vec()?, other, op)),
-            Err(_) => Ok(false),
-        }
+        Ok(richcmp(self.to_vec()?, other, op))
     }
 
     fn __str__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
@@ -181,6 +179,10 @@ impl HeaderMapKeysView {
 
     fn __rxor__<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         set_op(self.to_vec()?, intern!(py, "__rxor__"), other)
+    }
+
+    fn isdisjoint<'py>(&self, py: Python<'py>, other: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        set_op(self.to_vec()?, intern!(py, "isdisjoint"), other)
     }
 }
 impl HeaderMapKeysView {
@@ -259,16 +261,20 @@ fn vec_rev_iter<'py, T: IntoPyObject<'py>>(py: Python<'py>, mut v: Vec<T>) -> Py
     Ok(PyList::new(py, v)?.into_any().try_iter()?.unbind())
 }
 
-fn richcmp<'py, T: IntoPyObject<'py> + Ord>(mut v1: Vec<T>, mut v2: Vec<T>, op: CompareOp) -> bool {
-    v1.sort(); // HeaderMap is not guaranteed to be sorted by any criteria, so we sort it for comparison
+fn richcmp<'py, T: FromPyObject<'py> + Ord>(mut v: Vec<T>, other: Bound<'py, PyAny>, op: CompareOp) -> bool {
+    let Ok(mut v2) = convert_vec::<T>(other) else {
+        return matches!(op, CompareOp::Ne);
+    };
+    // HeaderMap is not guaranteed to be sorted by any criteria, so we sort it for comparison for set-like behavior
+    v.sort();
     v2.sort();
     match op {
-        CompareOp::Lt => v1 < v2,
-        CompareOp::Le => v1 <= v2,
-        CompareOp::Eq => v1 == v2,
-        CompareOp::Ne => v1 != v2,
-        CompareOp::Gt => v1 > v2,
-        CompareOp::Ge => v1 >= v2,
+        CompareOp::Lt => v < v2,
+        CompareOp::Le => v <= v2,
+        CompareOp::Eq => v == v2,
+        CompareOp::Ne => v != v2,
+        CompareOp::Gt => v > v2,
+        CompareOp::Ge => v >= v2,
     }
 }
 
@@ -277,9 +283,10 @@ fn set_op<'py, T: IntoPyObject<'py>>(
     op: &Bound<'py, PyString>,
     other: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    PySet::new(other.py(), v)?.call_method1(op, (other,))
+    let other_set = PySet::new(other.py(), other.try_iter()?.collect::<PyResult<Vec<_>>>()?)?;
+    PySet::new(op.py(), v)?.call_method1(op, (other_set,))
 }
 
-fn convert_vec<'py, T: FromPyObject<'py>>(ob: Bound<'py, PyAny>) -> PyResult<Vec<T>> {
+fn convert_vec<'py, T: FromPyObject<'py> + Ord>(ob: Bound<'py, PyAny>) -> PyResult<Vec<T>> {
     ob.try_iter()?.map(|v| v?.extract::<T>()).collect()
 }

@@ -107,6 +107,28 @@ def test_middleware(echo_server: Server) -> None:
         assert resp.headers["x-test2"] == "bar"
 
 
+def test_middleware__request_specific(echo_server: Server) -> None:
+    def middleware1(request: Request, next_handler: SyncNext) -> SyncResponse:
+        request.extensions["key1"] = "val1"
+        return next_handler.run(request)
+
+    def middleware2(request: Request, next_handler: SyncNext) -> SyncResponse:
+        request.extensions["key2"] = "val2"
+        return next_handler.run(request)
+
+    with middleware_client(middleware1) as client:
+        req1 = client.get(echo_server.url).with_middleware(middleware2).build()
+        req2 = client.get(echo_server.url).build()
+        req1_copy = req1.copy()
+        assert req1.send().extensions == {"key1": "val1", "key2": "val2"}
+        assert req2.send().extensions == {"key1": "val1"}
+        assert req1_copy.send().extensions == {"key1": "val1", "key2": "val2"}
+
+    with SyncClientBuilder().error_for_status(True).build() as client:
+        req3 = client.get(echo_server.url).with_middleware(middleware2).build()
+        assert req3.send().extensions == {"key2": "val2"}
+
+
 def test_context_vars(echo_server: Server) -> None:
     ctx_var = ContextVar("test_var", default="default_value")
 

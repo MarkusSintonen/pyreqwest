@@ -1,3 +1,4 @@
+import re
 import tempfile
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
@@ -140,24 +141,30 @@ async def test_multipart_with_part_file(echo_server: Server, file: str, req: str
 
 
 @pytest.mark.parametrize("sync", [False, True])
-async def test_multipart_with_stream_part(client: Client, echo_server: Server, sync: bool):
+@pytest.mark.parametrize("with_length", [False, True])
+async def test_multipart_with_stream_part(client: Client, echo_server: Server, sync: bool, with_length: bool):
     if sync:
 
         def data_stream_sync() -> Iterator[bytes]:
             yield b"First chunk"
             yield b" Second chunk"
 
-        stream_part = (
-            PartBuilder.from_stream(data_stream_sync()).mime_str("application/octet-stream").file_name("data.bin")
-        )
+        if with_length:
+            stream_part = PartBuilder.from_stream_with_length(data_stream_sync(), length=24)
+        else:
+            stream_part = PartBuilder.from_stream(data_stream_sync())
     else:
 
         async def data_stream() -> AsyncGenerator[bytes, None]:
             yield b"First chunk"
             yield b" Second chunk"
 
-        stream_part = PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("data.bin")
+        if with_length:
+            stream_part = PartBuilder.from_stream_with_length(data_stream(), length=24)
+        else:
+            stream_part = PartBuilder.from_stream(data_stream())
 
+    stream_part = stream_part.mime_str("application/octet-stream").file_name("data.bin")
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
 
     resp = await client.post(echo_server.url).multipart(form).build().send()
@@ -175,7 +182,7 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Server, s
     assert data_part.headers[b"content-type"] == b"application/octet-stream"
 
 
-async def test_multipart_with_stream_async_part_sync_request(echo_server: Server):
+async def test_multipart_with_async_stream_async_part_in_sync_request(echo_server: Server):
     async def data_stream() -> AsyncGenerator[bytes, None]:
         yield b""
 
@@ -184,9 +191,8 @@ async def test_multipart_with_stream_async_part_sync_request(echo_server: Server
     )
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
     req_builder = SyncClientBuilder().build().post(echo_server.url)
-    with pytest.raises(BuilderError) as e:
+    with pytest.raises(BuilderError, match=re.escape("Can not use async multipart (stream) in a blocking request")):
         req_builder.multipart(form)
-    assert e.value.message == "Can not use async multipart (stream) in a blocking request"
 
 
 async def test_multipart_with_bytes_part(client: Client, echo_server: Server):

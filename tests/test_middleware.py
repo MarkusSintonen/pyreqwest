@@ -393,6 +393,28 @@ async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status == 202 and (await resp.text()) == "Mocked"
 
 
+async def test_request_specific(echo_server: EchoServer) -> None:
+    async def middleware1(request: Request, next_handler: Next) -> Response:
+        request.extensions["key1"] = "val1"
+        return await next_handler.run(request)
+
+    async def middleware2(request: Request, next_handler: Next) -> Response:
+        request.extensions["key2"] = "val2"
+        return await next_handler.run(request)
+
+    client = build_client(middleware1)
+    req1 = client.get(echo_server.url).with_middleware(middleware2).build()
+    req2 = client.get(echo_server.url).build()
+    req1_copy = req1.copy()
+    assert (await req1.send()).extensions == {"key1": "val1", "key2": "val2"}
+    assert (await req2.send()).extensions == {"key1": "val1"}
+    assert (await req1_copy.send()).extensions == {"key1": "val1", "key2": "val2"}
+
+    client = ClientBuilder().error_for_status(True).build()
+    req3 = client.get(echo_server.url).with_middleware(middleware2).build()
+    assert (await req3.send()).extensions == {"key2": "val2"}
+
+
 async def test_circular_reference_collected(echo_server: EchoServer) -> None:
     # Check that client has GC support via __traverse__ and __clear__
     ref: weakref.ReferenceType[Middleware] | None = None

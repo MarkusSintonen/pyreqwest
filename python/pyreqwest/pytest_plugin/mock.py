@@ -431,7 +431,7 @@ def client_mocker_context() -> Generator[ClientMocker, None, None]:
 
             def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
                 middleware = mocker._create_middleware() if is_async else mocker._create_sync_middleware()
-                return orig(self._set_interceptor(middleware))  # type: ignore[attr-defined]
+                return orig(self.with_middleware(middleware))  # type: ignore[attr-defined]
 
             monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
             monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))

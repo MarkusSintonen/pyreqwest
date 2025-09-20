@@ -153,16 +153,40 @@ def test_items():
         ("c", "v4"),
     ]
 
-    assert items == [("a", "v1"), ("a", "v3"), ("b", "v2"), ("c", "v4")]
-    assert items == [("c", "v4"), ("a", "v1"), ("a", "v3"), ("b", "v2")]
-    assert items == {("c", "v4"), ("a", "v1"), ("a", "v3"), ("b", "v2")}
-    assert items != [("a", "v1"), ("a", "v3"), ("b", "v3"), ("c", "v4")]
-    assert items != [("a", "v1"), ("a", "v3"), ("c", "v4")]
-    assert items != []
-    assert items != ""
+    headers = HeaderMap({"a": "v1"})
+    headers.append("a", "v2", is_sensitive=True)
+    assert str(headers.items()) == "[('a', 'v1'), ('a', 'Sensitive')]"
+    assert repr(headers.items()) == "HeaderMapItemsView([('a', 'v1'), ('a', 'Sensitive')])"
 
-    assert str(HeaderMap([("a", "v1")]).items()) == "[('a', 'v1')]"
-    assert repr(HeaderMap([("a", "v1")]).items()) == "HeaderMapItemsView([('a', 'v1')])"
+
+def test_items__cmp():
+    pairs = [("a", "v1"), ("a", "v3"), ("b", "v2")]
+    items = HeaderMap(pairs).items()
+    assert items == pairs
+    assert items == list(reversed(pairs))
+    assert items == set(pairs)
+    assert items != [("a", "v1"), ("a", "v3"), ("b", "v2"), ("c", "v4")]
+    assert items != [("a", "v1"), ("a", "v4"), ("b", "v2")]
+    assert items != []
+    assert items != "" and (items == "") is False
+    assert items != 1 and (items == 1) is False
+
+    pairs2 = {("a", "v1"), ("a", "v4"), ("b", "v2")}
+    assert items <= pairs2 and items < pairs2
+    assert not (items >= pairs2 or items > pairs2)
+
+
+def test_items__abstract_set():
+    methods = ["__and__", "__or__", "__sub__", "__xor__"]
+    methods = methods + [f"__r{m[2:]}" for m in methods]
+    items1 = [("a", "v1"), ("b", "v2"), ("a", "v3")]
+    items2 = [("a", "v1"), ("a", "v3"), ("c", "v3")]
+    map_items1 = HeaderMap(items1).items()
+    map_items2 = HeaderMap(items2).items()
+    assert map_items1.isdisjoint(map_items2) is set(items1).isdisjoint(set(items2))
+    for method in methods:
+        assert getattr(map_items1, method)(map_items2) == getattr(set(items1), method)(set(items2))
+        assert getattr(map_items1, method)(set(map_items2)) == getattr(set(items1), method)(set(items2))
 
 
 def test_keys():
@@ -170,6 +194,7 @@ def test_keys():
     keys = headers.keys()
     assert len(keys) == 3
     assert sorted([*keys]) == ["a", "a", "b"]
+    assert sorted(iter(keys)) == ["a", "a", "b"]
 
     headers["c"] = "v4"
     assert len(keys) == 4
@@ -180,15 +205,42 @@ def test_keys():
 
     assert sorted(reversed(keys)) == ["a", "a", "b", "c"]  # type: ignore[call-overload]
 
-    assert keys == ["a", "a", "b", "c"]
-    assert keys == ["a", "a", "c", "b"]
-    assert keys != {"a", "c", "b"}
-    assert keys != ["a", "b"]
-    assert keys != []
-    assert keys != ""
+    headers = HeaderMap({"a": "v1"})
+    headers.append("a", "v2", is_sensitive=True)
+    assert str(headers.keys()) == "['a', 'a']"
+    assert repr(headers.keys()) == "HeaderMapKeysView(['a', 'a'])"
 
-    assert str(HeaderMap([("a", "v1")]).keys()) == "['a']"
-    assert repr(HeaderMap([("a", "v1")]).keys()) == "HeaderMapKeysView(['a'])"
+
+def test_keys__cmp():
+    pairs = [("a", "v1"), ("a", "v3"), ("b", "v2")]
+    keys = HeaderMap(pairs).keys()
+    assert keys == [k for k, _ in pairs]
+    assert keys == list(reversed([k for k, _ in pairs]))
+    assert keys != {k for k, _ in pairs}
+    assert keys != ["a", "b"]
+    assert keys != ["a", "b", "c"]
+    assert keys != []
+    assert keys != "" and (keys == "") is False
+    assert keys != 1 and (keys == 1) is False
+
+    keys2 = {"a", "b"}
+    assert keys <= keys2 and keys < keys2
+    assert not (keys >= keys2 or keys > keys2)
+
+
+def test_keys__abstract_set():
+    methods = ["__and__", "__or__", "__sub__", "__xor__"]
+    methods = methods + [f"__r{m[2:]}" for m in methods]
+    items1 = [("a", "v1"), ("b", "v2"), ("a", "v3")]
+    items2 = [("a", "v1"), ("a", "v3"), ("c", "v3")]
+    keys1 = [k for k, _ in items1]
+    keys2 = [k for k, _ in items2]
+    map_keys1 = HeaderMap(items1).keys()
+    map_keys2 = HeaderMap(items2).keys()
+    assert map_keys1.isdisjoint(map_keys2) is set(keys1).isdisjoint(set(keys2))
+    for method in methods:
+        assert getattr(map_keys1, method)(map_keys2) == getattr(set(keys1), method)(set(keys2))
+        assert getattr(map_keys1, method)(set(map_keys2)) == getattr(set(keys1), method)(set(keys2))
 
 
 def test_values():
@@ -196,6 +248,7 @@ def test_values():
     values = headers.values()
     assert len(values) == 3
     assert sorted([*values]) == ["v1", "v2", "v3"]
+    assert sorted(iter(values)) == ["v1", "v2", "v3"]
 
     headers["c"] = "v4"
     assert len(values) == 4
@@ -206,8 +259,15 @@ def test_values():
 
     assert sorted(reversed(values)) == ["v1", "v2", "v3", "v4"]  # type: ignore[call-overload]
 
-    assert str(HeaderMap([("a", "v1")]).values()) == "['v1']"
-    assert repr(HeaderMap([("a", "v1")]).values()) == "HeaderMapValuesView(['v1'])"
+    headers = HeaderMap({"a": "v1"})
+    headers.append("a", "v2", is_sensitive=True)
+    assert str(headers.values()) == "['v1', 'Sensitive']"
+    assert repr(headers.values()) == "HeaderMapValuesView(['v1', 'Sensitive'])"
+
+
+def test_values__cmp():
+    assert (HeaderMap([("a", "v1")]).values() == ["v1"]) is False
+    assert (HeaderMap([("a", "v1")]).values() != ["v1"]) is True
 
 
 def test_get():
@@ -506,10 +566,10 @@ def test_dict_multi_value():
     headers = HeaderMap([("a", "v1")])
     assert headers.dict_multi_value() == {"a": "v1"}
 
-    headers = HeaderMap([("a", "v1"), ("b", "v2"), ("a", "v3")])
-    assert headers.dict_multi_value() == {"a": ["v1", "v3"], "b": "v2"}
-    headers.append("b", "v4", is_sensitive=True)
-    assert headers.dict_multi_value() == {"a": ["v1", "v3"], "b": ["v2", "v4"]}
+    headers = HeaderMap([("a", "v1"), ("b", "v2"), ("a", "v3"), ("a", "v4")])
+    assert headers.dict_multi_value() == {"a": ["v1", "v3", "v4"], "b": "v2"}
+    headers.append("b", "v5", is_sensitive=True)
+    assert headers.dict_multi_value() == {"a": ["v1", "v3", "v4"], "b": ["v2", "v5"]}
 
 
 @pytest.mark.parametrize("std_copy", [False, True])

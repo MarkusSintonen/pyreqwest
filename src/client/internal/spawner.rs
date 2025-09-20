@@ -44,10 +44,9 @@ impl Spawner {
 
             let mut resp = client.execute(request.reqwest).await.map_err(map_send_error)?;
 
-            request
-                .extensions
-                .map(|ext| ext.into_response(resp.extensions_mut()))
-                .transpose()?;
+            if let Some(extensions) = request.extensions {
+                resp.extensions_mut().insert(extensions);
+            }
 
             BaseResponse::initialize(
                 resp,

@@ -136,7 +136,6 @@ pub struct BodyStream {
     py_iter: Option<Py<PyAny>>,
     task_local: Option<TaskLocal>,
     cur_waiter: Option<StreamWaiter>,
-    started: bool,
     is_async: bool,
 }
 impl Stream for BodyStream {
@@ -188,7 +187,6 @@ impl BodyStream {
             stream: Some(stream.unbind()),
             task_local: None,
             cur_waiter: None,
-            started: false,
         })
     }
 
@@ -203,9 +201,6 @@ impl BodyStream {
     }
 
     pub fn into_reqwest(self, is_blocking: bool) -> PyResult<reqwest::Body> {
-        if self.started {
-            return Err(PyRuntimeError::new_err("Cannot use a stream that was already consumed"));
-        }
         if is_blocking && self.is_async {
             return Err(PyValueError::new_err("Cannot use async iterator in a blocking context"));
         }
@@ -213,9 +208,6 @@ impl BodyStream {
     }
 
     pub fn set_task_local(&mut self) -> PyResult<()> {
-        if self.started {
-            return Err(PyRuntimeError::new_err("Cannot set event loop after the stream has started"));
-        }
         if self.is_async && self.task_local.is_none() {
             self.task_local = Some(Python::attach(TaskLocal::current)?);
         }
@@ -223,8 +215,6 @@ impl BodyStream {
     }
 
     fn py_next(&mut self) -> PyResult<StreamWaiter> {
-        self.started = true;
-
         let py_iter = self
             .py_iter
             .as_ref()
@@ -272,10 +262,6 @@ impl BodyStream {
     }
 
     pub fn try_clone(&self, py: Python) -> PyResult<Self> {
-        if self.started {
-            return Err(PyRuntimeError::new_err("Cannot clone a stream that was already consumed"));
-        }
-
         let new_stream = self
             .stream
             .as_ref()
@@ -289,7 +275,6 @@ impl BodyStream {
             stream: Some(new_stream.unbind()),
             task_local: None,
             cur_waiter: None,
-            started: false,
         })
     }
 

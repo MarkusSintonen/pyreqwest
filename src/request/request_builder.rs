@@ -171,6 +171,18 @@ impl BaseRequestBuilder {
         Ok(slf)
     }
 
+    fn with_middleware<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        middleware: Bound<'py, PyAny>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        if let Some(middlewares_next) = slf.middlewares_next.as_mut() {
+            middlewares_next.add_middleware(middleware)?;
+        } else {
+            slf.middlewares_next = Some(NextInner::new(Arc::new(vec![middleware.unbind()]))?);
+        }
+        Ok(slf)
+    }
+
     fn streamed_read_buffer_limit(mut slf: PyRefMut<'_, Self>, value: usize) -> PyResult<PyRefMut<'_, Self>> {
         slf.check_inner()?;
         slf.streamed_read_buffer_limit = Some(value);
@@ -180,19 +192,6 @@ impl BaseRequestBuilder {
     #[staticmethod]
     fn default_streamed_read_buffer_limit() -> usize {
         DEFAULT_READ_BUFFER_LIMIT
-    }
-
-    fn _set_interceptor<'py>(
-        mut slf: PyRefMut<'py, Self>,
-        interceptor: Bound<'py, PyAny>,
-    ) -> PyResult<PyRefMut<'py, Self>> {
-        if let Some(middlewares_next) = slf.middlewares_next.as_mut() {
-            middlewares_next.add_middleware(interceptor)?;
-        } else {
-            let middlewares = Arc::new(vec![interceptor.unbind()]);
-            slf.middlewares_next = Some(NextInner::new(middlewares)?);
-        }
-        Ok(slf)
     }
 
     // :NOCOV_START

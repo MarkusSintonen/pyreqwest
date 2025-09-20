@@ -379,7 +379,7 @@ impl HeaderMap {
             let value = if hide_sensitive && value.is_sensitive() {
                 intern!(py, "Sensitive").to_owned()
             } else {
-                PyString::new(py, &HeaderValue::inner_str(value))
+                PyString::new(py, &HeaderValue::inner_str(value)?)
             };
 
             match dict.get_item(key)? {

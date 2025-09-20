@@ -77,8 +77,9 @@ async def test_version(client: Client, echo_server: Server, https_echo_server: S
         assert proto == "https"
         assert resp.version == "HTTP/2.0"
 
-    resp.version = "HTTP/3.0"
-    assert resp.version == "HTTP/3.0"
+    for v in ["HTTP/0.9", "HTTP/1.0", "HTTP/1.1", "HTTP/2.0", "HTTP/3.0"]:
+        resp.version = v
+        assert resp.version == v
 
     with pytest.raises(ValueError, match="invalid http version"):
         resp.version = "foobar"
@@ -94,6 +95,8 @@ async def test_extensions(client: Client, echo_server: Server) -> None:
     resp.extensions = {"foo": "bar", "test": "value"}
     assert resp.extensions.pop("test") == "value"
     assert resp.extensions == {"foo": "bar"}
+    resp.extensions = [("x", 1), ("y", 2)]
+    assert resp.extensions == {"x": 1, "y": 2}
 
 
 @pytest.mark.parametrize("kind", ["chunk", "bytes", "text", "json"])
@@ -293,8 +296,9 @@ async def test_response_builder():
     resp = (
         await ResponseBuilder()
         .status(201)
-        .header("X-Test", "Value1")
-        .header("X-Test", "Value2")
+        .headers([("X-Test", "Value1"), ("X-Test", "Value2")])
+        .header("X-Test", "Value3")
+        .header("X-Test2", "Value4")
         .extensions({"foo": "bar"})
         .version("HTTP/2.0")
         .body_stream(stream())
@@ -302,14 +306,15 @@ async def test_response_builder():
     )
 
     assert resp.headers["X-Test"] == "Value1"
-    assert resp.headers.getall("X-Test") == ["Value1", "Value2"]
+    assert resp.headers.getall("X-Test") == ["Value1", "Value2", "Value3"]
+    assert resp.headers.getall("X-Test2") == ["Value4"]
     assert resp.extensions == {"foo": "bar"}
     assert resp.status == 201
     assert await resp.bytes() == b"test1 test2"
     assert resp.version == "HTTP/2.0"
 
 
-async def test_response_builder__sync():
+def test_response_builder__sync():
     def stream() -> Iterator[bytes]:
         yield b"test1 "
         yield b"test2"
@@ -317,16 +322,22 @@ async def test_response_builder__sync():
     resp = (
         ResponseBuilder()
         .status(201)
-        .header("X-Test", "Value1")
-        .header("X-Test", "Value2")
+        .headers([("X-Test", "Value1"), ("X-Test", "Value2")])
+        .header("X-Test", "Value3")
+        .header("X-Test2", "Value4")
+        .extensions({"foo": "bar"})
+        .version("HTTP/2.0")
         .body_stream(stream())
         .build_sync()
     )
 
     assert resp.headers["X-Test"] == "Value1"
-    assert resp.headers.getall("X-Test") == ["Value1", "Value2"]
+    assert resp.headers.getall("X-Test") == ["Value1", "Value2", "Value3"]
+    assert resp.headers.getall("X-Test2") == ["Value4"]
+    assert resp.extensions == {"foo": "bar"}
     assert resp.status == 201
     assert resp.bytes() == b"test1 test2"
+    assert resp.version == "HTTP/2.0"
 
 
 async def test_response_builder__sync_no_async_mix() -> None:
