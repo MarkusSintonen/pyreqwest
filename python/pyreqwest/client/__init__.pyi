@@ -1,13 +1,14 @@
 from datetime import timedelta
 from typing import Any, Generic, Self, TypeVar
 
-from pyreqwest.client.types import JsonDumps, JsonLoads, SyncJsonLoads
 from pyreqwest.http import Url
 from pyreqwest.http.cookie import CookieStore
 from pyreqwest.middleware.types import Middleware, SyncMiddleware
 from pyreqwest.proxy import ProxyBuilder
 from pyreqwest.request import BaseRequestBuilder, RequestBuilder, SyncRequestBuilder
 from pyreqwest.types import HeadersType
+
+from .types import JsonDumps, JsonLoads, SyncJsonLoads
 
 _RB = TypeVar("_RB", bound=BaseRequestBuilder)
 
