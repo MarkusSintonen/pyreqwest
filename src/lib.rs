@@ -35,8 +35,8 @@ mod pyreqwest {
         use super::*;
         #[pymodule_export]
         use crate::request::{
-            BaseRequestBuilder, ConsumedRequest, Request, RequestBuilder, StreamRequest, SyncConsumedRequest,
-            SyncRequestBuilder, SyncStreamRequest,
+            BaseRequestBuilder, ConsumedRequest, Request, RequestBody, RequestBuilder, StreamRequest,
+            SyncConsumedRequest, SyncRequestBuilder, SyncStreamRequest,
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -94,9 +94,7 @@ mod pyreqwest {
     mod http {
         use super::*;
         #[pymodule_export]
-        use crate::http::{
-            HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView, Mime, RequestBody, Url,
-        };
+        use crate::http::{HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView, Mime, Url};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
             register_collections_abc::<Mime>(module.py(), "Sequence")?;

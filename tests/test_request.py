@@ -12,8 +12,8 @@ import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.client.types import JsonLoadsContext
-from pyreqwest.http import HeaderMap, RequestBody
-from pyreqwest.request import ConsumedRequest, Request, StreamRequest
+from pyreqwest.http import HeaderMap
+from pyreqwest.request import ConsumedRequest, Request, RequestBody, StreamRequest
 from pyreqwest.types import Stream
 from syrupy import SnapshotAssertion  # type: ignore[attr-defined]
 

@@ -1,14 +1,14 @@
 use crate::client::internal::Spawner;
 use crate::exceptions::BuilderError;
+use crate::http::HeaderMap;
 use crate::http::internal::json::{JsonDumpsContext, JsonHandler};
 use crate::http::internal::types::{Extensions, FormParams, HeaderName, HeaderValue, JsonValue, QueryParams};
-use crate::http::{HeaderMap, RequestBody};
 use crate::middleware::NextInner;
 use crate::multipart::FormBuilder;
-use crate::request::Request;
 use crate::request::consumed_request::{ConsumedRequest, SyncConsumedRequest};
 use crate::request::request::RequestData;
 use crate::request::stream_request::{StreamRequest, SyncStreamRequest};
+use crate::request::{Request, RequestBody};
 use crate::response::internal::{BodyConsumeConfig, DEFAULT_READ_BUFFER_LIMIT, StreamedReadConfig};
 use bytes::Bytes;
 use http::header::CONTENT_TYPE;

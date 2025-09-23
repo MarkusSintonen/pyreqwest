@@ -1,6 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::RuntimeHandle;
-use crate::http::{BodyStream, HeaderMap};
+use crate::http::HeaderMap;
+use crate::http::internal::body_stream::BodyStream;
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;

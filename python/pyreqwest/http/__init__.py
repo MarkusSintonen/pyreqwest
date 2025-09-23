@@ -6,7 +6,6 @@ from pyreqwest._pyreqwest.http import (
     HeaderMapKeysView,
     HeaderMapValuesView,
     Mime,
-    RequestBody,
     Url,
 )
 
@@ -16,6 +15,5 @@ __all__ = [
     "HeaderMapKeysView",
     "HeaderMapValuesView",
     "Mime",
-    "RequestBody",
     "Url",
 ]

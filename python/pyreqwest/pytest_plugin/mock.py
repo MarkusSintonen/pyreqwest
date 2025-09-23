@@ -9,7 +9,6 @@ from typing import Any, Literal, Self, TypeVar, assert_never
 
 import pytest
 
-from pyreqwest.http import RequestBody
 from pyreqwest.middleware import Next, SyncNext
 from pyreqwest.middleware.types import Middleware, SyncMiddleware
 from pyreqwest.pytest_plugin.internal.matcher import InternalMatcher
@@ -23,7 +22,7 @@ from pyreqwest.pytest_plugin.types import (
     QueryMatcher,
     UrlMatcher,
 )
-from pyreqwest.request import BaseRequestBuilder, Request, RequestBuilder, SyncRequestBuilder
+from pyreqwest.request import BaseRequestBuilder, Request, RequestBody, RequestBuilder, SyncRequestBuilder
 from pyreqwest.response import BaseResponse, Response, ResponseBuilder, SyncResponse
 
 _R = TypeVar("_R", bound=BaseResponse)

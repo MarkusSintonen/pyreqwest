@@ -1,6 +1,5 @@
 use crate::allow_threads::AllowThreads;
-use crate::http::RequestBody;
-use crate::request::Request;
+use crate::request::{Request, RequestBody};
 use crate::response::{Response, SyncResponse};
 use pyo3::coroutine::CancelHandle;
 use pyo3::prelude::*;

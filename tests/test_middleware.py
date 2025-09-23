@@ -7,10 +7,9 @@ from typing import Any
 import pytest
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import ConnectError
-from pyreqwest.http import RequestBody
 from pyreqwest.middleware import Next
 from pyreqwest.middleware.types import Middleware
-from pyreqwest.request import Request
+from pyreqwest.request import Request, RequestBody
 from pyreqwest.response import Response, ResponseBuilder
 
 from tests.servers.server_subprocess import SubprocessServer
