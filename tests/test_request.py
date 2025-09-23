@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import gc
+import json
 import time
 import weakref
 from collections.abc import AsyncGenerator
@@ -10,12 +11,13 @@ from typing import Any
 import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
+from pyreqwest.client.types import JsonLoadsContext
 from pyreqwest.http import HeaderMap, RequestBody
 from pyreqwest.request import ConsumedRequest, Request, StreamRequest
 from pyreqwest.types import Stream
 from syrupy import SnapshotAssertion  # type: ignore[attr-defined]
 
-from .servers.server import Server
+from tests.servers.server_subprocess import SubprocessServer
 
 
 @pytest.fixture
@@ -25,7 +27,7 @@ async def client(cert_authority: trustme.CA) -> AsyncGenerator[Client, None]:
         yield client
 
 
-async def test_method(client: Client, echo_server: Server) -> None:
+async def test_method(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).build()
     assert req.method == "GET"
     req.method = "POST"
@@ -33,14 +35,14 @@ async def test_method(client: Client, echo_server: Server) -> None:
     assert (await resp.json())["method"] == "POST"
 
 
-async def test_url(client: Client, echo_server: Server) -> None:
+async def test_url(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).query({"a": "b"}).build()
     assert req.url == echo_server.url.with_query({"a": "b"})
     req.url = req.url.with_query({"test": "value"})
     assert req.url.query_pairs == [("test", "value")]
 
 
-async def test_headers(client: Client, echo_server: Server) -> None:
+async def test_headers(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).headers({"X-Test1": "Value1", "X-Test2": "Value2"}).build()
     assert req.headers["X-Test1"] == "Value1" and req.headers["x-test1"] == "Value1"
     assert req.headers["X-Test2"] == "Value2" and req.headers["x-test2"] == "Value2"
@@ -58,8 +60,49 @@ async def test_headers(client: Client, echo_server: Server) -> None:
     ]
 
 
+async def test_headers__get_set(client: Client, echo_server: SubprocessServer) -> None:
+    req = client.get(echo_server.url).build()
+    assert isinstance(req.headers, HeaderMap) and req.headers == {}
+    req.headers = {"X-Test1": "Value1"}
+    assert isinstance(req.headers, HeaderMap) and req.headers == {"x-test1": "Value1"}
+    req2 = req.copy()
+    req3 = req.copy()
+    assert isinstance(req2.headers, HeaderMap) and req2.headers == {"x-test1": "Value1"}
+    req2.headers = [("X-Test2", "Value2"), ("X-Test2", "Value3")]
+    assert isinstance(req2.headers, HeaderMap) and req2.headers == HeaderMap(
+        [("x-test2", "Value2"), ("x-test2", "Value3")]
+    )
+
+    resp = await req.send()
+    assert [(k, v) for k, v in (await resp.json())["headers"] if k.startswith("x-")] == [("x-test1", "Value1")]
+    resp2 = await req2.send()
+    assert [(k, v) for k, v in (await resp2.json())["headers"] if k.startswith("x-")] == [
+        ("x-test2", "Value2"),
+        ("x-test2", "Value3"),
+    ]
+    resp3 = await req3.send()
+    assert [(k, v) for k, v in (await resp3.json())["headers"] if k.startswith("x-")] == [("x-test1", "Value1")]
+
+
+async def test_headers__client_default(echo_server: SubprocessServer) -> None:
+    async with ClientBuilder().error_for_status(True).default_headers({"X-Default": "Value1"}).build() as client:
+        req = client.get(echo_server.url).build()
+        req2 = req.copy()
+        assert req.headers == {"X-Default": "Value1"}
+        req.headers["X-Test"] = "Value2"
+        assert req.headers == {"X-Default": "Value1", "X-Test": "Value2"}
+
+        resp = await req.send()
+        assert [(k, v) for k, v in (await resp.json())["headers"] if k.startswith("x-")] == [
+            ("x-default", "Value1"),
+            ("x-test", "Value2"),
+        ]
+        resp2 = await req2.send()
+        assert [(k, v) for k, v in (await resp2.json())["headers"] if k.startswith("x-")] == [("x-default", "Value1")]
+
+
 @pytest.mark.parametrize("kind", ["bytes", "text"])
-async def test_body__content(client: Client, echo_server: Server, kind: str) -> None:
+async def test_body__content(client: Client, echo_server: SubprocessServer, kind: str) -> None:
     def body() -> RequestBody:
         if kind == "bytes":
             return RequestBody.from_bytes(b"test1")
@@ -85,7 +128,7 @@ async def test_body__content(client: Client, echo_server: Server, kind: str) -> 
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
 async def test_body__stream_fn(
     client: Client,
-    echo_server: Server,
+    echo_server: SubprocessServer,
     yield_type: type[bytes] | type[bytearray] | type[memoryview],
 ) -> None:
     async def stream_gen() -> Stream:
@@ -111,7 +154,7 @@ async def test_body__stream_fn(
     assert (await resp.json())["body_parts"] == ["test1", "test2"]
 
 
-async def test_body__stream_class(client: Client, echo_server: Server) -> None:
+async def test_body__stream_class(client: Client, echo_server: SubprocessServer) -> None:
     class StreamGen:
         def __aiter__(self) -> AsyncGenerator[bytes]:
             async def gen() -> AsyncGenerator[bytes]:
@@ -139,7 +182,7 @@ async def test_body__stream_class(client: Client, echo_server: Server) -> None:
     assert (await resp.json())["body_parts"] == ["test1", "test2"]
 
 
-async def test_body__stream_error(client: Client, echo_server: Server) -> None:
+async def test_body__stream_error(client: Client, echo_server: SubprocessServer) -> None:
     class StreamGen:
         def __aiter__(self) -> AsyncGenerator[bytes]:
             raise TypeError("test error")
@@ -160,7 +203,7 @@ async def test_body__stream_error(client: Client, echo_server: Server) -> None:
         await req.send()
 
 
-async def test_body__stream_error_already_used(client: Client, echo_server: Server) -> None:
+async def test_body__stream_error_already_used(client: Client, echo_server: SubprocessServer) -> None:
     async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"test1"
 
@@ -187,7 +230,26 @@ async def test_body__stream_error_already_used(client: Client, echo_server: Serv
         await req.send()
 
 
-async def test_extensions(client: Client, echo_server: Server) -> None:
+async def test_body__get_set(client: Client, echo_server: SubprocessServer) -> None:
+    req = client.get(echo_server.url).build()
+    assert req.body is None
+    req.body = RequestBody.from_bytes(b"test1")
+    assert req.body is not None and req.body.copy_bytes() == b"test1" and req.body.get_stream() is None
+    req2 = req.copy()
+    req3 = req.copy()
+    assert req2.body is not None and req2.body.copy_bytes() == b"test1" and req2.body.get_stream() is None
+    req2.body = RequestBody.from_bytes(b"test2")
+    assert req2.body is not None and req2.body.copy_bytes() == b"test2" and req2.body.get_stream() is None
+
+    resp = await req.send()
+    assert (await resp.json())["body_parts"] == ["test1"]
+    resp2 = await req2.send()
+    assert (await resp2.json())["body_parts"] == ["test2"]
+    resp3 = await req3.send()
+    assert (await resp3.json())["body_parts"] == ["test1"]
+
+
+async def test_extensions(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).extensions({"a": "b"}).build()
     assert req.extensions == {"a": "b"}
     req.extensions = {"foo": "bar", "test": "value"}
@@ -198,7 +260,14 @@ async def test_extensions(client: Client, echo_server: Server) -> None:
 @pytest.mark.parametrize("call", ["copy", "__copy__"])
 @pytest.mark.parametrize("build_streamed", [False, True])
 @pytest.mark.parametrize("body_streamed", [False, True])
-async def test_copy(client: Client, echo_server: Server, call: str, build_streamed: bool, body_streamed: bool) -> None:
+async def test_copy(echo_server: SubprocessServer, call: str, build_streamed: bool, body_streamed: bool) -> None:
+    async def remove_time(ctx: JsonLoadsContext) -> Any:
+        d = json.loads((await ctx.body_reader.bytes()).to_bytes())
+        d.pop("time")
+        return d
+
+    client = ClientBuilder().json_handler(loads=remove_time).error_for_status(True).build()
+
     builder = client.get(echo_server.url).header("X-Test1", "Val1")
     stream_copied = False
 
@@ -253,14 +322,14 @@ async def test_copy(client: Client, echo_server: Server, call: str, build_stream
         assert (await resp1.json()) == (await resp2.json())
 
 
-async def test_duplicate_send_fails(client: Client, echo_server: Server) -> None:
+async def test_duplicate_send_fails(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).build()
     await req.send()
     with pytest.raises(RuntimeError, match="Request was already sent"):
         await req.send()
 
 
-async def test_duplicate_context_manager_fails(client: Client, echo_server: Server) -> None:
+async def test_duplicate_context_manager_fails(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).build_streamed()
     async with req as _:
         pass
@@ -275,7 +344,7 @@ async def test_duplicate_context_manager_fails(client: Client, echo_server: Serv
                 pytest.fail("Should not get here")
 
 
-async def test_cancel(client: Client, echo_server: Server) -> None:
+async def test_cancel(client: Client, echo_server: SubprocessServer) -> None:
     request = client.get(echo_server.url.with_query({"sleep_start": 5})).build()
 
     task = asyncio.create_task(request.send())
@@ -288,7 +357,7 @@ async def test_cancel(client: Client, echo_server: Server) -> None:
 
 
 @pytest.mark.parametrize("sleep_in", ["stream_gen", "server"])
-async def test_cancel_stream_request(client: Client, echo_body_parts_server: Server, sleep_in: str) -> None:
+async def test_cancel_stream_request(client: Client, echo_body_parts_server: SubprocessServer, sleep_in: str) -> None:
     async def stream_gen() -> AsyncGenerator[bytes]:
         if sleep_in == "stream_gen":
             yield b"test1"
@@ -314,7 +383,7 @@ async def test_cancel_stream_request(client: Client, echo_body_parts_server: Ser
     assert time.time() - start < 1
 
 
-async def test_use_after_send(client: Client, echo_server: Server) -> None:
+async def test_use_after_send(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).build()
     await req.send()
     with pytest.raises(RuntimeError, match="Request was already sent"):
@@ -340,7 +409,7 @@ class StreamRepr:
         return "StreamRepr()"
 
 
-async def test_repr(snapshot: SnapshotAssertion):
+async def test_repr(snapshot: SnapshotAssertion, echo_server: SubprocessServer) -> None:
     client = ClientBuilder().build()
     url = "https://example.com/test?foo=bar"
     headers = HeaderMap({"X-Test": "Value"})
@@ -357,17 +426,29 @@ async def test_repr(snapshot: SnapshotAssertion):
     assert repr(req3) == snapshot(name="repr_stream_body")
     assert req3.repr_full() == snapshot(name="repr_full_stream_body")
 
+    req4 = client.get("https://example.com").build()
+    req4.body = RequestBody.from_stream(StreamRepr())
+    assert repr(req4) == snapshot(name="repr_set_stream_body")
+    assert req4.repr_full() == snapshot(name="repr_set_full_stream_body")
+
     streamed = client.get("https://example.com").body_stream(StreamRepr()).build_streamed()
     assert repr(streamed) == repr(req3)
     assert streamed.repr_full() == req3.repr_full()
 
-    assert repr(req3.body) == "RequestBody(stream=StreamRepr())"
-    body = req3.body
-    await req3.send()
+    sent_req = client.get(echo_server.url).body_stream(StreamRepr()).build()
+    assert repr(sent_req.body) == "RequestBody(stream=StreamRepr())"
+    body = sent_req.body
+    await sent_req.send()
     assert repr(body) == "RequestBody(<already consumed>)"
 
 
-def test_circular_reference_collected(echo_server: Server) -> None:
+def test_consumed_request_read_buffer_limit_fails(client: Client, echo_server: SubprocessServer) -> None:
+    req = client.get(echo_server.url).build()
+    with pytest.raises(RuntimeError, match="Expected streamed request, found fully consumed request"):
+        _ = req.read_buffer_limit  # type: ignore[attr-defined]
+
+
+def test_circular_reference_collected(echo_server: SubprocessServer) -> None:
     # Check the GC support via __traverse__ and __clear__
     ref: weakref.ReferenceType[Any] | None = None
 

@@ -14,6 +14,12 @@
 # name: test_repr[repr_sensitive]
   "Request(method='GET', origin_path='https://example.com/test', headers={'x-test': 'Value', 'x-another': 'Sensitive'}, body=None)"
 # ---
+# name: test_repr[repr_set_full_stream_body]
+  "Request(method='GET', url='https://example.com/', headers={}, body=RequestBody(stream=StreamRepr()))"
+# ---
+# name: test_repr[repr_set_stream_body]
+  "Request(method='GET', origin_path='https://example.com/', headers={}, body=RequestBody(stream=StreamRepr()))"
+# ---
 # name: test_repr[repr_stream_body]
   "Request(method='GET', origin_path='https://example.com/', headers={}, body=RequestBody(stream=StreamRepr()))"
 # ---

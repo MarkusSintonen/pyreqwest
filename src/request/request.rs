@@ -54,8 +54,8 @@ impl Request {
             inner.headers = Some(ReqHeaders::PyHeaders(Py::new(py, headers)?));
         }
         if let Some(ReqHeaders::Headers(h)) = &inner.headers {
-            let py_headers = Py::new(py, HeaderMap::from(h.try_take_inner()?))?;
-            inner.headers = Some(ReqHeaders::PyHeaders(py_headers.clone_ref(py)));
+            let headers = HeaderMap::from(h.try_take_inner()?);
+            inner.headers = Some(ReqHeaders::PyHeaders(Py::new(py, headers)?));
         }
         match inner.headers.as_ref() {
             Some(ReqHeaders::PyHeaders(h)) => Ok(h.clone_ref(py)),
@@ -108,9 +108,10 @@ impl Request {
         slf.call_method0(intern!(slf.py(), "__copy__"))
     }
 
+    // :NOCOV_START
     fn __copy__(&self, _py: Python) -> PyResult<Self> {
         Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
-    }
+    } // :NOCOV_END
 
     pub fn __repr__(&self, py: Python) -> PyResult<String> {
         self.repr(py, true)
@@ -124,10 +125,13 @@ impl Request {
     fn get_read_buffer_limit(&self) -> PyResult<usize> {
         match self.ref_inner()?.request.body_consume_config {
             BodyConsumeConfig::Streamed(conf) => Ok(conf.read_buffer_limit),
-            BodyConsumeConfig::FullyConsumed => Err(PyRuntimeError::new_err("Unexpected config")),
+            BodyConsumeConfig::FullyConsumed => {
+                Err(PyRuntimeError::new_err("Expected streamed request, found fully consumed request"))
+            }
         }
     }
 
+    // :NOCOV_START
     #[classmethod]
     pub fn from_request_and_body(
         _cls: &Bound<'_, PyType>,
@@ -136,7 +140,7 @@ impl Request {
         _body: Option<Bound<RequestBody>>,
     ) -> PyResult<Self> {
         Err(PyNotImplementedError::new_err("Should be implemented in a subclass"))
-    }
+    } // :NOCOV_END
 
     // :NOCOV_START
     pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -239,21 +243,25 @@ impl Request {
         Ok(this.request)
     }
 
-    pub fn try_clone_inner(&self, py: Python) -> PyResult<Self> {
+    pub fn try_clone_inner(&self, py: Python, body: Option<Py<RequestBody>>) -> PyResult<Self> {
         let inner = self.ref_inner()?;
         let request = inner.request.try_clone(py)?;
         let middlewares_next = inner.middlewares_next.as_ref().map(|next| next.clone_ref(py));
 
         py.detach(|| {
-            let body = match inner.body.as_ref() {
-                Some(ReqBody::Body(body)) => Some(ReqBody::Body(body.try_clone()?)),
-                Some(ReqBody::PyBody(py_body)) => Some(ReqBody::Body(py_body.get().try_clone()?)),
-                None => None,
+            let body = if let Some(body) = body {
+                Some(ReqBody::PyBody(body))
+            } else {
+                match inner.body.as_ref() {
+                    Some(ReqBody::Body(body)) => Some(ReqBody::Body(body.try_clone()?)),
+                    Some(ReqBody::PyBody(py_body)) => Some(ReqBody::Body(py_body.get().try_clone()?)),
+                    None => None,
+                }
             };
 
             let headers = match inner.headers.as_ref() {
                 Some(ReqHeaders::Headers(h)) => Some(ReqHeaders::Headers(h.try_clone()?)),
-                Some(ReqHeaders::PyHeaders(py_headers)) => Some(ReqHeaders::Headers(py_headers.get().try_clone()?)),
+                Some(ReqHeaders::PyHeaders(h)) => Some(ReqHeaders::Headers(h.get().try_clone()?)),
                 None => None,
             };
 
@@ -264,24 +272,6 @@ impl Request {
                 middlewares_next,
             })))
         })
-    }
-
-    pub fn inner_from_request_and_body(request: Bound<PyAny>, body: Option<Bound<RequestBody>>) -> PyResult<Self> {
-        let request = request.downcast::<Request>()?.try_borrow()?;
-        let inner = request.ref_inner()?;
-
-        let headers = match inner.headers.as_ref() {
-            Some(ReqHeaders::Headers(h)) => Some(ReqHeaders::Headers(h.try_clone()?)),
-            Some(ReqHeaders::PyHeaders(py_headers)) => Some(ReqHeaders::Headers(py_headers.get().try_clone()?)),
-            None => None,
-        };
-
-        Ok(Request(Some(Inner {
-            request: inner.request.try_clone(request.py())?,
-            headers,
-            body: body.map(|b| b.get().take_inner()).transpose()?.map(ReqBody::Body),
-            middlewares_next: inner.middlewares_next.as_ref().map(|next| next.clone_ref(request.py())),
-        })))
     }
 
     pub fn repr(&self, py: Python, hide_sensitive: bool) -> PyResult<String> {

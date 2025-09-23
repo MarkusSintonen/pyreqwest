@@ -47,17 +47,17 @@ impl StreamRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+        Self::new_py(py, slf.as_super().try_clone_inner(py, None)?)
     }
 
     #[classmethod]
     pub fn from_request_and_body(
         _cls: &Bound<'_, PyType>,
         py: Python,
-        request: Bound<PyAny>,
-        body: Option<Bound<RequestBody>>,
+        request: Bound<Self>,
+        body: Option<Py<RequestBody>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
+        Self::new_py(py, request.try_borrow()?.as_super().try_clone_inner(py, body)?)
     }
 
     // :NOCOV_START
@@ -108,17 +108,17 @@ impl SyncStreamRequest {
     }
 
     fn __copy__(slf: PyRef<Self>, py: Python) -> PyResult<Py<Self>> {
-        Self::new_py(py, slf.as_super().try_clone_inner(py)?)
+        Self::new_py(py, slf.as_super().try_clone_inner(py, None)?)
     }
 
     #[classmethod]
     pub fn from_request_and_body(
         _cls: &Bound<'_, PyType>,
         py: Python,
-        request: Bound<PyAny>,
-        body: Option<Bound<RequestBody>>,
+        request: Bound<Self>,
+        body: Option<Py<RequestBody>>,
     ) -> PyResult<Py<Self>> {
-        Self::new_py(py, Request::inner_from_request_and_body(request, body)?)
+        Self::new_py(py, request.try_borrow()?.as_super().try_clone_inner(py, body)?)
     }
 
     // :NOCOV_START

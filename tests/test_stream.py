@@ -7,13 +7,12 @@ from typing import Any
 import orjson
 import pytest
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.exceptions import ConnectTimeoutError, ReadTimeoutError
+from pyreqwest.exceptions import ReadTimeoutError
 from pyreqwest.request import RequestBuilder
 from pyreqwest.response import Response
 from pyreqwest.types import Stream
 
-from .servers.echo_body_parts_server import EchoBodyPartsServer
-from .servers.echo_server import EchoServer
+from tests.servers.server_subprocess import SubprocessServer
 
 
 @pytest.fixture
@@ -32,7 +31,7 @@ async def read_chunks(resp: Response):
 @pytest.mark.parametrize("yield_empty", [False, True])
 async def test_body_stream__read_buffer_limit(
     client: Client,
-    echo_body_parts_server: EchoBodyPartsServer,
+    echo_body_parts_server: SubprocessServer,
     read_buffer_limit: int | None,
     read: str,
     yield_empty: bool,
@@ -73,7 +72,7 @@ async def test_body_stream__read_buffer_limit(
 
 
 @pytest.mark.parametrize("read", ["chunks", "bytes", "text"])
-async def test_body_stream__consumed(client: Client, echo_body_parts_server: EchoBodyPartsServer, read: str):
+async def test_body_stream__consumed(client: Client, echo_body_parts_server: SubprocessServer, read: str):
     async def stream_gen() -> AsyncGenerator[bytes]:
         for i in range(5):
             await asyncio.sleep(0)  # Simulate some work
@@ -94,7 +93,7 @@ async def test_body_stream__consumed(client: Client, echo_body_parts_server: Ech
 @pytest.mark.parametrize("gen_type", ["async", "sync", "list"])
 @pytest.mark.parametrize("yield_type", [bytes, bytearray, memoryview])
 async def test_body_stream__gen_type(
-    client: Client, echo_body_parts_server: EchoBodyPartsServer, gen_type: str, yield_type: type
+    client: Client, echo_body_parts_server: SubprocessServer, gen_type: str, yield_type: type
 ):
     if gen_type == "async":
 
@@ -120,7 +119,7 @@ async def test_body_stream__gen_type(
 
 
 @pytest.mark.parametrize("yield_val", ["bad", [b"a"], None])
-async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_server: EchoBodyPartsServer, yield_val: Any):
+async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_server: SubprocessServer, yield_val: Any):
     async def stream_gen() -> AsyncGenerator[Any]:
         yield yield_val
 
@@ -135,7 +134,7 @@ async def test_body_stream__bad_yield_type(client: Client, echo_body_parts_serve
 @pytest.mark.parametrize("sleep_kind", ["server", "stream"])
 async def test_body_stream__timeout(
     client: Client,
-    echo_body_parts_server: EchoBodyPartsServer,
+    echo_body_parts_server: SubprocessServer,
     read_buffer_limit: int | None,
     sleep_kind: str,
 ):
@@ -163,9 +162,8 @@ async def test_body_stream__timeout(
 
     default_initial_read = RequestBuilder.default_streamed_read_buffer_limit()
 
-    if read_buffer_limit is None or read_buffer_limit >= default_initial_read or sleep_kind == "stream":
-        error = ConnectTimeoutError if sleep_kind == "stream" else ReadTimeoutError
-        with pytest.raises(error):
+    if read_buffer_limit is None or read_buffer_limit >= default_initial_read:
+        with pytest.raises(ReadTimeoutError):
             async with req as _:
                 pytest.fail("Should have raised")
     else:
@@ -179,7 +177,7 @@ async def test_body_stream__timeout(
 @pytest.mark.parametrize("partial_body", [False, True])
 async def test_body_stream__gen_error(
     client: Client,
-    echo_body_parts_server: EchoBodyPartsServer,
+    echo_body_parts_server: SubprocessServer,
     read_buffer_limit: int | None,
     partial_body: bool,
 ):
@@ -215,7 +213,7 @@ async def test_body_stream__gen_error(
     assert "stream_gen" in tb_names
 
 
-async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: SubprocessServer):
     async def async_gen() -> AsyncGenerator[int]:
         yield 1
 
@@ -228,7 +226,7 @@ async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: 
             req.body_stream(case)  # type: ignore[arg-type]
 
 
-async def test_body_consumed(client: Client, echo_server: EchoServer):
+async def test_body_consumed(client: Client, echo_server: SubprocessServer):
     resp = await client.get(echo_server.url).build().send()
 
     first = await resp.json()
@@ -246,7 +244,7 @@ async def test_body_consumed(client: Client, echo_server: EchoServer):
     assert (await resp.body_reader.read_chunk()) is None
 
 
-async def test_body_consumed__already_started(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+async def test_body_consumed__already_started(client: Client, echo_body_parts_server: SubprocessServer):
     async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"part 0"
         yield b"part 1"
@@ -266,7 +264,7 @@ async def test_body_consumed__already_started(client: Client, echo_body_parts_se
     assert not await resp.body_reader.read_chunk()
 
 
-async def test_body_response_empty(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+async def test_body_response_empty(client: Client, echo_body_parts_server: SubprocessServer):
     async def yield_empty() -> AsyncGenerator[bytes]:
         yield b""
 
@@ -280,7 +278,7 @@ async def test_body_response_empty(client: Client, echo_body_parts_server: EchoB
             assert await resp.body_reader.read_chunk() is None
 
 
-async def test_use_after_close(client: Client, echo_body_parts_server: EchoBodyPartsServer):
+async def test_use_after_close(client: Client, echo_body_parts_server: SubprocessServer):
     async def stream_gen() -> AsyncGenerator[bytes]:
         yield b"part 0"
         yield b"part 1"

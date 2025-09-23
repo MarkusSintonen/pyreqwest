@@ -19,6 +19,7 @@ from pyreqwest.client import ClientBuilder, SyncClientBuilder
 from pyreqwest.http import Url
 
 from tests.servers.echo_server import EchoServer
+from tests.servers.server import EmbeddedServer, ServerConfig, find_free_port
 
 
 class PerformanceBenchmark:
@@ -379,15 +380,18 @@ def cert_pem_to_der_bytes(cert_pem: bytes) -> bytes:
 
 
 @asynccontextmanager
-async def server() -> AsyncGenerator[tuple[EchoServer, bytes], None]:
+async def server() -> AsyncGenerator[tuple[EmbeddedServer, bytes], None]:
     ca = trustme.CA()
     cert_der = ssl.PEM_cert_to_DER_cert(ca.cert_pem.bytes().decode())
     cert = ca.issue_cert("127.0.0.1", "localhost")
     with cert.cert_chain_pems[0].tempfile() as cert_tmp, cert.private_key_pem.tempfile() as pk_tmp:
         cert_file = Path(cert_tmp)
         pk_file = Path(pk_tmp)
+        port = find_free_port()
 
-        async with EchoServer(ssl_key=pk_file, ssl_cert=cert_file, http=HTTPModes.http1).serve_context() as echo_server:
+        async with EmbeddedServer(
+            EchoServer(), port, ServerConfig(ssl_key=pk_file, ssl_cert=cert_file, http=HTTPModes.http1)
+        ).serve_context() as echo_server:
             yield echo_server, cert_der
 
 

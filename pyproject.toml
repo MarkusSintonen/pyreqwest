@@ -24,6 +24,7 @@ dev = [
     "syrupy==4.9.1",
     "ruff==0.12.10",
     "mypy==1.17.1",
+    "pydantic==2.11.9",
     # Compatibility with other libraries
     "dirty-equals==0.9.0",
     "yarl==1.20.1",
@@ -69,6 +70,7 @@ ignore = [
     "D203",
     "D213",
     "COM812",  # Formatter conflict
+    "TRY300",
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -84,6 +86,7 @@ max-args = 8
     "B011",
     "S101",
     "S105",
+    "S311",
     "ANN201",
     "ANN401",
     "PT018",
@@ -96,6 +99,9 @@ max-args = 8
     "C414",
     "C901",
     "TC002",
+    "BLE001",
+    "T201",
+    "SLF001",
 ]
 "./tests/bench/*" = ["T201", "EM102", "PLC0415", "TC002"]
 

@@ -18,18 +18,20 @@ from pyreqwest.exceptions import (
     ConnectTimeoutError,
     DecodeError,
     PoolTimeoutError,
+    ReadError,
     ReadTimeoutError,
+    RedirectError,
     StatusError,
 )
 from pyreqwest.http import HeaderMap, Url
 from pyreqwest.request import BaseRequestBuilder, ConsumedRequest, Request, RequestBuilder
 from pyreqwest.response import BaseResponse, Response, ResponseBodyReader
 
-from .servers.echo_server import EchoServer
 from .servers.server import find_free_port
+from .servers.server_subprocess import SubprocessServer
 
 
-async def test_base_url(echo_server: EchoServer):
+async def test_base_url(echo_server: SubprocessServer):
     async def echo_path(client: Client, path: str) -> str:
         resp = await (await client.get(path).build().send()).json()
         return str(resp["path"])
@@ -55,7 +57,7 @@ async def test_base_url(echo_server: EchoServer):
 
 
 @pytest.mark.parametrize("value", [True, False])
-async def test_error_for_status(echo_server: EchoServer, value: bool):
+async def test_error_for_status(echo_server: SubprocessServer, value: bool):
     url = echo_server.url.with_query({"status": 400})
 
     async with ClientBuilder().error_for_status(value).build() as client:
@@ -71,7 +73,9 @@ async def test_error_for_status(echo_server: EchoServer, value: bool):
 
 @pytest.mark.parametrize("value", [1, 2, None])
 @pytest.mark.parametrize("timeout_val", [timedelta(seconds=0.05), None])
-async def test_max_connections_pool_timeout(echo_server: EchoServer, value: int | None, timeout_val: timedelta | None):
+async def test_max_connections_pool_timeout(
+    echo_server: SubprocessServer, value: int | None, timeout_val: timedelta | None
+):
     url = echo_server.url.with_query({"sleep_start": 0.1})
 
     builder = ClientBuilder().max_connections(value).error_for_status(True)
@@ -88,7 +92,7 @@ async def test_max_connections_pool_timeout(echo_server: EchoServer, value: int 
             await asyncio.gather(*coros)
 
 
-async def test_max_connections_full_timeout(echo_server: EchoServer):
+async def test_max_connections_full_timeout(echo_server: SubprocessServer):
     url = echo_server.url.with_query({"sleep_start": 0.01})
 
     builder = ClientBuilder().max_connections(1).timeout(timedelta(seconds=0.05)).error_for_status(True)
@@ -103,7 +107,7 @@ async def test_max_connections_full_timeout(echo_server: EchoServer):
 @pytest.mark.parametrize("timeout_value", [0.05, 0.2, None])
 @pytest.mark.parametrize("sleep_kind", ["sleep_start", "sleep_body"])
 @pytest.mark.parametrize("timeout_kind", ["total", "read", "connect"])
-async def test_timeout(echo_server: EchoServer, timeout_value: float | None, sleep_kind: str, timeout_kind: str):
+async def test_timeout(echo_server: SubprocessServer, timeout_value: float | None, sleep_kind: str, timeout_kind: str):
     url = echo_server.url.with_query({sleep_kind: 0.1})
 
     builder = ClientBuilder().error_for_status(True)
@@ -127,7 +131,7 @@ async def test_timeout(echo_server: EchoServer, timeout_value: float | None, sle
             await req.send()
 
 
-async def test_no_connection():
+async def test_connection_failure():
     port = find_free_port()
     async with ClientBuilder().error_for_status(True).build() as client:
         req = client.get(Url(f"http://localhost:{port}")).build()
@@ -136,7 +140,62 @@ async def test_no_connection():
         assert e.value.details and {"message": "tcp connect error"} in (e.value.details["causes"] or [])
 
 
-async def test_user_agent(echo_server: EchoServer):
+async def test_connection_failure__while_client_send(echo_server: SubprocessServer):
+    killed = False
+
+    async def stream_gen() -> Any:
+        nonlocal killed
+        yield b"test"
+        killed = True
+        await echo_server.kill()
+        yield b"test2"
+
+    async with ClientBuilder().error_for_status(True).build() as client:
+        req = client.post(echo_server.url).body_stream(stream_gen()).build()
+        with pytest.raises(ConnectError, match="connection error"):
+            await req.send()
+        assert killed
+
+
+async def test_connection_failure__while_server_read(echo_server: SubprocessServer):
+    killed = False
+
+    async def stream_gen() -> Any:
+        nonlocal killed
+        yield b"test"
+        killed = True
+        yield b"command:kill"
+
+    async with ClientBuilder().error_for_status(True).build() as client:
+        req = client.post(echo_server.url).body_stream(stream_gen()).build()
+        with pytest.raises(ConnectError, match="connection error"):
+            await req.send()
+        assert killed
+
+
+async def test_connection_failure__while_client_read(echo_body_parts_server: SubprocessServer):
+    async def stream_gen() -> Any:
+        for i in range(10):
+            yield str(i).encode() * 65536
+
+    async with (
+        ClientBuilder().error_for_status(True).build() as client,
+        client.post(echo_body_parts_server.url)
+        .body_stream(stream_gen())
+        .streamed_read_buffer_limit(0)
+        .build_streamed() as resp,
+    ):
+        await resp.body_reader.read_chunk()
+
+        await echo_body_parts_server.kill()
+
+        with pytest.raises(ReadError, match="response body connection error") as e:  # noqa: PT012
+            while await resp.body_reader.read_chunk():
+                pass
+        assert e.value.details and {"message": "error reading a body from connection"} in e.value.details["causes"]
+
+
+async def test_user_agent(echo_server: SubprocessServer):
     async with ClientBuilder().user_agent("ua-test").error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build().send()).json()
         assert ["user-agent", "ua-test"] in res["headers"]
@@ -146,7 +205,7 @@ async def test_user_agent(echo_server: EchoServer):
     "value",
     [HeaderMap({"X-Test": "foobar"}), {"X-Test": "foobar"}, HeaderMap([("X-Test", "foo"), ("X-Test", "bar")])],
 )
-async def test_default_headers__good(echo_server: EchoServer, value: Mapping[str, str]):
+async def test_default_headers__good(echo_server: SubprocessServer, value: Mapping[str, str]):
     async with ClientBuilder().default_headers(value).error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build().send()).json()
         for name, v in value.items():
@@ -166,7 +225,7 @@ async def test_default_headers__bad():
         ClientBuilder().default_headers({"X-Test": "bad\n"})
 
 
-async def test_response_compression(echo_server: EchoServer):
+async def test_response_compression(echo_server: SubprocessServer):
     async with ClientBuilder().error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build().send()).json()
         assert ["accept-encoding", "gzip, br, zstd, deflate"] in res["headers"]
@@ -185,7 +244,7 @@ async def test_response_compression(echo_server: EchoServer):
 
 
 @pytest.mark.parametrize("str_url", [False, True])
-async def test_http_methods(echo_server: EchoServer, str_url: bool):
+async def test_http_methods(echo_server: SubprocessServer, str_url: bool):
     url = str(echo_server.url) if str_url else echo_server.url
     async with ClientBuilder().error_for_status(True).build() as client:
         async with client.get(url).build_streamed() as response:
@@ -205,7 +264,7 @@ async def test_http_methods(echo_server: EchoServer, str_url: bool):
             assert (await response.json())["method"] == "QUERY"
 
 
-async def test_use_after_close(echo_server: EchoServer):
+async def test_use_after_close(echo_server: SubprocessServer):
     async with ClientBuilder().error_for_status(True).build() as client:
         assert (await client.get(echo_server.url).build().send()).status == 200
     req = client.get(echo_server.url).build()
@@ -219,7 +278,7 @@ async def test_use_after_close(echo_server: EchoServer):
         await req.send()
 
 
-async def test_close_in_request(echo_server: EchoServer):
+async def test_close_in_request(echo_server: SubprocessServer):
     url = echo_server.url.with_query({"sleep_start": 1})
 
     async with ClientBuilder().error_for_status(True).build() as client:
@@ -241,7 +300,7 @@ async def test_builder_use_after_build():
     await client.close()
 
 
-async def test_https_only(echo_server: EchoServer):
+async def test_https_only(echo_server: SubprocessServer):
     async with ClientBuilder().https_only(True).error_for_status(True).build() as client:
         req = client.get(echo_server.url).build()
         with pytest.raises(BuilderError, match="builder error") as e:
@@ -249,7 +308,7 @@ async def test_https_only(echo_server: EchoServer):
         assert e.value.details and {"message": "URL scheme is not allowed"} in (e.value.details["causes"] or [])
 
 
-async def test_https(https_echo_server: EchoServer, cert_authority: trustme.CA):
+async def test_https(https_echo_server: SubprocessServer, cert_authority: trustme.CA):
     cert_pem = cert_authority.cert_pem.bytes()
     builder = ClientBuilder().add_root_certificate_pem(cert_pem).https_only(True).error_for_status(True)
     async with builder.build() as client:
@@ -263,7 +322,7 @@ async def test_https(https_echo_server: EchoServer, cert_authority: trustme.CA):
         assert (await resp.json())["scheme"] == "https"
 
 
-async def test_https__no_trust(https_echo_server: EchoServer):
+async def test_https__no_trust(https_echo_server: SubprocessServer):
     builder = ClientBuilder().https_only(True).error_for_status(True)
     async with builder.build() as client:
         req = client.get(https_echo_server.url).build()
@@ -273,7 +332,7 @@ async def test_https__no_trust(https_echo_server: EchoServer):
         assert {"message": "invalid peer certificate: UnknownIssuer"} in (e.value.details["causes"] or [])
 
 
-async def test_https__accept_invalid_certs(https_echo_server: EchoServer):
+async def test_https__accept_invalid_certs(https_echo_server: SubprocessServer):
     builder = ClientBuilder().danger_accept_invalid_certs(True).https_only(True).error_for_status(True)
     async with builder.build() as client:
         resp = await client.get(https_echo_server.url).build().send()
@@ -281,7 +340,7 @@ async def test_https__accept_invalid_certs(https_echo_server: EchoServer):
 
 
 @pytest.mark.parametrize("returns", [bytes, bytearray, memoryview])
-async def test_json_dumps_callback(echo_server: EchoServer, returns: type[bytes | bytearray | memoryview]):
+async def test_json_dumps_callback(echo_server: SubprocessServer, returns: type[bytes | bytearray | memoryview]):
     called = 0
 
     def custom_dumps(ctx: JsonDumpsContext) -> bytes | bytearray | memoryview:
@@ -299,7 +358,7 @@ async def test_json_dumps_callback(echo_server: EchoServer, returns: type[bytes 
         assert called == 1
 
 
-async def test_json_loads_callback(echo_server: EchoServer):
+async def test_json_loads_callback(echo_server: SubprocessServer):
     called = 0
 
     async def custom_loads(ctx: JsonLoadsContext) -> Any:
@@ -327,7 +386,10 @@ async def test_json_loads_callback(echo_server: EchoServer):
 
 
 async def test_various_builder_functions(
-    https_echo_server: EchoServer, echo_server: EchoServer, cert_authority: trustme.CA, localhost_cert: trustme.LeafCert
+    https_echo_server: SubprocessServer,
+    echo_server: SubprocessServer,
+    cert_authority: trustme.CA,
+    localhost_cert: trustme.LeafCert,
 ):
     client = (
         ClientBuilder()
@@ -370,7 +432,7 @@ async def test_various_builder_functions(
     ClientBuilder().add_crl_pem((Path(__file__).parent / "samples" / "crl.pem").read_bytes())
 
 
-async def test_http2_builder_functions(https_echo_server: EchoServer, cert_authority: trustme.CA):
+async def test_http2_builder_functions(https_echo_server: SubprocessServer, cert_authority: trustme.CA):
     client = (
         ClientBuilder()
         .add_root_certificate_pem(cert_authority.cert_pem.bytes())
@@ -390,11 +452,27 @@ async def test_http2_builder_functions(https_echo_server: EchoServer, cert_autho
         assert resp.status == 200 and resp.version == "HTTP/2.0"
 
 
-async def test_resolve(echo_server: EchoServer):
+async def test_resolve(echo_server: SubprocessServer):
     assert echo_server.url.port
     async with ClientBuilder().resolve("foobar.local", "127.0.0.1", echo_server.url.port).build() as client:
         resp = await client.get("http://foobar.local").build().send()
         assert resp.status == 200
+
+
+async def test_max_redirects(echo_server: SubprocessServer):
+    url = echo_server.url.with_query({"status": 302, "header_location": "/redirect"})
+
+    async with ClientBuilder().max_redirects(1).error_for_status(True).build() as client:
+        req = client.get(url).build()
+        resp = await req.send()
+        assert (await resp.json())["path"] == "/redirect"
+        assert resp.status == 200
+
+    async with ClientBuilder().max_redirects(0).error_for_status(True).build() as client:
+        req = client.get(url).build()
+        with pytest.raises(RedirectError, match="error following redirect") as e:
+            await req.send()
+        assert e.value.details and {"message": "too many redirects"} in e.value.details["causes"]
 
 
 def test_bad_tls_version():
@@ -404,7 +482,7 @@ def test_bad_tls_version():
         ClientBuilder().max_tls_version("bad")
 
 
-async def test_different_runtimes(echo_server: EchoServer):
+async def test_different_runtimes(echo_server: SubprocessServer):
     rt1 = Runtime()
     rt2 = Runtime()
 
@@ -425,7 +503,7 @@ async def test_different_runtimes(echo_server: EchoServer):
         await client2.get(echo_server.url).build().send()
 
 
-async def test_types(echo_server: EchoServer) -> None:
+async def test_types(echo_server: SubprocessServer) -> None:
     builder = ClientBuilder().error_for_status(True)
     assert type(builder) is ClientBuilder and isinstance(builder, BaseClientBuilder)
     client = builder.build()

@@ -1,25 +1,23 @@
 import asyncio
 import gzip
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl
 
 import orjson
 
-from .server import Server, receive_all
+from .server import receive_all
 
 
-class EchoServer(Server):
-    calls: int = 0
-
-    async def app(
+class EchoServer:
+    async def __call__(
         self,
         scope: dict[str, Any],
         receive: Callable[[], Awaitable[dict[str, Any]]],
         send: Callable[[dict[str, Any]], Awaitable[None]],
     ) -> None:
         assert scope["type"] == "http"
-        self.calls += 1
 
         query: list[tuple[str, str]] = [(k.decode(), v.decode()) for k, v in parse_qsl(scope["query_string"])]
         query_dict: dict[str, str] = dict(query)
@@ -40,6 +38,7 @@ class EchoServer(Server):
                 "raw_path": scope["raw_path"],
                 "scheme": scope["scheme"],
                 "body_parts": [b async for b in receive_all(receive)],
+                "time": datetime.now(UTC).isoformat(),
             }
             resp_body = json_dump(resp)
             resp_headers = [[b"content-type", b"application/json"]]

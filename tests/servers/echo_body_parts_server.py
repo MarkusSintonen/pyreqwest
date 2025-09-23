@@ -6,11 +6,11 @@ from urllib.parse import parse_qsl
 
 import orjson
 
-from .server import Server, receive_all
+from .server import receive_all
 
 
-class EchoBodyPartsServer(Server):
-    async def app(
+class EchoBodyPartsServer:
+    async def __call__(
         self,
         scope: dict[str, Any],
         receive: Callable[[], Awaitable[dict[str, Any]]],
@@ -33,9 +33,7 @@ class EchoBodyPartsServer(Server):
             },
         )
 
-        chunks = [chunk async for chunk in receive_all(receive) if chunk]
-
-        for chunk in chunks:
+        async for chunk in receive_all(receive):
             if sleep := (try_json(chunk) or {}).get("sleep"):
                 await asyncio.sleep(sleep)
             await send({"type": "http.response.body", "body": chunk, "more_body": True})

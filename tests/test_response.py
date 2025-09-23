@@ -12,7 +12,7 @@ from pyreqwest.exceptions import DecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
 from pyreqwest.response import Response, ResponseBodyReader, ResponseBuilder
 
-from .servers.server import Server
+from tests.servers.server_subprocess import SubprocessServer
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ async def client(cert_authority: trustme.CA) -> AsyncGenerator[Client, None]:
         yield client
 
 
-async def test_status(client: Client, echo_server: Server) -> None:
+async def test_status(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).build()
     resp = await req.send()
     resp.error_for_status()
@@ -38,7 +38,7 @@ async def test_status(client: Client, echo_server: Server) -> None:
         resp.status = 9999
 
 
-async def test_headers(client: Client, echo_server: Server) -> None:
+async def test_headers(client: Client, echo_server: SubprocessServer) -> None:
     req = (
         client.get(echo_server.url)
         .query([("header_x_test1", "Value1"), ("header_x_test1", "Value2"), ("header_x_test2", "Value3")])
@@ -68,7 +68,9 @@ async def test_headers(client: Client, echo_server: Server) -> None:
 
 
 @pytest.mark.parametrize("proto", ["http", "https"])
-async def test_version(client: Client, echo_server: Server, https_echo_server: Server, proto: str) -> None:
+async def test_version(
+    client: Client, echo_server: SubprocessServer, https_echo_server: SubprocessServer, proto: str
+) -> None:
     url = echo_server.url if proto == "http" else https_echo_server.url
     resp = await client.get(url).build().send()
     if proto == "http":
@@ -85,7 +87,7 @@ async def test_version(client: Client, echo_server: Server, https_echo_server: S
         resp.version = "foobar"
 
 
-async def test_extensions(client: Client, echo_server: Server) -> None:
+async def test_extensions(client: Client, echo_server: SubprocessServer) -> None:
     req = client.get(echo_server.url).extensions({"a": "b"}).build()
     req.extensions["c"] = "d"
     resp = await req.send()
@@ -100,7 +102,7 @@ async def test_extensions(client: Client, echo_server: Server) -> None:
 
 
 @pytest.mark.parametrize("kind", ["chunk", "bytes", "text", "json"])
-async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -> None:
+async def test_body(client: Client, echo_body_parts_server: SubprocessServer, kind: str) -> None:
     async def stream_gen() -> AsyncGenerator[bytes, None]:
         yield b'{"foo": "bar", "test": "value"'
         yield b', "baz": 123}'
@@ -133,7 +135,9 @@ async def test_body(client: Client, echo_body_parts_server: Server, kind: str) -
 
 @pytest.mark.parametrize("took_reader", [False, True])
 @pytest.mark.parametrize("use_reader", [False, True])
-async def test_read(client: Client, echo_body_parts_server: Server, took_reader: bool, use_reader: bool) -> None:
+async def test_read(
+    client: Client, echo_body_parts_server: SubprocessServer, took_reader: bool, use_reader: bool
+) -> None:
     def get_reader(resp: Response) -> Response | ResponseBodyReader:
         if took_reader:
             body_reader = resp.body_reader
@@ -188,7 +192,7 @@ MULTILINE_EMOJI = """[
         pytest.param('["tab	character	in	string	"]', id="tabs"),
     ],
 )
-async def test_bad_json(client: Client, echo_body_parts_server: Server, body: str | bytes) -> None:
+async def test_bad_json(client: Client, echo_body_parts_server: SubprocessServer, body: str | bytes) -> None:
     body_bytes = body if isinstance(body, bytes) else body.encode("utf8")
     body_str = body_bytes.decode("utf8")
 
@@ -225,7 +229,7 @@ async def test_bad_json(client: Client, echo_body_parts_server: Server, body: st
 )
 async def test_text(
     client: Client,
-    echo_body_parts_server: Server,
+    echo_body_parts_server: SubprocessServer,
     body: bytes,
     charset: str | None,
     expect: str,
@@ -246,7 +250,7 @@ async def test_text(
     assert await resp.text() == expect
 
 
-async def test_mime(client: Client, echo_body_parts_server: Server) -> None:
+async def test_mime(client: Client, echo_body_parts_server: SubprocessServer) -> None:
     async def resp_body() -> AsyncGenerator[bytes]:
         yield b"test"
 
@@ -272,7 +276,7 @@ async def test_mime(client: Client, echo_body_parts_server: Server) -> None:
     assert resp.content_type_mime() is None
 
 
-async def test_error_for_status(echo_server: Server) -> None:
+async def test_error_for_status(echo_server: SubprocessServer) -> None:
     async with ClientBuilder().build() as client:
         resp = await client.get(echo_server.url).query([("status", 201)]).build().send()
         resp.error_for_status()

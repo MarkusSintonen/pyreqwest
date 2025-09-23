@@ -9,7 +9,7 @@ from pyreqwest.exceptions import BuilderError, ConnectTimeoutError, StatusError
 from pyreqwest.http import HeaderMap
 from pyreqwest.request import RequestBuilder
 
-from .servers.server import Server
+from tests.servers.server_subprocess import SubprocessServer
 
 
 @pytest.fixture
@@ -19,20 +19,20 @@ async def client(cert_authority: trustme.CA) -> AsyncGenerator[Client, None]:
         yield client
 
 
-async def test_build_consumed(client: Client, echo_body_parts_server: Server):
+async def test_build_consumed(client: Client, echo_body_parts_server: SubprocessServer) -> None:
     sent = "a" * (RequestBuilder.default_streamed_read_buffer_limit() * 3)
     resp = await client.post(echo_body_parts_server.url).body_text(sent).build().send()
     assert (await resp.text()) == sent
 
 
-async def test_build_streamed(client: Client, echo_body_parts_server: Server):
+async def test_build_streamed(client: Client, echo_body_parts_server: SubprocessServer):
     sent = "a" * (RequestBuilder.default_streamed_read_buffer_limit() * 3)
     async with client.post(echo_body_parts_server.url).body_text(sent).build_streamed() as resp:
         assert (await resp.text()) == sent
 
 
 @pytest.mark.parametrize("value", [True, False])
-async def test_error_for_status(echo_server: Server, value: bool):
+async def test_error_for_status(echo_server: SubprocessServer, value: bool):
     url = echo_server.url.with_query({"status": 400})
 
     async with ClientBuilder().error_for_status(False).build() as client:
@@ -45,7 +45,7 @@ async def test_error_for_status(echo_server: Server, value: bool):
             assert (await req.send()).status == 400
 
 
-async def test_header(client: Client, echo_server: Server):
+async def test_header(client: Client, echo_server: SubprocessServer):
     resp = await client.get(echo_server.url).header("X-Test", "Val").build().send()
     assert ["x-test", "Val"] in (await resp.json())["headers"]
 
@@ -56,7 +56,7 @@ async def test_header(client: Client, echo_server: Server):
         client.get(echo_server.url).header("X-Test", "Val\n")
 
 
-async def test_headers(client: Client, echo_server: Server):
+async def test_headers(client: Client, echo_server: SubprocessServer):
     for type_ in [list, tuple, dict, HeaderMap]:
         headers = type_([("X-Test-1", "Val1"), ("X-Test-2", "Val2")])
         resp = await client.get(echo_server.url).headers(headers).build().send()
@@ -75,29 +75,29 @@ async def test_headers(client: Client, echo_server: Server):
 
 
 @pytest.mark.parametrize("password", ["test_pass", None])
-async def test_basic_auth(client: Client, echo_server: Server, password: str | None):
+async def test_basic_auth(client: Client, echo_server: SubprocessServer, password: str | None):
     resp = await client.get(echo_server.url).basic_auth("user", password).build().send()
     assert dict((await resp.json())["headers"])["authorization"].startswith("Basic ")
 
 
-async def test_bearer_auth(client: Client, echo_server: Server):
+async def test_bearer_auth(client: Client, echo_server: SubprocessServer):
     resp = await client.get(echo_server.url).bearer_auth("test_token").build().send()
     assert dict((await resp.json())["headers"])["authorization"].startswith("Bearer ")
 
 
-async def test_body_bytes(client: Client, echo_body_parts_server: Server):
+async def test_body_bytes(client: Client, echo_body_parts_server: SubprocessServer):
     body = b"test body"
     resp = await client.post(echo_body_parts_server.url).body_bytes(body).build().send()
     assert (await resp.bytes()) == body
 
 
 @pytest.mark.parametrize("body", ["test body", "\n\n\n", "🤗🤗🤗"])
-async def test_body_text(client: Client, echo_body_parts_server: Server, body: str):
+async def test_body_text(client: Client, echo_body_parts_server: SubprocessServer, body: str):
     resp = await client.post(echo_body_parts_server.url).body_text(body).build().send()
     assert (await resp.text()) == body
 
 
-async def test_body_stream(client: Client, echo_body_parts_server: Server):
+async def test_body_stream(client: Client, echo_body_parts_server: SubprocessServer):
     async def body_stream() -> AsyncGenerator[bytes, None]:
         yield b"part 0"
         yield b"part 1"
@@ -109,7 +109,7 @@ async def test_body_stream(client: Client, echo_body_parts_server: Server):
 
 
 @pytest.mark.parametrize("server_sleep", [0.1, 0.01, None])
-async def test_timeout(client: Client, echo_server: Server, server_sleep: float | None):
+async def test_timeout(client: Client, echo_server: SubprocessServer, server_sleep: float | None):
     url = echo_server.url.with_query({"sleep_start": server_sleep or 0})
 
     req = client.get(url).timeout(timedelta(seconds=0.05)).build()
@@ -125,7 +125,7 @@ async def test_timeout(client: Client, echo_server: Server, server_sleep: float 
         client.get(echo_server.url).timeout(1.0)  # type: ignore[arg-type]
 
 
-async def test_query(client: Client, echo_server: Server):
+async def test_query(client: Client, echo_server: SubprocessServer):
     async def send(arg: Sequence[tuple[str, str]] | Mapping[str, str]) -> list[list[str]]:
         resp = await client.get(echo_server.url).query(arg).build().send()
         return (await resp.json())["query"]  # type: ignore[no-any-return]
@@ -143,14 +143,14 @@ async def test_query(client: Client, echo_server: Server):
         assert (await resp.json())["query"] == [["foo", "bar"], ["foo", "baz"]]
 
 
-async def test_version(client: Client, echo_server: Server, https_echo_server: Server):
+async def test_version(client: Client, echo_server: SubprocessServer, https_echo_server: SubprocessServer):
     resp = await client.get(echo_server.url).build().send()
     assert (await resp.json())["http_version"] == "1.1"
     resp = await client.get(https_echo_server.url).build().send()
     assert (await resp.json())["http_version"] == "2"
 
 
-async def test_form(client: Client, echo_server: Server):
+async def test_form(client: Client, echo_server: SubprocessServer):
     async def send(arg: Sequence[tuple[str, str]] | Mapping[str, str]) -> str:
         resp = await client.get(echo_server.url).form(arg).build().send()
         return "".join((await resp.json())["body_parts"])
@@ -169,7 +169,7 @@ async def test_form(client: Client, echo_server: Server):
 
 
 @pytest.mark.parametrize("case", ["query", "form"])
-async def test_form_query_invalid(client: Client, echo_server: Server, case: str):
+async def test_form_query_invalid(client: Client, echo_server: SubprocessServer, case: str):
     def build(v: Any) -> RequestBuilder:
         if case == "query":
             return client.get(echo_server.url).query(v)
@@ -189,14 +189,14 @@ async def test_form_query_invalid(client: Client, echo_server: Server, case: str
     assert e.value.details and {"message": "unsupported value"} in e.value.details["causes"]
 
 
-async def test_form_fails_with_body_set(client: Client, echo_server: Server):
+async def test_form_fails_with_body_set(client: Client, echo_server: SubprocessServer):
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
         client.post(echo_server.url).form({"a": "b"}).body_text("fail").build()
     with pytest.raises(BuilderError, match="Can not set body when multipart or form is used"):
         client.post(echo_server.url).body_text("fail").form({"a": "b"}).build()
 
 
-async def test_extensions(client: Client, echo_server: Server):
+async def test_extensions(client: Client, echo_server: SubprocessServer):
     myobj = object()
     extensions = {"ext1": "value1", "ext2": "value2", "ext3": myobj}
     resp = await client.get(echo_server.url).extensions(extensions).build().send()

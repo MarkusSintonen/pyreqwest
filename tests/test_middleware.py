@@ -2,24 +2,25 @@ import gc
 import weakref
 from collections.abc import AsyncGenerator, AsyncIterable
 from contextvars import ContextVar
+from typing import Any
 
 import pytest
 from pyreqwest.client import Client, ClientBuilder
+from pyreqwest.exceptions import ConnectError
 from pyreqwest.http import RequestBody
 from pyreqwest.middleware import Next
 from pyreqwest.middleware.types import Middleware
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
 
-from tests.servers.echo_server import EchoServer
-from tests.servers.server import Server
+from tests.servers.server_subprocess import SubprocessServer
 
 
 def build_client(middleware: Middleware) -> Client:
     return ClientBuilder().with_middleware(middleware).error_for_status(True).build()
 
 
-async def test_single(echo_server: Server) -> None:
+async def test_single(echo_server: SubprocessServer) -> None:
     async def middleware(request: Request, next_handler: Next) -> Response:
         assert request.method == "GET"
         assert request.url == echo_server.url
@@ -56,7 +57,7 @@ async def test_single(echo_server: Server) -> None:
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-async def test_multiple(echo_server: Server, reverse: bool) -> None:
+async def test_multiple(echo_server: SubprocessServer, reverse: bool) -> None:
     async def middleware1(request: Request, next_handler: Next) -> Response:
         request.headers["X-Middleware1"] = "Applied1"
         return await next_handler.run(request)
@@ -83,7 +84,7 @@ async def test_multiple(echo_server: Server, reverse: bool) -> None:
         assert headers == [["x-middleware1", "Applied1"], ["x-middleware2", "Applied2"]]
 
 
-async def test_context_vars(echo_server: Server) -> None:
+async def test_context_vars(echo_server: SubprocessServer) -> None:
     ctx_var = ContextVar("test_var", default="default_value")
 
     async def middleware(request: Request, next_handler: Next) -> Response:
@@ -103,7 +104,7 @@ async def test_context_vars(echo_server: Server) -> None:
 
 
 @pytest.mark.parametrize("before", [False, True])
-async def test_raise_error(echo_server: Server, before: bool) -> None:
+async def test_raise_error(echo_server: SubprocessServer, before: bool) -> None:
     async def middleware(request: Request, next_handler: Next) -> Response:
         if before:
             raise ValueError("Test error")
@@ -118,7 +119,7 @@ async def test_raise_error(echo_server: Server, before: bool) -> None:
         await req.send()
 
 
-async def test_multi_run_error(echo_server: Server) -> None:
+async def test_multi_run_error(echo_server: SubprocessServer) -> None:
     calls = []
 
     async def middleware(request: Request, next_handler: Next) -> Response:
@@ -134,7 +135,7 @@ async def test_multi_run_error(echo_server: Server) -> None:
     assert calls == ["run1"]
 
 
-async def test_bad_middleware(echo_server: Server) -> None:
+async def test_bad_middleware(echo_server: SubprocessServer) -> None:
     async def wrong_args(_request: Request) -> Response:
         pytest.fail("Should not be called")
 
@@ -159,19 +160,45 @@ async def test_bad_middleware(echo_server: Server) -> None:
         await req.send()
 
 
-async def test_retry_middleware(echo_server: EchoServer) -> None:
-    echo_server.calls = 0
+async def test_retry_middleware(echo_server: SubprocessServer) -> None:
+    responses: list[Any] = []
 
     async def retry_middleware(request: Request, next_handler: Next) -> Response:
         request2 = request.copy()
-        await next_handler.run(request)
+        resp1 = await next_handler.run(request)
+        resp2 = await next_handler.run(request2)
+        responses.append(await resp1.json())
+        responses.append(await resp2.json())
+        return resp2
+
+    resp = await build_client(retry_middleware).get(echo_server.url).build().send()
+
+    assert len(responses) == 2
+    assert responses[0]["time"] != responses[1]["time"]
+    assert (await resp.json()) == responses[1]
+
+
+async def test_retry_middleware__with_failure(echo_server: SubprocessServer) -> None:
+    exc = None
+
+    async def retry_middleware(request: Request, next_handler: Next) -> Response:
+        nonlocal exc
+        request2 = request.copy()
+        await echo_server.kill()
+        try:
+            await next_handler.run(request)
+        except Exception as e:
+            exc = e
+        await echo_server.restart()
         return await next_handler.run(request2)
 
-    await build_client(retry_middleware).get(echo_server.url).build().send()
-    assert echo_server.calls == 2
+    resp = await build_client(retry_middleware).get(echo_server.url).build().send()
+    assert resp.status == 200
+
+    assert isinstance(exc, ConnectError)
 
 
-async def test_modify_status(echo_server: EchoServer) -> None:
+async def test_modify_status(echo_server: SubprocessServer) -> None:
     async def modify_response(request: Request, next_handler: Next) -> Response:
         resp = await next_handler.run(request)
         assert resp.status == 200
@@ -182,7 +209,7 @@ async def test_modify_status(echo_server: EchoServer) -> None:
     assert resp.status == 201
 
 
-async def test_modify_body(echo_server: EchoServer) -> None:
+async def test_modify_body(echo_server: SubprocessServer) -> None:
     async def modify_body(request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         bytes_ = request.body.copy_bytes()
@@ -194,7 +221,7 @@ async def test_modify_body(echo_server: EchoServer) -> None:
     assert (await resp.json())["body_parts"] == ["test modified"]
 
 
-async def test_stream_to_body_bytes(echo_server: EchoServer) -> None:
+async def test_stream_to_body_bytes(echo_server: SubprocessServer) -> None:
     async def stream_to_body(request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         stream = request.body.get_stream()
@@ -213,7 +240,7 @@ async def test_stream_to_body_bytes(echo_server: EchoServer) -> None:
     assert (await resp.json())["body_parts"] == ["test1---test2"]
 
 
-async def test_stream_modify_body(echo_server: EchoServer) -> None:
+async def test_stream_modify_body(echo_server: SubprocessServer) -> None:
     async def modify_stream(request: Request, next_handler: Next) -> Response:
         assert request.body is not None
         stream = request.body.get_stream()
@@ -234,7 +261,7 @@ async def test_stream_modify_body(echo_server: EchoServer) -> None:
     assert (await resp.json())["body_parts"] == ["test1 modified", "test2 modified"]
 
 
-async def test_stream_context_var(echo_server: EchoServer) -> None:
+async def test_stream_context_var(echo_server: SubprocessServer) -> None:
     ctx_var = ContextVar("test_var", default="default_value")
 
     async def modify_stream(request: Request, next_handler: Next) -> Response:
@@ -300,9 +327,7 @@ async def test_response_builder_stream_context_var() -> None:
     assert (await resp.text()) == "test override"
 
 
-async def test_proxy_nested_request(echo_server: EchoServer) -> None:
-    echo_server.calls = 0
-
+async def test_proxy_nested_request(echo_server: SubprocessServer) -> None:
     class MiddlewareProxy:
         def __init__(self) -> None:
             self.client: Client | None = None
@@ -320,11 +345,10 @@ async def test_proxy_nested_request(echo_server: EchoServer) -> None:
     middleware.client = client
 
     resp = await client.get("http://foo.invalid").build().send()
-    assert (await resp.json())["method"] == "GET"
-    assert echo_server.calls == 1
+    assert dict((await resp.json())["headers"])["host"].startswith("localhost:")
 
 
-async def test_nested_request_context_var(echo_server: EchoServer) -> None:
+async def test_nested_request_context_var(echo_server: SubprocessServer) -> None:
     ctx_var = ContextVar("test_var", default="default_value")
 
     class MiddlewareProxyCtxVar:
@@ -350,24 +374,15 @@ async def test_nested_request_context_var(echo_server: EchoServer) -> None:
     assert (await resp.json())["method"] == "GET"
 
 
-async def test_proxy_modify_request(echo_server: EchoServer) -> None:
-    echo_server.calls = 0
-
+async def test_proxy_modify_request(echo_server: SubprocessServer) -> None:
     class MiddlewareProxy:
-        def __init__(self) -> None:
-            self.client: Client | None = None
-
         async def __call__(self, request: Request, next_handler: Next) -> Response:
             if request.url == "http://foo.invalid":
                 request.url = echo_server.url
             return await next_handler.run(request)
 
-    middleware = MiddlewareProxy()
-    client = build_client(middleware)
-    middleware.client = client
-
-    await client.get("http://foo.invalid").build().send()
-    assert echo_server.calls == 1
+    res = await build_client(MiddlewareProxy()).get("http://foo.invalid").build().send()
+    assert dict((await res.json())["headers"])["host"].startswith("localhost:")
 
 
 async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -393,7 +408,7 @@ async def test_mocking_via_middleware(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status == 202 and (await resp.text()) == "Mocked"
 
 
-async def test_request_specific(echo_server: EchoServer) -> None:
+async def test_request_specific(echo_server: SubprocessServer) -> None:
     async def middleware1(request: Request, next_handler: Next) -> Response:
         request.extensions["key1"] = "val1"
         return await next_handler.run(request)
@@ -415,7 +430,7 @@ async def test_request_specific(echo_server: EchoServer) -> None:
     assert (await req3.send()).extensions == {"key2": "val2"}
 
 
-async def test_circular_reference_collected(echo_server: EchoServer) -> None:
+async def test_circular_reference_collected(echo_server: SubprocessServer) -> None:
     # Check that client has GC support via __traverse__ and __clear__
     ref: weakref.ReferenceType[Middleware] | None = None
 

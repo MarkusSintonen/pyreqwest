@@ -6,6 +6,7 @@ use crate::exceptions::exceptions::{
 use pyo3::{PyErr, Python};
 use serde_json::json;
 use std::error::Error;
+use std::io;
 
 pub fn map_send_error(e: reqwest::Error) -> PyErr {
     inner_map_io_error(e, ErrorKind::Send)
@@ -29,7 +30,7 @@ fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
         } else {
             ConnectTimeoutError::from_causes("connection timeout", causes)
         }
-    } else if e.is_connect() {
+    } else if is_connect_error(&e) {
         if is_body_error(&e) {
             match kind {
                 ErrorKind::Send => WriteError::from_causes("request body connection error", causes),
@@ -80,13 +81,51 @@ fn inner_py_err(err: &(dyn Error + 'static)) -> Option<PyErr> {
     None
 }
 
-fn is_body_error<E: Error + 'static>(err: &E) -> bool {
+fn is_connect_error(err: &reqwest::Error) -> bool {
+    if err.is_connect() {
+        return true;
+    }
     for e in error_causes_iter(err) {
-        if let Some(e) = e.downcast_ref::<reqwest::Error>()
-            && e.is_body()
+        if e.downcast_ref::<hyper::Error>()
+            .is_some_and(|e| e.is_incomplete_message())
         {
+            return true;
+        }
+        if let Some(io_err) = e.downcast_ref::<io::Error>()
+            && is_io_error_connection_error(io_err)
+        {
+            return true;
+        }
+        if e.to_string().contains("connection error") {
             return true;
         }
     }
     false
+}
+
+fn is_body_error(err: &reqwest::Error) -> bool {
+    for e in error_causes_iter(err) {
+        if e.downcast_ref::<reqwest::Error>().is_some_and(|e| e.is_body()) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_io_error_connection_error(err: &io::Error) -> bool {
+    matches!(
+        err.kind(),
+        io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::HostUnreachable
+            | io::ErrorKind::NetworkUnreachable
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::AddrInUse
+            | io::ErrorKind::AddrNotAvailable
+            | io::ErrorKind::NetworkDown
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::TimedOut
+            | io::ErrorKind::UnexpectedEof
+    )
 }

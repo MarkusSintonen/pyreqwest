@@ -1,6 +1,6 @@
 import json
 import re
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from typing import Any
 
 import pytest
@@ -10,7 +10,7 @@ from pyreqwest.pytest_plugin import ClientMocker
 from pyreqwest.request import Request
 from pyreqwest.response import Response, ResponseBuilder
 
-from tests.servers.server import Server
+from tests.servers.server_subprocess import SubprocessServer
 
 import_time_client = ClientBuilder().build()
 
@@ -253,7 +253,9 @@ async def test_method_pattern_matching(client_mocker: ClientMocker) -> None:
     assert client_mocker.get_call_count() == 2
 
 
-async def test_without_mocking_requests_pass_through(client_mocker: ClientMocker, echo_server: Server) -> None:
+async def test_without_mocking_requests_pass_through(
+    client_mocker: ClientMocker, echo_server: SubprocessServer
+) -> None:
     client_mocker.get("/api").with_body_json({"mocked": True, "source": "mock"})
 
     client = ClientBuilder().build()
@@ -851,6 +853,18 @@ async def test_json_body_matching_invalid(client_mocker: ClientMocker) -> None:
     assert await resp.text() == "Matched"
 
 
+async def test_streamed_request(client_mocker: ClientMocker) -> None:
+    client_mocker.get("/data").match_body(b"binary data").with_body_json({"data": "value"})
+
+    async def stream_gen() -> AsyncGenerator[bytes]:
+        yield b"binary data"
+
+    client = ClientBuilder().error_for_status(True).build()
+    async with client.get("http://api.example.invalid/data").body_stream(stream_gen()).build_streamed() as resp:
+        assert await resp.json() == {"data": "value"}
+        assert client_mocker.get_call_count() == 1
+
+
 def test_sync(client_mocker: ClientMocker) -> None:
     client_mocker.get("/data").with_body_json({"data": "value"})
 
@@ -859,3 +873,28 @@ def test_sync(client_mocker: ClientMocker) -> None:
     resp = client.get("http://api.example.invalid/data").build().send()
     assert resp.json() == {"data": "value"}
     assert client_mocker.get_call_count() == 1
+
+
+def test_sync__body_stream(client_mocker: ClientMocker) -> None:
+    client_mocker.get("/data").match_body(b"binary data").with_body_json({"data": "value"})
+
+    client = SyncClientBuilder().error_for_status(True).build()
+
+    def stream_gen() -> Iterator[bytes]:
+        yield b"binary data"
+
+    resp = client.get("http://api.example.invalid/data").body_stream(stream_gen()).build().send()
+    assert resp.json() == {"data": "value"}
+    assert client_mocker.get_call_count() == 1
+
+
+def test_sync__streamed_request(client_mocker: ClientMocker) -> None:
+    client_mocker.get("/data").match_body(b"binary data").with_body_json({"data": "value"})
+
+    def stream_gen() -> Iterator[bytes]:
+        yield b"binary data"
+
+    client = SyncClientBuilder().error_for_status(True).build()
+    with client.get("http://api.example.invalid/data").body_stream(stream_gen()).build_streamed() as resp:
+        assert resp.json() == {"data": "value"}
+        assert client_mocker.get_call_count() == 1

@@ -6,14 +6,14 @@ import pytest
 from pyreqwest.client import ClientBuilder
 from pyreqwest.http.cookie import Cookie, CookieBuilder, CookieStore
 
-from tests.servers.echo_server import EchoServer
+from tests.servers.server_subprocess import SubprocessServer
 
 
 def client_builder() -> ClientBuilder:
     return ClientBuilder().error_for_status(True).timeout(timedelta(seconds=5))
 
 
-async def test_cookie_provider(echo_server: EchoServer):
+async def test_cookie_provider(echo_server: SubprocessServer):
     assert echo_server.url.host_str
     store = CookieStore()
 

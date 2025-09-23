@@ -7,7 +7,7 @@ from pyreqwest.exceptions import ConnectError, RequestPanicError
 from pyreqwest.http import Url
 from pyreqwest.proxy import ProxyBuilder
 
-from .servers.echo_server import EchoServer
+from tests.servers.server_subprocess import SubprocessServer
 
 
 def test_init():
@@ -19,7 +19,7 @@ def test_init():
 
 @pytest.mark.parametrize("proxy_type", ["http", "all"])
 async def test_proxy_simple(
-    https_echo_server: EchoServer,
+    https_echo_server: SubprocessServer,
     cert_authority: trustme.CA,
     proxy_type: str,
 ):
@@ -43,7 +43,7 @@ async def test_proxy_simple(
         assert e.value.details and {"message": "dns error"} in e.value.details["causes"]
 
 
-async def test_proxy_custom(echo_server: EchoServer):
+async def test_proxy_custom(echo_server: SubprocessServer):
     def proxy_func(url: Url) -> Url | str | None:
         return echo_server.url if "foo.invalid" in str(url) else None
 
@@ -84,7 +84,7 @@ async def test_proxy_custom__fail(case: str):
         assert e.value.details and expect_cause in e.value.details["causes"]
 
 
-async def test_proxy_headers(echo_server: EchoServer):
+async def test_proxy_headers(echo_server: SubprocessServer):
     proxy = ProxyBuilder.custom(lambda _: echo_server.url).headers({"X-Custom-Header": "CustomValue"})
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
@@ -94,7 +94,7 @@ async def test_proxy_headers(echo_server: EchoServer):
         assert ["x-custom-header", "CustomValue"] in (await resp.json())["headers"]
 
 
-async def test_basic_auth(echo_server: EchoServer):
+async def test_basic_auth(echo_server: SubprocessServer):
     proxy = ProxyBuilder.http(echo_server.url).basic_auth("user", "pass")
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
@@ -102,7 +102,7 @@ async def test_basic_auth(echo_server: EchoServer):
         assert dict((await resp.json())["headers"])["proxy-authorization"].startswith("Basic ")
 
 
-async def test_custom_auth(echo_server: EchoServer):
+async def test_custom_auth(echo_server: SubprocessServer):
     proxy = ProxyBuilder.http(echo_server.url).custom_http_auth("auth_value")
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:
@@ -110,7 +110,7 @@ async def test_custom_auth(echo_server: EchoServer):
         assert dict((await resp.json())["headers"])["proxy-authorization"] == "auth_value"
 
 
-async def test_no_proxy(echo_server: EchoServer):
+async def test_no_proxy(echo_server: SubprocessServer):
     proxy = ProxyBuilder.http(echo_server.url).no_proxy("noproxy.invalid, noproxy2.invalid")
 
     async with ClientBuilder().proxy(proxy).error_for_status(True).build() as client:

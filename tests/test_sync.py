@@ -1,3 +1,4 @@
+import copy
 import json
 import string
 from collections.abc import Generator, Iterator
@@ -14,10 +15,10 @@ from pyreqwest.exceptions import ClientClosedError, PoolTimeoutError
 from pyreqwest.http import HeaderMap
 from pyreqwest.middleware import SyncNext
 from pyreqwest.middleware.types import SyncMiddleware
-from pyreqwest.request import BaseRequestBuilder, Request, SyncConsumedRequest, SyncRequestBuilder
+from pyreqwest.request import BaseRequestBuilder, Request, SyncConsumedRequest, SyncRequestBuilder, SyncStreamRequest
 from pyreqwest.response import BaseResponse, SyncResponse, SyncResponseBodyReader
 
-from tests.servers.server import Server
+from tests.servers.server_subprocess import SubprocessServer
 
 T = TypeVar("T")
 
@@ -38,12 +39,12 @@ def client() -> Generator[SyncClient, None, None]:
         yield client
 
 
-def test_send(client: SyncClient, echo_server: Server) -> None:
+def test_send(client: SyncClient, echo_server: SubprocessServer) -> None:
     assert client.get(echo_server.url).build().send().json()["method"] == "GET"
 
 
 @pytest.mark.parametrize("str_url", [False, True])
-def test_http_methods(echo_server: Server, str_url: bool):
+def test_http_methods(echo_server: SubprocessServer, str_url: bool):
     url = str(echo_server.url) if str_url else echo_server.url
     with SyncClientBuilder().error_for_status(True).build() as client:
         with client.get(url).build_streamed() as response:
@@ -65,7 +66,9 @@ def test_http_methods(echo_server: Server, str_url: bool):
 
 @pytest.mark.parametrize("took_reader", [False, True])
 @pytest.mark.parametrize("use_reader", [False, True])
-def test_read(client: SyncClient, echo_body_parts_server: Server, took_reader: bool, use_reader: bool) -> None:
+def test_read(
+    client: SyncClient, echo_body_parts_server: SubprocessServer, took_reader: bool, use_reader: bool
+) -> None:
     def get_reader(resp: SyncResponse) -> SyncResponse | SyncResponseBodyReader:
         if took_reader:
             body_reader = resp.body_reader
@@ -94,7 +97,7 @@ def test_read(client: SyncClient, echo_body_parts_server: Server, took_reader: b
     assert reader.read(10) == b""
 
 
-def test_middleware(echo_server: Server) -> None:
+def test_middleware(echo_server: SubprocessServer) -> None:
     def middleware(request: Request, next_handler: SyncNext) -> SyncResponse:
         request.headers["x-test1"] = "foo"
         response = next_handler.run(request)
@@ -107,7 +110,7 @@ def test_middleware(echo_server: Server) -> None:
         assert resp.headers["x-test2"] == "bar"
 
 
-def test_middleware__request_specific(echo_server: Server) -> None:
+def test_middleware__request_specific(echo_server: SubprocessServer) -> None:
     def middleware1(request: Request, next_handler: SyncNext) -> SyncResponse:
         request.extensions["key1"] = "val1"
         return next_handler.run(request)
@@ -129,7 +132,7 @@ def test_middleware__request_specific(echo_server: Server) -> None:
         assert req3.send().extensions == {"key2": "val2"}
 
 
-def test_context_vars(echo_server: Server) -> None:
+def test_context_vars(echo_server: SubprocessServer) -> None:
     ctx_var = ContextVar("test_var", default="default_value")
 
     def middleware(request: Request, next_handler: SyncNext) -> SyncResponse:
@@ -146,7 +149,7 @@ def test_context_vars(echo_server: Server) -> None:
         assert ctx_var.get() == "val2"
 
 
-def test_stream(client: SyncClient, echo_body_parts_server: Server) -> None:
+def test_stream(client: SyncClient, echo_body_parts_server: SubprocessServer) -> None:
     def gen() -> Generator[bytes, None, None]:
         for i in range(3):
             yield f"part {i}".encode()
@@ -158,9 +161,72 @@ def test_stream(client: SyncClient, echo_body_parts_server: Server) -> None:
         assert resp.body_reader.read_chunk() is None
 
 
+@pytest.mark.parametrize("call", ["copy", "__copy__"])
+@pytest.mark.parametrize("build_streamed", [False, True])
+@pytest.mark.parametrize("body_streamed", [False, True])
+def test_request_copy(echo_server: SubprocessServer, call: str, build_streamed: bool, body_streamed: bool) -> None:
+    def remove_time(ctx: SyncJsonLoadsContext) -> Any:
+        d = json.loads(ctx.body_reader.bytes().to_bytes())
+        d.pop("time")
+        return d
+
+    client = SyncClientBuilder().json_handler(loads=remove_time).error_for_status(True).build()
+
+    builder = client.get(echo_server.url).header("X-Test1", "Val1")
+    stream_copied = False
+
+    if body_streamed:
+
+        class StreamGen:
+            def __iter__(self) -> Iterator[bytes]:
+                def gen() -> Iterator[bytes]:
+                    yield b"test1"
+
+                return gen()
+
+            def __copy__(self) -> "StreamGen":
+                nonlocal stream_copied
+                stream_copied = True
+                return StreamGen()
+
+        builder = builder.body_stream(StreamGen())
+    else:
+        builder = builder.body_text("test1")
+
+    if build_streamed:
+        req1: Request = builder.build_streamed()
+    else:
+        req1 = builder.build()
+
+    if call == "copy":
+        req2 = req1.copy()
+    else:
+        assert call == "__copy__"
+        req2 = copy.copy(req1)
+
+    assert req1.method == req2.method == "GET"
+    assert req1.url == req2.url
+    assert req1.headers["x-test1"] == req2.headers["x-test1"] == "Val1"
+
+    if body_streamed:
+        assert stream_copied
+        assert req1.body and req2.body and req1.body.get_stream() is not req2.body.get_stream()
+    else:
+        assert req1.body and req2.body and req1.body.copy_bytes() == req2.body.copy_bytes() == b"test1"
+        assert req1.body is not req2.body
+
+    if build_streamed:
+        assert isinstance(req1, SyncStreamRequest) and isinstance(req2, SyncStreamRequest)
+        with req1 as resp1, req2 as resp2:
+            assert resp1.json() == resp2.json()
+    else:
+        assert isinstance(req1, SyncConsumedRequest) and isinstance(req2, SyncConsumedRequest)
+        assert req1.send().json() == req2.send().json()
+
+
 @pytest.mark.parametrize("concurrency", [1, 2, 10])
 @pytest.mark.parametrize("limit", [None, 1, 2, 10])
-def test_concurrent_requests(echo_server: Server, concurrency: int, limit: int | None) -> None:
+def test_concurrent_requests(echo_server: SubprocessServer, concurrency: int, limit: int | None) -> None:
     builder = client_builder()
     if limit is not None:
         builder = builder.max_connections(limit)
@@ -173,7 +239,7 @@ def test_concurrent_requests(echo_server: Server, concurrency: int, limit: int |
 
 
 @pytest.mark.parametrize("max_conn", [1, 2, None])
-def test_max_connections_pool_timeout(echo_server: Server, max_conn: int | None):
+def test_max_connections_pool_timeout(echo_server: SubprocessServer, max_conn: int | None):
     url = echo_server.url.with_query({"sleep_start": 0.1})
 
     builder = client_builder().max_connections(max_conn).pool_timeout(timedelta(seconds=0.05))
@@ -188,7 +254,7 @@ def test_max_connections_pool_timeout(echo_server: Server, max_conn: int | None)
             assert all(fut.result()["method"] == "GET" for fut in futures)
 
 
-def test_json_loads_callback(echo_server: Server):
+def test_json_loads_callback(echo_server: SubprocessServer):
     called = 0
 
     def custom_loads(ctx: SyncJsonLoadsContext) -> Any:
@@ -215,7 +281,7 @@ def test_json_loads_callback(echo_server: Server):
         assert called == 2
 
 
-def test_use_after_close(echo_server: Server):
+def test_use_after_close(echo_server: SubprocessServer):
     with client_builder().build() as client:
         assert client.get(echo_server.url).build().send().status == 200
     req = client.get(echo_server.url).build()
@@ -229,7 +295,7 @@ def test_use_after_close(echo_server: Server):
         req.send()
 
 
-def test_stream_use_after_close(client: SyncClient, echo_body_parts_server: Server):
+def test_stream_use_after_close(client: SyncClient, echo_body_parts_server: SubprocessServer):
     def stream_gen() -> Iterator[bytes]:
         yield b"part 0"
         yield b"part 1"
@@ -252,7 +318,7 @@ def test_stream_use_after_close(client: SyncClient, echo_body_parts_server: Serv
     assert resp.headers["content-type"] == "application/json"
 
 
-def test_types(echo_server: Server) -> None:
+def test_types(echo_server: SubprocessServer) -> None:
     builder = SyncClientBuilder().error_for_status(True)
     assert type(builder) is SyncClientBuilder and isinstance(builder, BaseClientBuilder)
     client = builder.build()
