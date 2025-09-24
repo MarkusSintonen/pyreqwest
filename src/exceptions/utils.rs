@@ -1,12 +1,12 @@
-use crate::exceptions::BodyError;
+use crate::exceptions::BodyDecodeError;
 use crate::exceptions::exceptions::{
     BuilderError, ConnectError, ConnectTimeoutError, DecodeError, ReadError, ReadTimeoutError, RedirectError,
-    RequestError, StatusError, WriteError, WriteTimeoutError,
+    RequestError, WriteError, WriteTimeoutError,
 };
 use pyo3::{PyErr, Python};
-use serde_json::json;
+use regex::RegexSet;
 use std::error::Error;
-use std::io;
+use std::sync::LazyLock;
 
 pub fn map_send_error(e: reqwest::Error) -> PyErr {
     inner_map_io_error(e, ErrorKind::Send)
@@ -21,7 +21,7 @@ fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
         return py_err;
     }
     let causes = error_causes_iter(&e).collect::<Vec<_>>();
-    if e.is_timeout() {
+    if is_timeout_error(&e) {
         if is_body_error(&e) {
             match kind {
                 ErrorKind::Send => WriteTimeoutError::from_causes("request body timeout", causes),
@@ -39,19 +39,16 @@ fn inner_map_io_error(e: reqwest::Error, kind: ErrorKind) -> PyErr {
         } else {
             ConnectError::from_causes("connection error", causes)
         }
-    } else if e.is_decode() {
-        DecodeError::from_causes("error decoding response body", causes)
+    } else if is_decode_error(&e) {
+        if is_body_error(&e) {
+            BodyDecodeError::from_causes("error decoding body", causes)
+        } else {
+            DecodeError::from_causes("error decoding response", causes)
+        }
     } else if e.is_redirect() {
         RedirectError::from_causes("error following redirect", causes)
     } else if e.is_builder() {
         BuilderError::from_causes("builder error", causes)
-    } else if e.is_status() {
-        StatusError::from_custom(&e.to_string(), json!({"status": e.status().unwrap().as_u16()}))
-    } else if is_body_error(&e) {
-        match kind {
-            ErrorKind::Send => BodyError::from_causes("request body error", causes),
-            ErrorKind::Read => BodyError::from_causes("response body error", causes),
-        }
     } else {
         RequestError::from_err("error sending request", &e)
     }
@@ -81,22 +78,19 @@ fn inner_py_err(err: &(dyn Error + 'static)) -> Option<PyErr> {
     None
 }
 
+fn is_timeout_error(err: &reqwest::Error) -> bool {
+    err.is_timeout() || error_causes_matches(err, &TIMEOUT_ERROR_PATTERN)
+}
+
 fn is_connect_error(err: &reqwest::Error) -> bool {
-    if err.is_connect() {
-        return true;
-    }
+    err.is_connect() || error_causes_matches(err, &CONNECTION_ERROR_PATTERN)
+}
+
+fn is_decode_error(err: &reqwest::Error) -> bool {
     for e in error_causes_iter(err) {
-        if e.downcast_ref::<hyper::Error>()
-            .is_some_and(|e| e.is_incomplete_message())
+        if e.downcast_ref::<reqwest::Error>().is_some_and(|e| e.is_decode())
+            || e.downcast_ref::<hyper::Error>().is_some_and(|e| e.is_parse())
         {
-            return true;
-        }
-        if let Some(io_err) = e.downcast_ref::<io::Error>()
-            && is_io_error_connection_error(io_err)
-        {
-            return true;
-        }
-        if e.to_string().contains("connection error") {
             return true;
         }
     }
@@ -105,27 +99,40 @@ fn is_connect_error(err: &reqwest::Error) -> bool {
 
 fn is_body_error(err: &reqwest::Error) -> bool {
     for e in error_causes_iter(err) {
-        if e.downcast_ref::<reqwest::Error>().is_some_and(|e| e.is_body()) {
+        if e.downcast_ref::<reqwest::Error>()
+            .is_some_and(|e| e.is_body() || e.is_decode())
+        {
             return true;
         }
     }
     false
 }
 
-fn is_io_error_connection_error(err: &io::Error) -> bool {
-    matches!(
-        err.kind(),
-        io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::ConnectionReset
-            | io::ErrorKind::HostUnreachable
-            | io::ErrorKind::NetworkUnreachable
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::NotConnected
-            | io::ErrorKind::AddrInUse
-            | io::ErrorKind::AddrNotAvailable
-            | io::ErrorKind::NetworkDown
-            | io::ErrorKind::BrokenPipe
-            | io::ErrorKind::TimedOut
-            | io::ErrorKind::UnexpectedEof
-    )
+fn error_causes_matches(err: &reqwest::Error, pattern: &RegexSet) -> bool {
+    error_causes_iter(err).any(|e| pattern.is_match(&e.to_string()))
 }
+
+// Reqwest does not provide a good way to exhaustively check for connection errors.
+// Its "err.is_connect" check is not good enough. Neither are hypers checks.
+static CONNECTION_ERROR_PATTERN: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)connection error",
+        r"(?i)connection closed",
+        r"(?i)connection refused",
+        r"(?i)connection reset",
+        r"(?i)connection aborted",
+        r"(?i)host unreachable",
+        r"(?i)network unreachable",
+        r"(?i)not connected",
+        r"(?i)address in use",
+        r"(?i)address not available",
+        r"(?i)network down",
+        r"(?i)broken pipe",
+        r"(?i)unexpected end of file",
+        r"(?i)unexpected eof",
+    ])
+    .expect("invalid connection error regex")
+});
+
+static TIMEOUT_ERROR_PATTERN: LazyLock<RegexSet> =
+    LazyLock::new(|| RegexSet::new([r"(?i)timed out", r"(?i)timeout"]).expect("invalid timeout error regex"));

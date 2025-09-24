@@ -69,21 +69,21 @@ class RedirectError(RequestError[CauseErrorDetails]):
     """
 
 
-class BodyError(RequestError[CauseErrorDetails]):
-    """Error while processing the request or response body.
+class DecodeError(RequestError[CauseErrorDetails]):
+    """Error while decoding the response.
 
     Cause details may be available in `details["causes"]`.
     """
 
 
-class DecodeError(BodyError):
-    """Error while decoding the response body.
+class BodyDecodeError(DecodeError):
+    """Error while decoding the request or response body.
 
     Cause details may be available in `details["causes"]`.
     """
 
 
-class JSONDecodeError(DecodeError, JSONDecodeError_):
+class JSONDecodeError(BodyDecodeError, JSONDecodeError_):
     """Error while decoding the response body as JSON.
 
     This corresponds to Python's built-in `json.JSONDecodeError`. With the difference that `pos` and `colno` are byte
@@ -95,7 +95,7 @@ class JSONDecodeError(DecodeError, JSONDecodeError_):
         assert isinstance(details, dict)
         assert isinstance(details["doc"], str) and isinstance(details["pos"], int)
         JSONDecodeError_.__init__(self, message, details["doc"], details["pos"])
-        DecodeError.__init__(self, message, {"causes": details["causes"]})
+        BodyDecodeError.__init__(self, message, {"causes": details["causes"]})
 
 
 class TransportError(RequestError[CauseErrorDetails]):

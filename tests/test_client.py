@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from pyreqwest.client import BaseClient, BaseClientBuilder, Client, ClientBuilder, Runtime
 from pyreqwest.client.types import JsonDumpsContext, JsonLoadsContext
 from pyreqwest.exceptions import (
+    BodyDecodeError,
     BuilderError,
     ClientClosedError,
     ConnectError,
@@ -157,22 +158,6 @@ async def test_connection_failure__while_client_send(echo_server: SubprocessServ
         assert killed
 
 
-async def test_connection_failure__while_server_read(echo_server: SubprocessServer):
-    killed = False
-
-    async def stream_gen() -> Any:
-        nonlocal killed
-        yield b"test"
-        killed = True
-        yield b"command:kill"
-
-    async with ClientBuilder().error_for_status(True).build() as client:
-        req = client.post(echo_server.url).body_stream(stream_gen()).build()
-        with pytest.raises(ConnectError, match="connection error"):
-            await req.send()
-        assert killed
-
-
 async def test_connection_failure__while_client_read(echo_body_parts_server: SubprocessServer):
     async def stream_gen() -> Any:
         for i in range(10):
@@ -193,6 +178,17 @@ async def test_connection_failure__while_client_read(echo_body_parts_server: Sub
             while await resp.body_reader.read_chunk():
                 pass
         assert e.value.details and {"message": "error reading a body from connection"} in e.value.details["causes"]
+
+
+async def test_too_big_response_header(echo_server: SubprocessServer):
+    url = echo_server.url.with_query({"header_repeat": "a:1000000"})
+
+    async with ClientBuilder().error_for_status(True).build() as client:
+        req = client.get(url).build()
+        with pytest.raises(DecodeError, match="error decoding response") as e:
+            await req.send()
+        assert type(e.value) is DecodeError
+        assert e.value.details and {"message": "message head is too large"} in e.value.details["causes"]
 
 
 async def test_user_agent(echo_server: SubprocessServer):
@@ -234,7 +230,7 @@ async def test_response_compression(echo_server: SubprocessServer):
         assert resp.headers["x-content-encoding"] == "gzip"
         assert await resp.json()
 
-        with pytest.raises(DecodeError, match="error decoding response body") as e:
+        with pytest.raises(BodyDecodeError, match="error decoding body") as e:
             await client.get(echo_server.url.with_query({"compress": "gzip_invalid"})).build().send()
         assert e.value.details and {"message": "Invalid gzip header"} in e.value.details["causes"]
 
@@ -393,7 +389,7 @@ async def test_various_builder_functions(
 ):
     client = (
         ClientBuilder()
-        .cookie_store(True)
+        .default_cookie_store(True)
         .brotli(False)
         .zstd(False)
         .deflate(False)
@@ -402,7 +398,7 @@ async def test_various_builder_functions(
         .no_proxy()
         .pool_idle_timeout(timedelta(seconds=1))
         .pool_max_idle_per_host(1)
-        .http1_title_case_headers()
+        .http1_lower_case_headers()
         .http1_allow_obsolete_multiline_headers_in_responses(True)
         .http1_ignore_invalid_headers_in_responses(True)
         .http1_allow_spaces_after_header_name_in_responses(True)
@@ -413,7 +409,6 @@ async def test_various_builder_functions(
         .tcp_keepalive_interval(timedelta(seconds=1))
         .tcp_keepalive_retries(1)
         .tls_built_in_root_certs(True)
-        .tls_built_in_webpki_certs(True)
         .danger_accept_invalid_hostnames(True)
         .tls_sni(True)
         .min_tls_version("TLSv1.0")

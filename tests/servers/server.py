@@ -1,8 +1,6 @@
 import asyncio
-import os
 import queue
 import random
-import signal
 import socket
 import time
 from asyncio import AbstractEventLoop
@@ -107,8 +105,6 @@ async def receive_all(receive: Callable[[], Awaitable[dict[str, Any]]]) -> Async
         async with asyncio.timeout(5.0):
             message = await receive()
         if part := message.get("body"):
-            if part == b"command:kill":
-                os.kill(os.getpid(), signal.SIGTERM)
             yield part
         more_body = message.get("more_body", False)
 

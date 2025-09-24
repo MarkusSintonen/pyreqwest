@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 import trustme
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.exceptions import DecodeError, JSONDecodeError, StatusError
+from pyreqwest.exceptions import BodyDecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
 from pyreqwest.response import Response, ResponseBodyReader, ResponseBuilder
 
@@ -203,7 +203,7 @@ async def test_bad_json(client: Client, echo_body_parts_server: SubprocessServer
     with pytest.raises(JSONDecodeError) as e:
         await resp.json()
     assert isinstance(e.value, json.JSONDecodeError)
-    assert isinstance(e.value, DecodeError)
+    assert isinstance(e.value, BodyDecodeError)
 
     with pytest.raises(json.JSONDecodeError) as std_err:  # Compare error against standard json decoder
         json.loads(body)

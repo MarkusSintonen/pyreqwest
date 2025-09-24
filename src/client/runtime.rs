@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 static GLOBAL_HANDLE: LazyLock<PyResult<InnerRuntime>> = LazyLock::new(|| {
     let (close_tx, close_rx) = tokio::sync::mpsc::channel::<()>(1);
-    let handle = Runtime::new_handle(None, close_rx)?;
+    let handle = Runtime::new_handle(close_rx)?;
     Ok(InnerRuntime { handle, close_tx })
 });
 
@@ -65,10 +65,9 @@ pub struct Runtime(InnerRuntime);
 #[pymethods]
 impl Runtime {
     #[new]
-    #[pyo3(signature = (/, thread_name=None))]
-    pub fn new(thread_name: Option<String>) -> PyResult<Self> {
+    pub fn new() -> PyResult<Self> {
         let (close_tx, close_rx) = tokio::sync::mpsc::channel::<()>(1);
-        let handle = Runtime::new_handle(thread_name, close_rx)?;
+        let handle = Runtime::new_handle(close_rx)?;
         Ok(Runtime(InnerRuntime { handle, close_tx }))
     }
 
@@ -85,15 +84,12 @@ impl Runtime {
         &self.0.handle
     }
 
-    fn new_handle(
-        thread_name: Option<String>,
-        mut close_rx: tokio::sync::mpsc::Receiver<()>,
-    ) -> PyResult<RuntimeHandle> {
+    fn new_handle(mut close_rx: tokio::sync::mpsc::Receiver<()>) -> PyResult<RuntimeHandle> {
         let (handle_tx, handle_rx) = std::sync::mpsc::channel::<PyResult<tokio::runtime::Handle>>();
 
         std::thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
-                .thread_name(thread_name.unwrap_or("pyreqwest-worker".to_string()))
+                .thread_name("pyreqwest-worker".to_string())
                 .enable_all()
                 .build()
                 .map_err(|e| {

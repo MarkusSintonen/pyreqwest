@@ -28,6 +28,7 @@ pub struct BaseClientBuilder {
     max_connections: Option<usize>,
     total_timeout: Option<Duration>,
     pool_timeout: Option<Duration>,
+    http1_lower_case_headers: bool,
     error_for_status: bool,
     default_headers: Option<HeaderMap>,
     runtime: Option<Py<Runtime>>,
@@ -103,7 +104,7 @@ impl BaseClientBuilder {
         Ok(slf)
     }
 
-    fn cookie_store(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
+    fn default_cookie_store(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.cookie_store(enable)))
     }
 
@@ -164,7 +165,7 @@ impl BaseClientBuilder {
         Ok(slf)
     }
 
-    fn pool_idle_timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
+    fn pool_idle_timeout(slf: PyRefMut<Self>, timeout: Option<Duration>) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.pool_idle_timeout(timeout)))
     }
 
@@ -172,8 +173,10 @@ impl BaseClientBuilder {
         Self::apply(slf, |builder| Ok(builder.pool_max_idle_per_host(max_idle)))
     }
 
-    fn http1_title_case_headers(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.http1_title_case_headers()))
+    fn http1_lower_case_headers(mut slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+        slf.check_inner()?;
+        slf.http1_lower_case_headers = true;
+        Ok(slf)
     }
 
     fn http1_allow_obsolete_multiline_headers_in_responses(
@@ -260,16 +263,16 @@ impl BaseClientBuilder {
         Err(PyValueError::new_err("interface is not supported on this platform"))
     } // :NOCOV_END
 
-    fn tcp_keepalive(slf: PyRefMut<Self>, value: Option<Duration>) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.tcp_keepalive(value)))
+    fn tcp_keepalive(slf: PyRefMut<Self>, duration: Option<Duration>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.tcp_keepalive(duration)))
     }
 
-    fn tcp_keepalive_interval(slf: PyRefMut<Self>, value: Option<Duration>) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.tcp_keepalive_interval(value)))
+    fn tcp_keepalive_interval(slf: PyRefMut<Self>, interval: Option<Duration>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.tcp_keepalive_interval(interval)))
     }
 
-    fn tcp_keepalive_retries(slf: PyRefMut<Self>, value: Option<u32>) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.tcp_keepalive_retries(value)))
+    fn tcp_keepalive_retries(slf: PyRefMut<Self>, count: Option<u32>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, |builder| Ok(builder.tcp_keepalive_retries(count)))
     }
 
     // :NOCOV_START
@@ -309,10 +312,6 @@ impl BaseClientBuilder {
 
     fn tls_built_in_root_certs(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.tls_built_in_root_certs(enable)))
-    }
-
-    fn tls_built_in_webpki_certs(slf: PyRefMut<Self>, enable: bool) -> PyResult<PyRefMut<Self>> {
-        Self::apply(slf, |builder| Ok(builder.tls_built_in_webpki_certs(enable)))
     }
 
     fn identity_pem(slf: PyRefMut<Self>, buf: PyBytes) -> PyResult<PyRefMut<Self>> {
@@ -388,16 +387,20 @@ impl BaseClientBuilder {
         };
 
         py.detach(|| {
-            let inner_client = self
+            let mut inner_builder = self
                 .inner
                 .take()
                 .ok_or_else(|| PyRuntimeError::new_err("Client was already built"))?
-                .use_rustls_tls()
-                .build()
-                .map_err(|e| BuilderError::from_err("builder error", &e))?;
+                .use_rustls_tls();
+
+            if !self.http1_lower_case_headers {
+                inner_builder = inner_builder.http1_title_case_headers();
+            }
 
             let client = BaseClient::new(
-                inner_client,
+                inner_builder
+                    .build()
+                    .map_err(|e| BuilderError::from_err("builder error", &e))?,
                 runtime,
                 self.middlewares.take(),
                 self.json_handler.take(),

@@ -1,7 +1,7 @@
 """Types for pyreqwest client module."""
 
 from collections.abc import Callable, Coroutine
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pyreqwest.http import HeaderMap
 from pyreqwest.response import ResponseBodyReader, SyncResponseBodyReader
@@ -50,3 +50,5 @@ class SyncJsonLoadsContext(Protocol):
 JsonDumps = Callable[[JsonDumpsContext], bytes | bytearray | memoryview]
 JsonLoads = Callable[[JsonLoadsContext], Coroutine[Any, Any, Any]]
 SyncJsonLoads = Callable[[SyncJsonLoadsContext], Any]
+
+TlsVersion = Literal["TLSv1.0", "TLSv1.1", "TLSv1.2", "TLSv1.3"]

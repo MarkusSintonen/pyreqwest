@@ -53,7 +53,7 @@ define_exception!(RequestError);
 define_exception!(StatusError);
 define_exception!(RedirectError);
 
-define_exception!(BodyError);
+define_exception!(BodyDecodeError);
 define_exception!(DecodeError);
 define_exception!(JSONDecodeError);
 

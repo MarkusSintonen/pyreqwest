@@ -50,7 +50,10 @@ class EchoServer:
             resp_headers.extend([[b"content-encoding", b"gzip"], [b"x-content-encoding", b"gzip"]])
 
         for k, v in query:
-            if k.startswith("header_"):
+            if k == "header_repeat":
+                val, count = v.split(":", 1)
+                resp_headers.append([b"X-Header-", val.encode() * int(count)])
+            elif k.startswith("header_"):
                 resp_headers.append([k.removeprefix("header_").replace("_", "-").encode(), v.encode()])
 
         await send(
