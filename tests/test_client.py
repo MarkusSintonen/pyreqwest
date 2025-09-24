@@ -472,9 +472,9 @@ async def test_max_redirects(echo_server: SubprocessServer):
 
 def test_bad_tls_version():
     with pytest.raises(ValueError, match="Invalid TLS version"):
-        ClientBuilder().min_tls_version("bad")
+        ClientBuilder().min_tls_version("bad")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Invalid TLS version"):
-        ClientBuilder().max_tls_version("bad")
+        ClientBuilder().max_tls_version("bad")  # type: ignore[arg-type]
 
 
 async def test_different_runtimes(echo_server: SubprocessServer):

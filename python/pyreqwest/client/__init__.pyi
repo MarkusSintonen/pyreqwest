@@ -95,10 +95,7 @@ class BaseClientBuilder:
         """Sets the default headers for every request (unless overridden)."""
 
     def default_cookie_store(self, enable: bool) -> Self:
-        """Enables default in-memory cookie store. Same as `cookie_store` in reqwest. Default is false.
-
-        Enabling overrides `cookie_provider`
-        """
+        """Enables default in-memory cookie store. Same as `cookie_store` in reqwest. Default is false."""
 
     def cookie_provider(self, provider: CookieStore) -> Self:
         """Set the cookie store for the client. Overrides `default_cookie_store`."""
