@@ -25,15 +25,15 @@ impl Url {
     }
 
     #[staticmethod]
-    pub fn parse(url: &str) -> PyResult<Self> {
-        Ok(Url::new(url::Url::parse(url).map_err(|e| PyValueError::new_err(e.to_string()))?))
+    pub fn parse(url: UrlType) -> Self {
+        Url::new(url.0)
     }
 
     #[staticmethod]
-    fn parse_with_params(url: &str, query: QueryParams) -> PyResult<Self> {
-        let mut url = Url::parse(url)?;
-        Self::extend_query_inner(&mut url.url, Some(query))?;
-        Ok(url)
+    fn parse_with_params(url: UrlType, query: QueryParams) -> PyResult<Self> {
+        let mut url = url.0;
+        Self::extend_query_inner(&mut url, Some(query))?;
+        Ok(Url::from(url))
     }
 
     pub fn join(&self, input: &str) -> PyResult<Self> {
@@ -41,8 +41,8 @@ impl Url {
         Ok(Url::new(url))
     }
 
-    fn make_relative(&self, base: &Self) -> Option<String> {
-        self.url.make_relative(&base.url)
+    fn make_relative(&self, base: UrlType) -> Option<String> {
+        self.url.make_relative(&base.0)
     }
 
     #[getter]
@@ -159,12 +159,6 @@ impl Url {
         self.url.fragment()
     }
 
-    fn with_fragment(&self, fragment: Option<&str>) -> Self {
-        let mut url = self.url.clone();
-        url.set_fragment(fragment);
-        Url::new(url)
-    }
-
     fn with_query(&self, query: Option<QueryParams>) -> PyResult<Self> {
         let mut url = self.url.clone();
         url.set_query(None);
@@ -242,6 +236,12 @@ impl Url {
         url.set_scheme(scheme)
             .map_err(|_| PyValueError::new_err("Invalid scheme"))?;
         Ok(Url::new(url))
+    }
+
+    fn with_fragment(&self, fragment: Option<&str>) -> Self {
+        let mut url = self.url.clone();
+        url.set_fragment(fragment);
+        Url::new(url)
     }
 
     fn __copy__(&self) -> Self {
