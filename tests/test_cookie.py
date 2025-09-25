@@ -80,7 +80,7 @@ def test_cookie_attrs():
     assert c.domain == "foo.invalid"
     assert Cookie.parse("key=val").expires_datetime is None
     assert Cookie.parse("key=val").same_site is None
-    assert Cookie.parse("key=val").partitioned is None
+    assert Cookie.parse("key=val").partitioned is False
     assert Cookie.parse("key=val").domain is None
 
 

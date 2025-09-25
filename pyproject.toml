@@ -68,6 +68,7 @@ ignore = [
     "S101",
     "PT018",
     "D203",
+    "D205",
     "D213",
     "COM812",  # Formatter conflict
     "TRY300",

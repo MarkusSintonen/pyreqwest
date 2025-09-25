@@ -1,5 +1,3 @@
-# ruff: noqa: D205
-
 # TAKEN FROM:
 # https://github.com/developmentseed/obstore/blob/b87054eaac3a26ee65a1d4bc69a5e01fdab3d5d9/pyo3-bytes/README.md?plain=1#L58
 

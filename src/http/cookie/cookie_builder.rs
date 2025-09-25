@@ -1,4 +1,5 @@
 use crate::http::cookie::Cookie;
+use crate::http::cookie::cookie::CookieType;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use time::OffsetDateTime;
@@ -14,8 +15,8 @@ impl CookieBuilder {
     }
 
     #[staticmethod]
-    fn from_cookie(cookie: Bound<Cookie>) -> Self {
-        Self(Some(cookie::Cookie::build(cookie.get().0.clone())))
+    fn from_cookie(cookie: CookieType) -> Self {
+        Self(Some(cookie::Cookie::build(cookie.0)))
     }
 
     fn build(&mut self) -> PyResult<Cookie> {

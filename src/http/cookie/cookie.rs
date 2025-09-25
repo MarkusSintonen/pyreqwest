@@ -60,13 +60,13 @@ impl Cookie {
     }
 
     #[getter]
-    fn http_only(&self) -> Option<bool> {
-        self.0.http_only()
+    fn http_only(&self) -> bool {
+        self.0.http_only().unwrap_or_default()
     }
 
     #[getter]
-    fn secure(&self) -> Option<bool> {
-        self.0.secure()
+    fn secure(&self) -> bool {
+        self.0.secure().unwrap_or_default()
     }
 
     #[getter]
@@ -80,8 +80,8 @@ impl Cookie {
     }
 
     #[getter]
-    fn partitioned(&self) -> Option<bool> {
-        self.0.partitioned()
+    fn partitioned(&self) -> bool {
+        self.0.partitioned().unwrap_or_default()
     }
 
     #[getter]
