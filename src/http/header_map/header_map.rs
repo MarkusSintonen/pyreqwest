@@ -70,8 +70,8 @@ impl HeaderMap {
         self.ref_map(|map| Ok(!map.is_empty()))
     }
 
-    fn __len__(&self) -> PyResult<usize> {
-        self.len()
+    pub fn __len__(&self) -> PyResult<usize> {
+        self.ref_map(|map| Ok(map.len()))
     }
 
     pub fn __contains__(&self, key: &str) -> PyResult<bool> {
@@ -177,10 +177,6 @@ impl HeaderMap {
     }
 
     // Additional methods
-
-    pub fn len(&self) -> PyResult<usize> {
-        self.ref_map(|map| Ok(map.len()))
-    }
 
     fn keys_len(&self) -> PyResult<usize> {
         self.ref_map(|map| Ok(map.keys_len()))

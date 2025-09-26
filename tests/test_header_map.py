@@ -119,7 +119,6 @@ def test_len(pairs: list[tuple[str, str]]):
     headers = HeaderMap(pairs)
     assert len(headers) == len(pairs)
     assert len(headers) == len(CIMultiDict(pairs))
-    assert headers.len() == len(pairs)
     assert headers.keys_len() == len({k for k, _ in pairs})
 
 

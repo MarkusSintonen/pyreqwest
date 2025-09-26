@@ -15,7 +15,7 @@ impl HeaderMapItemsView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.len()
+        self.0.__len__()
     }
 
     fn __contains__(&self, kv: (String, String)) -> PyResult<bool> {
@@ -123,7 +123,7 @@ impl HeaderMapKeysView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.len()
+        self.0.__len__()
     }
 
     fn __contains__(&self, key: &str) -> PyResult<bool> {
@@ -205,7 +205,7 @@ impl HeaderMapValuesView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        self.0.len()
+        self.0.__len__()
     }
 
     fn __contains__(&self, val: &str) -> PyResult<bool> {

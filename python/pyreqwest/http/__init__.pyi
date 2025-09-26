@@ -250,35 +250,92 @@ class Mime(Sequence[str]):
     def __len__(self) -> int: ...
 
 class HeaderMapItemsView(ItemsView[str, str]):
+    """Live view of (key,value) pairs in insertion order."""
     def __eq__(self, other: object) -> bool: ...
 
 class HeaderMapKeysView(KeysView[str]):
+    """Live view of header keys (one per stored value)."""
     def __eq__(self, other: object) -> bool: ...
 
 class HeaderMapValuesView(ValuesView[str]):
+    """Live view of values in insertion order."""
     def __eq__(self, other: object) -> bool: ...
 
 class HeaderMap(MutableMapping[str, str]):
-    def __init__(self, other: HeadersType | None = None) -> None: ...
-    def __len__(self) -> int: ...
-    def __iter__(self) -> Iterator[str]: ...
-    def __getitem__(self, key: str, /) -> str: ...
-    def __setitem__(self, key: str, value: str, /) -> None: ...
-    def __delitem__(self, key: str, /) -> None: ...
-    def items(self) -> HeaderMapItemsView: ...
-    def keys(self) -> HeaderMapKeysView: ...
-    def values(self) -> HeaderMapValuesView: ...
-    def len(self) -> int: ...
-    def keys_len(self) -> int: ...
-    def getall(self, key: str) -> list[str]: ...
-    def insert(self, key: str, value: str, *, is_sensitive: bool = False) -> list[str]: ...
-    def append(self, key: str, value: str, *, is_sensitive: bool = False) -> bool: ...
-    def extend(self, other: HeadersType) -> None: ...
+    """Case-insensitive multi-value HTTP header map."""
+
+    def __init__(self, other: HeadersType | None = None) -> None:
+        """Init from: list/tuple of (key,value), dict (single values), HeaderMap, CIMultiDict."""
+
+    def __len__(self) -> int:
+        """Number of items in the map."""
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over header keys (one entry per stored value, so duplicates repeat)."""
+
+    def __getitem__(self, key: str, /) -> str:
+        """First value for key."""
+
+    def __setitem__(self, key: str, value: str, /) -> None:
+        """Set single value for key; replaces all existing values for that key."""
+
+    def __delitem__(self, key: str, /) -> None:
+        """Delete all values for key."""
+
+    def __eq__(self, other: object) -> bool:
+        """Equality: per-key value sequence must match; inter-key ordering ignored.
+        Supports mappings and key/value pair iterables.
+        """
+
+    def items(self) -> HeaderMapItemsView:
+        """Live view of (key,value) pairs in insertion order."""
+
+    def keys(self) -> HeaderMapKeysView:
+        """Live view of header keys (one per stored value)."""
+
+    def values(self) -> HeaderMapValuesView:
+        """Live view of values in insertion order."""
+
+    def keys_len(self) -> int:
+        """Count of distinct header keys."""
+
+    def getall(self, key: str) -> list[str]:
+        """All values for key. Empty if key does not exist."""
+
+    def insert(self, key: str, value: str, *, is_sensitive: bool = False) -> list[str]:
+        """Replace all existing values for key with value. Returns list of removed values (may be empty)."""
+
+    def append(self, key: str, value: str, *, is_sensitive: bool = False) -> bool:
+        """Add value for a key. If the map did have this key present, the new value is pushed to the end of the list of
+        values currently associated with the key. Return True if key already existed, else False.
+        """
+
+    def extend(self, other: HeadersType) -> None:
+        """Append pairs from mapping / iterable."""
+
     @overload
-    def popall(self, key: str) -> list[str]: ...
+    def popall(self, key: str) -> list[str]:
+        """Remove all values for key and return list. With default returns it instead of raising KeyError."""
     @overload
-    def popall(self, key: str, /, default: _T) -> list[str] | _T: ...
-    def dict_multi_value(self) -> dict[str, str | list[str]]: ...
-    def copy(self) -> Self: ...
+    def popall(self, key: str, /, default: _T) -> list[str] | _T:
+        """Remove all values for key and return list. With default returns it instead of raising KeyError."""
+
+    def dict_multi_value(self) -> dict[str, str | list[str]]:
+        """Dict: single-value headers -> str; multi-value -> list[str]."""
+
+    def copy(self) -> Self:
+        """Copy the map."""
+
     def __copy__(self) -> Self: ...
-    def __eq__(self, other: object) -> bool: ...
+    @overload
+    def pop(self, key: str) -> str:
+        """Remove & return FIRST value for key. With default returns default instead of KeyError."""
+    @overload
+    def pop(self, key: str, default: _T = ...) -> str | _T:
+        """Remove & return FIRST value for key. With default returns default instead of KeyError."""
+
+    def popitem(self) -> tuple[str, str]:
+        """Remove & return an arbitrary (key, FIRST value) respecting value ordering; KeyError if empty."""
+
+    def clear(self) -> None:
+        """Empty the map."""
