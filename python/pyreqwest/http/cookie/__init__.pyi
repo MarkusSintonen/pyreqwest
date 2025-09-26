@@ -15,13 +15,12 @@ from pyreqwest.http import Url
 SameSite: TypeAlias = Literal["Strict", "Lax", "None"]
 
 class Cookie(Sequence[str]):
-    """An immutable HTTP cookie (name, value, and optional attributes). Mirrors the behavior of Rust's cookie create."""
+    """An immutable HTTP cookie. Lightweight Python wrapper around the internal Rust cookie::Cookie type.
+    Use `with_*` methods to create modified copies of a Cookie.
+    """
 
     def __init__(self, name: str, value: str) -> None:
-        """Create a cookie with the given name and value (no attributes).
-
-        Use CookieBuilder or parsing methods to create cookies with attributes.
-        """
+        """Create a cookie with the given name and value (no attributes)."""
 
     @staticmethod
     def parse(cookie: str) -> Cookie:
@@ -89,6 +88,36 @@ class Cookie(Sequence[str]):
     def stripped(self) -> str:
         """Return just the 'name=value' pair."""
 
+    def with_name(self, name: str) -> Self:
+        """Set name, returning a new Cookie."""
+
+    def with_value(self, value: str) -> Self:
+        """Set value, returning a new Cookie."""
+
+    def with_http_only(self, http_only: bool) -> Self:
+        """Set HttpOnly attribute, returning a new Cookie."""
+
+    def with_secure(self, secure: bool) -> Self:
+        """Set Secure attribute, returning a new Cookie."""
+
+    def with_same_site(self, same_site: SameSite | None) -> Self:
+        """Set SameSite attribute, returning a new Cookie."""
+
+    def with_partitioned(self, partitioned: bool) -> Self:
+        """Set Partitioned attribute, returning a new Cookie."""
+
+    def with_max_age(self, max_age: timedelta | None) -> Self:
+        """Set Max-Age attribute, returning a new Cookie."""
+
+    def with_path(self, path: str | None) -> Self:
+        """Set Path attribute, returning a new Cookie."""
+
+    def with_domain(self, domain: str | None) -> Self:
+        """Set Domain attribute, returning a new Cookie."""
+
+    def with_expires_datetime(self, expires: datetime | None) -> Self:
+        """Set Expires attribute, returning a new Cookie."""
+
     def __copy__(self) -> Cookie:
         """Copy the cookie."""
 
@@ -108,52 +137,6 @@ class Cookie(Sequence[str]):
     def __getitem__(self, index: int) -> str: ...
     @overload
     def __getitem__(self, index: slice) -> str: ...
-
-class CookieBuilder:
-    """Fluent builder for Cookie instances. The builder is single-use calling build consumes it.
-
-    Mirrors the behavior of Rust's cookie crate.
-    """
-
-    def __init__(self, name: str, value: str) -> None:
-        """Start a builder for a cookie with name and value."""
-
-    @staticmethod
-    def from_cookie(cookie: Cookie | str) -> CookieBuilder:
-        """Start a builder pre-populated from an existing Cookie."""
-
-    def build(self) -> Cookie:
-        """Build and return the Cookie. Consumes the builder."""
-
-    def expires(self, expires: datetime | None) -> Self:
-        """Set the Expires attribute (absolute time) or clear it with None."""
-
-    def max_age(self, max_age: timedelta) -> Self:
-        """Set the Max-Age attribute (relative lifetime)."""
-
-    def domain(self, domain: str) -> Self:
-        """Set the Domain attribute."""
-
-    def path(self, path: str) -> Self:
-        """Set the Path attribute."""
-
-    def secure(self, secure: bool) -> Self:
-        """Enable or disable the Secure attribute."""
-
-    def http_only(self, http_only: bool) -> Self:
-        """Enable or disable the HttpOnly attribute."""
-
-    def same_site(self, same_site: SameSite) -> Self:
-        """Set the SameSite attribute."""
-
-    def partitioned(self, partitioned: bool) -> Self:
-        """Enable or disable the Partitioned attribute."""
-
-    def permanent(self) -> Self:
-        """Set a long-lived expiration (far future) per cookie crate semantics."""
-
-    def removal(self) -> Self:
-        """Configure as a removal cookie (empty value, expired in the past)."""
 
 class CookieStore:
     """Thread-safe in-memory cookie store (domain/path aware). Mirrors the behavior of Rust's cookie_store."""

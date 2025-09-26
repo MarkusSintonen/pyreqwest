@@ -20,7 +20,7 @@ class Url(Sequence[str]):
         """Parse an absolute URL from a string and add params to its query string. Existing params are not removed."""
 
     def join(self, join_input: str) -> Self:
-        """Parse a string as an URL, with this URL as the base URL. The inverse of this is make_relative.
+        """Parse a string as a URL, with this URL as the base URL. The inverse of this is make_relative.
 
         Notes:
         - A trailing slash is significant. Without it, the last path component is considered to be a “file” name to be

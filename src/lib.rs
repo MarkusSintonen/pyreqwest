@@ -110,7 +110,7 @@ mod pyreqwest {
         mod cookie {
             use super::*;
             #[pymodule_export]
-            use crate::http::{Cookie, CookieBuilder, CookieStore};
+            use crate::http::{Cookie, CookieStore};
             #[pymodule_init]
             fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
                 register_collections_abc::<Cookie>(module.py(), "Sequence")?;

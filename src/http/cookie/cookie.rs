@@ -3,6 +3,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyIterator, PyString, PyTuple};
+use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use time::{Duration, OffsetDateTime};
 
@@ -110,6 +111,79 @@ impl Cookie {
 
     fn stripped(&self) -> String {
         self.0.stripped().to_string()
+    }
+
+    fn with_name(&self, name: String) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_name(name);
+        Cookie(cookie)
+    }
+
+    fn with_value(&self, value: String) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_value(value);
+        Cookie(cookie)
+    }
+
+    fn with_http_only(&self, http_only: bool) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_http_only(http_only);
+        Cookie(cookie)
+    }
+
+    fn with_secure(&self, secure: bool) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_secure(secure);
+        Cookie(cookie)
+    }
+
+    fn with_same_site(&self, same_site: Option<&str>) -> PyResult<Self> {
+        let same_site = match same_site {
+            Some("Strict") => Some(cookie::SameSite::Strict),
+            Some("Lax") => Some(cookie::SameSite::Lax),
+            Some("None") => Some(cookie::SameSite::None),
+            None => None,
+            _ => return Err(PyValueError::new_err("invalid SameSite, expected 'Strict', 'Lax', 'None', or None")),
+        };
+        let mut cookie = self.0.clone();
+        cookie.set_same_site(same_site);
+        Ok(Cookie(cookie))
+    }
+
+    fn with_partitioned(&self, partitioned: bool) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_partitioned(partitioned);
+        Cookie(cookie)
+    }
+
+    fn with_max_age(&self, max_age: Option<Duration>) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_max_age(max_age);
+        Cookie(cookie)
+    }
+
+    fn with_path(&self, path: Option<String>) -> Self {
+        let mut cookie = self.0.clone();
+        match path {
+            Some(val) => cookie.set_path(Cow::Owned(val)),
+            None => cookie.unset_path(),
+        }
+        Cookie(cookie)
+    }
+
+    fn with_domain(&self, domain: Option<String>) -> Self {
+        let mut cookie = self.0.clone();
+        match domain {
+            Some(val) => cookie.set_domain(Cow::Owned(val)),
+            None => cookie.unset_domain(),
+        }
+        Cookie(cookie)
+    }
+
+    fn with_expires_datetime(&self, expires: Option<OffsetDateTime>) -> Self {
+        let mut cookie = self.0.clone();
+        cookie.set_expires(expires);
+        Cookie(cookie)
     }
 
     fn __copy__(&self) -> Self {

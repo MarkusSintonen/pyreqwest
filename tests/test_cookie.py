@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pyreqwest.client import ClientBuilder
-from pyreqwest.http.cookie import Cookie, CookieBuilder, CookieStore
+from pyreqwest.http.cookie import Cookie, CookieStore
 
 from tests.servers.server_subprocess import SubprocessServer
 
@@ -58,7 +58,6 @@ def test_cookie_create():
     assert Cookie.parse_encoded("key=val%20with%20spaces").encode() == "key=val%20with%20spaces"
     assert Cookie.split_parse("key1=val1; key2=val2") == ["key1=val1", "key2=val2"]
     assert Cookie.split_parse_encoded("key1=val1; key2=val%202") == ["key1=val1", "key2=val 2"]
-    assert CookieBuilder.from_cookie(Cookie("key", "val")).build() == Cookie("key", "val")
 
 
 def test_cookie_attrs():
@@ -120,43 +119,45 @@ def test_cookie_sequence():
     assert c.count("HttpOnly") == str_c.count("HttpOnly")
 
 
-def test_cookie_builder():
-    builder = CookieBuilder("key", "val")
-    c = (
-        builder.expires(datetime(2025, 6, 9, 10, 18, 14, tzinfo=UTC))
-        .max_age(timedelta(minutes=30))
-        .domain("example.com")
-        .path("/foo")
-        .secure(True)
-        .http_only(True)
-        .same_site("Lax")
-        .partitioned(True)
-        .build()
+def test_cookie_with_changes():
+    cookie = Cookie("key", "val")
+    cookie2 = (
+        cookie.with_value("newval")
+        .with_http_only(True)
+        .with_secure(True)
+        .with_same_site("Lax")
+        .with_partitioned(True)
+        .with_max_age(timedelta(minutes=10))
+        .with_path("/foo")
+        .with_domain("example.com")
+        .with_expires_datetime(datetime(2025, 6, 9, 10, 18, 14, tzinfo=UTC))
     )
-    assert c == Cookie.parse(
-        "key=val; HttpOnly; SameSite=Lax; Partitioned; Secure; Path=/foo;"
-        " Domain=example.com; Max-Age=1800; Expires=Mon, 09 Jun 2025 10:18:14 GMT"
+    cookie3 = cookie2.with_name("newkey")
+    assert str(cookie) == "key=val"
+    assert str(cookie2) == (
+        "key=newval; HttpOnly; SameSite=Lax; Partitioned; Secure; Path=/foo;"
+        " Domain=example.com; Max-Age=600; Expires=Mon, 09 Jun 2025 10:18:14 GMT"
+    )
+    assert str(cookie3) == (
+        "newkey=newval; HttpOnly; SameSite=Lax; Partitioned; Secure; Path=/foo;"
+        " Domain=example.com; Max-Age=600; Expires=Mon, 09 Jun 2025 10:18:14 GMT"
     )
 
 
-def test_cookie_builder__same_site():
-    assert CookieBuilder("k", "v").same_site("Strict").build().same_site == "Strict"
-    assert CookieBuilder("k", "v").same_site("Lax").build().same_site == "Lax"
-    assert CookieBuilder("k", "v").same_site("None").build().same_site == "None"
+def test_cookie__with_same_site():
+    assert Cookie("k", "v").with_same_site("Strict").same_site == "Strict"
+    assert Cookie("k", "v").with_same_site("Lax").same_site == "Lax"
+    assert Cookie("k", "v").with_same_site("None").same_site == "None"
 
     with pytest.raises(ValueError, match="invalid SameSite"):
-        CookieBuilder("k", "v").same_site("invalid")  # type: ignore[arg-type]
+        Cookie("k", "v").with_same_site("invalid")  # type: ignore[arg-type]
 
 
-def test_cookie_builder__permanent():
-    c = CookieBuilder("k", "v").permanent().build()
-    assert (c.name, c.value) == ("k", "v")
-    assert c.max_age == timedelta(days=365 * 20)
-    assert c.expires_datetime is not None and c.expires_datetime >= datetime.now(tz=UTC) + timedelta(days=364)
+def test_cookie__with_path():
+    assert Cookie("k", "v").with_path("/foo").path == "/foo"
+    assert Cookie("k", "v").with_path("/foo").with_path(None).path is None
 
 
-def test_cookie_builder__removal():
-    c = CookieBuilder("k", "v").removal().build()
-    assert (c.name, c.value) == ("k", "")
-    assert c.max_age == timedelta(days=0)
-    assert c.expires_datetime is not None and c.expires_datetime <= datetime.now(tz=UTC) - timedelta(days=364)
+def test_cookie__with_domain():
+    assert Cookie("k", "v").with_domain("example.com").domain == "example.com"
+    assert Cookie("k", "v").with_domain("example.com").with_domain(None).domain is None
