@@ -1,10 +1,4 @@
-"""HTTP cookie types backed by Rust's cookie and cookie_store crates.
-
-Most builder and cookie concepts mirror Rust crates design while providing a Pythonic surface.
-See docs:
-- cookie: https://docs.rs/cookie/latest/cookie/struct.Cookie.html
-- cookie_store: https://docs.rs/cookie_store/latest/cookie_store/struct.CookieStore.html
-"""
+"""HTTP cookie types backed by Rust's cookie and cookie_store crates."""
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -17,6 +11,8 @@ SameSite: TypeAlias = Literal["Strict", "Lax", "None"]
 class Cookie(Sequence[str]):
     """An immutable HTTP cookie. Lightweight Python wrapper around the internal Rust cookie::Cookie type.
     Use `with_*` methods to create modified copies of a Cookie.
+
+    See also Rust cookie docs: https://docs.rs/cookie/latest/cookie/struct.Cookie.html
     """
 
     def __init__(self, name: str, value: str) -> None:
@@ -139,7 +135,10 @@ class Cookie(Sequence[str]):
     def __getitem__(self, index: slice) -> str: ...
 
 class CookieStore:
-    """Thread-safe in-memory cookie store (domain/path aware). Mirrors the behavior of Rust's cookie_store."""
+    """Thread-safe in-memory cookie store (domain/path aware). Mirrors the behavior of Rust's cookie_store.
+
+    See also Rust cookie docs: https://docs.rs/cookie_store/latest/cookie_store/struct.CookieStore.html"""
+
     def __init__(self) -> None:
         """Create an empty cookie store."""
 

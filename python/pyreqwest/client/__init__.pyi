@@ -1,10 +1,4 @@
-"""HTTP client interfaces (async + sync) modeled after Rust reqwest.
-
-Most builder and client concepts mirror reqwest's design while providing a Pythonic surface.
-See reqwest docs:
-- ClientBuilder: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
-- Client: https://docs.rs/reqwest/latest/reqwest/struct.Client.html
-"""
+"""HTTP client interfaces (async + sync) modeled after Rust reqwest."""
 
 from datetime import timedelta
 from typing import Any, Generic, Self, TypeVar
@@ -46,9 +40,10 @@ class BaseClient(Generic[_RB]):
         """Same as request("HEAD", url)."""
 
 class Client(BaseClient[RequestBuilder]):
-    """Asynchronous HTTP client. Inspired by reqwest's async Client.
+    """Asynchronous HTTP client. Inspired by reqwest's Client.
 
-    Use as an async context manager for graceful shutdown. Can be also manually closed.
+    Use as an async context manager for graceful shutdown. Can be also manually closed. Reuse for multiple requests.
+    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.Client.html
     """
 
     async def __aenter__(self) -> Self:
@@ -61,9 +56,10 @@ class Client(BaseClient[RequestBuilder]):
         """Close the client."""
 
 class SyncClient(BaseClient[SyncRequestBuilder]):
-    """Synchronous HTTP client using a dedicated internal runtime.
+    """Synchronous HTTP client. Inspired by reqwest's Client.
 
-    Similar to `reqwest::blocking::Client`. Reuse for multiple requests.
+    Use as a context manager for graceful shutdown. Can be also manually closed. Reuse for multiple requests.
+    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.Client.html
     """
 
     def __enter__(self) -> Self:
@@ -265,7 +261,7 @@ class ClientBuilder(BaseClientBuilder):
     """Fluent builder for configuring an async `Client`.
 
     After configuring options, call `build()` to obtain a `Client`.
-    Reqwest reference: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
+    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
     """
 
     def __init__(self) -> None:
@@ -287,7 +283,7 @@ class SyncClientBuilder(BaseClientBuilder):
     """Fluent builder for configuring a synchronous `SyncClient` (blocking style).
 
     After configuring options, call `build()` to obtain a `Client`.
-    Reqwest reference: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
+    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
     """
 
     def __init__(self) -> None:
