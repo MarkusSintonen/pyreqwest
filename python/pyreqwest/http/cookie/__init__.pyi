@@ -12,7 +12,7 @@ class Cookie(Sequence[str]):
     """An immutable HTTP cookie. Lightweight Python wrapper around the internal Rust cookie::Cookie type.
     Use `with_*` methods to create modified copies of a Cookie.
 
-    See also Rust cookie docs: https://docs.rs/cookie/latest/cookie/struct.Cookie.html
+    See also Rust docs: https://docs.rs/cookie/latest/cookie/struct.Cookie.html
     """
 
     def __init__(self, name: str, value: str) -> None:
@@ -114,9 +114,6 @@ class Cookie(Sequence[str]):
     def with_expires_datetime(self, expires: datetime | None) -> Self:
         """Set Expires attribute, returning a new Cookie."""
 
-    def __copy__(self) -> Cookie:
-        """Copy the cookie."""
-
     def __hash__(self) -> int:
         """Return a hash based on the cookie's string representation."""
 
@@ -129,6 +126,7 @@ class Cookie(Sequence[str]):
     def __len__(self) -> int:
         """Length of the string representation of the cookie."""
 
+    def __copy__(self) -> Self: ...
     @overload
     def __getitem__(self, index: int) -> str: ...
     @overload
@@ -137,7 +135,8 @@ class Cookie(Sequence[str]):
 class CookieStore:
     """Thread-safe in-memory cookie store (domain/path aware). Mirrors the behavior of Rust's cookie_store.
 
-    See also Rust cookie docs: https://docs.rs/cookie_store/latest/cookie_store/struct.CookieStore.html"""
+    See also Rust docs: https://docs.rs/cookie_store/latest/cookie_store/struct.CookieStore.html
+    """
 
     def __init__(self) -> None:
         """Create an empty cookie store."""

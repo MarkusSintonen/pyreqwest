@@ -128,7 +128,7 @@ def cert_private_key_file(localhost_cert: trustme.LeafCert) -> Generator[Path, N
         yield Path(tmp.name)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 async def https_echo_server(
     server_pool: ServerPool, cert_private_key_file: Path, cert_pem_file: Path, cert_authority_pem: Path
 ) -> AsyncGenerator[SubprocessServer]:

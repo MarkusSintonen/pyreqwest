@@ -6,7 +6,10 @@ from pyreqwest.types import HeadersType, QueryParams
 _T = TypeVar("_T")
 
 class Url(Sequence[str]):
-    """Immutable parsed URL. Lightweight Python wrapper around the internal Rust url::Url type."""
+    """Immutable parsed URL. Lightweight Python wrapper around the internal Rust url::Url type.
+
+    See also Rust docs: https://docs.rs/url/latest/url/struct.Url.html
+    """
 
     def __init__(self, url: str) -> None:
         """Parse an absolute URL from a string."""
@@ -185,12 +188,10 @@ class Url(Sequence[str]):
     def with_fragment(self, fragment: str | None) -> Self:
         """Change this URL's fragment identifier."""
 
-    def __copy__(self) -> Self:
-        """Copy the URL."""
-
     def __truediv__(self, join_input: str) -> Self:
         """Path join shorthand: url / 'segment' == url.join('segment')."""
 
+    def __copy__(self) -> Self: ...
     def __hash__(self) -> int: ...
     def __richcmp__(self, other: Any, op: int) -> bool: ...
     @overload
@@ -203,19 +204,38 @@ class Url(Sequence[str]):
     def __le__(self, other: object) -> bool: ...
 
 class Mime(Sequence[str]):
+    """Parsed media (MIME) type. Lightweight Python wrapper around the internal Rust mime::Mime type.
+
+    See also Rust docs: https://docs.rs/mime/latest/mime/struct.Mime.html
+    """
+
     @staticmethod
-    def parse(mime: str) -> Mime: ...
+    def parse(mime: str) -> Mime:
+        """Parse a MIME string into a `Mime`."""
+
     @property
-    def type_(self) -> str: ...
+    def type_(self) -> str:
+        """Lowercased top-level type (before '/')."""
+
     @property
-    def subtype(self) -> str: ...
+    def subtype(self) -> str:
+        """Lowercased subtype (after '/'), excluding any +suffix."""
+
     @property
-    def suffix(self) -> str | None: ...
+    def suffix(self) -> str | None:
+        """Structured syntax suffix (text after '+') or None."""
+
     @property
-    def parameters(self) -> list[tuple[str, str]]: ...
+    def parameters(self) -> list[tuple[str, str]]:
+        """List of (name, value) parameter pairs in original order. Names are lowercase; duplicates kept."""
+
     @property
-    def essence_str(self) -> str: ...
-    def get_param(self, name: str) -> str | None: ...
+    def essence_str(self) -> str:
+        """type/subtype(+suffix) without parameters (RFC 6838 essence)."""
+
+    def get_param(self, name: str) -> str | None:
+        """Return first parameter value whose name (case-insensitive) matches, else None."""
+
     def copy(self) -> Self: ...
     def __copy__(self) -> Self: ...
     def __hash__(self) -> int: ...

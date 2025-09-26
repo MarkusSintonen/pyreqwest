@@ -200,7 +200,16 @@ impl Cookie {
 
     fn __hash__(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
-        self.0.to_string().hash(&mut hasher);
+        self.0.name().hash(&mut hasher);
+        self.0.value().hash(&mut hasher);
+        self.0.http_only().hash(&mut hasher);
+        self.0.secure().hash(&mut hasher);
+        self.0.same_site().hash(&mut hasher);
+        self.0.partitioned().hash(&mut hasher);
+        self.0.max_age().hash(&mut hasher);
+        self.0.path().map(|p| p.to_ascii_lowercase()).hash(&mut hasher);
+        self.0.domain().map(|d| d.to_ascii_lowercase()).hash(&mut hasher);
+        self.0.expires_datetime().hash(&mut hasher);
         hasher.finish()
     }
 
