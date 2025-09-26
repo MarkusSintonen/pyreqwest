@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from pyreqwest.client import Client, ClientBuilder, SyncClientBuilder
 from pyreqwest.exceptions import BuilderError
+from pyreqwest.http import Mime
 from pyreqwest.multipart import FormBuilder, PartBuilder
 from requests_toolbelt import MultipartDecoder  # type: ignore[import-untyped]
 
@@ -43,7 +44,7 @@ async def test_multipart_text_fields(client: Client, echo_server: SubprocessServ
 
 
 async def test_multipart_with_custom_part(client: Client, echo_server: SubprocessServer):
-    custom_part = PartBuilder.from_text("Custom content").mime_str("text/plain").file_name("custom.txt")
+    custom_part = PartBuilder.from_text("Custom content").mime("text/plain").file_name("custom.txt")
 
     form = FormBuilder().text("description", "File upload test").part("file", custom_part)
 
@@ -114,7 +115,7 @@ async def test_multipart_with_part_file(echo_server: SubprocessServer, file: str
         else:
             assert file == "sync"
             file_part = PartBuilder.from_sync_file(Path(tmp.name))
-        file_part = file_part.mime_str("text/plain; charset=utf-8")
+        file_part = file_part.mime("text/plain; charset=utf-8")
 
         form = FormBuilder().text("description", "Using Part.file").part("attachment", file_part)
 
@@ -164,7 +165,7 @@ async def test_multipart_with_stream_part(client: Client, echo_server: Subproces
         else:
             stream_part = PartBuilder.from_stream(data_stream())
 
-    stream_part = stream_part.mime_str("application/octet-stream").file_name("data.bin")
+    stream_part = stream_part.mime("application/octet-stream").file_name("data.bin")
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
 
     resp = await client.post(echo_server.url).multipart(form).build().send()
@@ -186,9 +187,7 @@ async def test_multipart_with_async_stream_async_part_in_sync_request(echo_serve
     async def data_stream() -> AsyncGenerator[bytes, None]:
         yield b""
 
-    stream_part = (
-        PartBuilder.from_stream(data_stream()).mime_str("application/octet-stream").file_name("streamed_data.bin")
-    )
+    stream_part = PartBuilder.from_stream(data_stream()).mime("application/octet-stream").file_name("streamed_data.bin")
     form = FormBuilder().text("type", "streaming").part("data", stream_part)
     req_builder = SyncClientBuilder().build().post(echo_server.url)
     with pytest.raises(BuilderError, match=re.escape("Can not use async multipart (stream) in a blocking request")):
@@ -197,7 +196,7 @@ async def test_multipart_with_async_stream_async_part_in_sync_request(echo_serve
 
 async def test_multipart_with_bytes_part(client: Client, echo_server: SubprocessServer):
     binary_data = b"Binary content \x00\x01\x02"
-    part = PartBuilder.from_bytes(binary_data).mime_str("application/octet-stream")
+    part = PartBuilder.from_bytes(binary_data).mime("application/octet-stream")
     form = FormBuilder().text("type", "binary").part("data", part)
 
     resp = await client.post(echo_server.url).multipart(form).build().send()
@@ -311,5 +310,5 @@ async def test_multipart_form_chaining():
 
 async def test_part_chaining():
     part = PartBuilder.from_text("content")
-    result = part.mime_str("text/plain").file_name("test.txt")
+    result = part.mime(Mime.parse("text/plain")).file_name("test.txt")
     assert result is part

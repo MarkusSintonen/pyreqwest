@@ -24,4 +24,4 @@ Returns:
 """
 
 SyncMiddleware = Callable[[Request, SyncNext], SyncResponse]
-"""Sync middleware handler which is used in blocking context."""
+"""Sync middleware handler which is used in blocking context. See Middleware for details."""

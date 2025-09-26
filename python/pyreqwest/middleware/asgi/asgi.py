@@ -33,7 +33,6 @@ class ASGITestMiddleware:
             app: ASGI application callable
             timeout: Timeout for ASGI operations (default: 5 seconds)
             scope_update: Optional coroutine to modify the ASGI scope per request
-
         """
         self._app = app
         self._scope_update = scope_update

@@ -1,7 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::RuntimeHandle;
-use crate::http::HeaderMap;
 use crate::http::internal::body_stream::BodyStream;
+use crate::http::{HeaderMap, MimeType};
 use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -59,8 +59,12 @@ impl PartBuilder {
         Ok(Self::new(part, false))
     }
 
-    fn mime_str<'py>(slf: PyRefMut<'py, Self>, mime: &str) -> PyResult<PyRefMut<'py, Self>> {
-        Self::apply(slf, |builder| builder.mime_str(mime).map_err(|e| PyValueError::new_err(e.to_string())))
+    fn mime<'py>(slf: PyRefMut<'py, Self>, mime: MimeType) -> PyResult<PyRefMut<'py, Self>> {
+        Self::apply(slf, |builder| {
+            builder
+                .mime_str(mime.0.as_ref())
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
     }
 
     fn file_name(slf: PyRefMut<'_, Self>, filename: String) -> PyResult<PyRefMut<'_, Self>> {
