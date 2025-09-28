@@ -274,7 +274,7 @@ class ClientBuilder(BaseClientBuilder):
         """
 
     def with_middleware(self, middleware: Middleware) -> Self:
-        """Register an async middleware component (executed in chain order)."""
+        """Register a middleware component (executed in chain order)."""
 
     def json_handler(self, *, loads: JsonLoads | None = ..., dumps: JsonDumps | None = ...) -> Self:
         """Override JSON loads / dumps callables for this client."""
@@ -296,7 +296,7 @@ class SyncClientBuilder(BaseClientBuilder):
         """
 
     def with_middleware(self, middleware: SyncMiddleware) -> Self:
-        """Register a sync middleware component (executed in chain order)."""
+        """Register a middleware component (executed in chain order)."""
 
     def json_handler(self, *, loads: SyncJsonLoads | None = ..., dumps: JsonDumps | None = ...) -> Self:
         """Override JSON loads / dumps callables for this sync client."""

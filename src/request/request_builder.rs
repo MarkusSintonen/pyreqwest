@@ -139,6 +139,11 @@ impl BaseRequestBuilder {
         Ok(slf)
     }
 
+    fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
+        let query = query.extract::<QueryParams>()?.0;
+        Self::apply(slf, |builder| Ok(builder.query(&query)))
+    }
+
     fn timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, |builder| Ok(builder.timeout(timeout)))
     }
@@ -153,11 +158,6 @@ impl BaseRequestBuilder {
         }
         let multipart = multipart.build()?;
         Self::apply(slf, |builder| Ok(builder.multipart(multipart)))
-    }
-
-    fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
-        let query = query.extract::<QueryParams>()?.0;
-        Self::apply(slf, |builder| Ok(builder.query(&query)))
     }
 
     fn form<'py>(slf: PyRefMut<'py, Self>, form: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
