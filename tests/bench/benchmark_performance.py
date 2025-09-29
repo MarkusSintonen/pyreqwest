@@ -109,7 +109,7 @@ class PerformanceBenchmark:
                         .build_streamed() as response
                     ):
                         tot = 0
-                        while chunk := await response.read(self.big_body_chunk_size):
+                        while chunk := await response.body_reader.read(self.big_body_chunk_size):
                             assert len(chunk) <= self.big_body_chunk_size
                             tot += len(chunk)
                         assert tot == body_size
@@ -133,7 +133,7 @@ class PerformanceBenchmark:
                         .build_streamed() as response
                     ):
                         tot = 0
-                        while chunk := response.read(self.big_body_chunk_size):
+                        while chunk := response.body_reader.read(self.big_body_chunk_size):
                             assert len(chunk) <= self.big_body_chunk_size
                             tot += len(chunk)
                         assert tot == body_size

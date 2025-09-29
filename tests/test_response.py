@@ -10,7 +10,7 @@ import trustme
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import BodyDecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
-from pyreqwest.response import Response, ResponseBodyReader, ResponseBuilder
+from pyreqwest.response import ResponseBuilder
 
 from tests.servers.server_subprocess import SubprocessServer
 
@@ -133,18 +133,7 @@ async def test_body(client: Client, echo_body_parts_server: SubprocessServer, ki
         assert (await resp.body_reader.read_chunk()) is None
 
 
-@pytest.mark.parametrize("took_reader", [False, True])
-@pytest.mark.parametrize("use_reader", [False, True])
-async def test_read(
-    client: Client, echo_body_parts_server: SubprocessServer, took_reader: bool, use_reader: bool
-) -> None:
-    def get_reader(resp: Response) -> Response | ResponseBodyReader:
-        if took_reader:
-            body_reader = resp.body_reader
-            if use_reader:
-                return body_reader
-        return resp
-
+async def test_body_reader_read(client: Client, echo_body_parts_server: SubprocessServer) -> None:
     chars = string.ascii_letters + string.digits
     body = b"".join(chars[v % len(chars)].encode() for v in range(131072))
 
@@ -152,18 +141,16 @@ async def test_read(
         yield body
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
-    reader = get_reader(resp)
-    assert (await reader.read()) == body[:65536]
-    assert (await reader.read()) == body[65536:]
-    assert (await reader.read()) == b""
+    assert (await resp.body_reader.read()) == body[:65536]
+    assert (await resp.body_reader.read()) == body[65536:]
+    assert (await resp.body_reader.read()) is None
 
     resp = await client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
-    reader = get_reader(resp)
-    assert (await reader.read(0)) == b""
-    assert (await reader.read(100)) == body[:100]
-    assert (await reader.read(100)) == body[100:200]
-    assert (await reader.read(131072)) == body[200:]
-    assert (await reader.read(10)) == b""
+    assert (await resp.body_reader.read(0)) == b""
+    assert (await resp.body_reader.read(100)) == body[:100]
+    assert (await resp.body_reader.read(100)) == body[100:200]
+    assert (await resp.body_reader.read(131072)) == body[200:]
+    assert (await resp.body_reader.read(10)) is None
 
 
 ASCII_TEST = b"""

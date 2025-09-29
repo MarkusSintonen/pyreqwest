@@ -297,5 +297,5 @@ async def test_use_after_close(client: Client, echo_body_parts_server: Subproces
     with pytest.raises(RuntimeError, match="Response body reader is closed"):
         await resp.bytes()
     with pytest.raises(RuntimeError, match="Response body reader is closed"):
-        await resp.read(100)
+        await resp.body_reader.read(100)
     assert resp.headers["content-type"] == "application/json"

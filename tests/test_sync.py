@@ -64,18 +64,7 @@ def test_http_methods(echo_server: SubprocessServer, str_url: bool):
             assert response.json()["method"] == "QUERY"
 
 
-@pytest.mark.parametrize("took_reader", [False, True])
-@pytest.mark.parametrize("use_reader", [False, True])
-def test_read(
-    client: SyncClient, echo_body_parts_server: SubprocessServer, took_reader: bool, use_reader: bool
-) -> None:
-    def get_reader(resp: SyncResponse) -> SyncResponse | SyncResponseBodyReader:
-        if took_reader:
-            body_reader = resp.body_reader
-            if use_reader:
-                return body_reader
-        return resp
-
+def test_read(client: SyncClient, echo_body_parts_server: SubprocessServer) -> None:
     chars = string.ascii_letters + string.digits
     body = b"".join(chars[v % len(chars)].encode() for v in range(131072))
 
@@ -83,18 +72,16 @@ def test_read(
         yield body
 
     resp = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
-    reader = get_reader(resp)
-    assert reader.read() == body[:65536]
-    assert reader.read() == body[65536:]
-    assert reader.read() == b""
+    assert resp.body_reader.read() == body[:65536]
+    assert resp.body_reader.read() == body[65536:]
+    assert resp.body_reader.read() is None
 
     resp = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build().send()
-    reader = get_reader(resp)
-    assert reader.read(0) == b""
-    assert reader.read(100) == body[:100]
-    assert reader.read(100) == body[100:200]
-    assert reader.read(131072) == body[200:]
-    assert reader.read(10) == b""
+    assert resp.body_reader.read(0) == b""
+    assert resp.body_reader.read(100) == body[:100]
+    assert resp.body_reader.read(100) == body[100:200]
+    assert resp.body_reader.read(131072) == body[200:]
+    assert resp.body_reader.read(10) is None
 
 
 def test_middleware(echo_server: SubprocessServer) -> None:
@@ -314,7 +301,7 @@ def test_stream_use_after_close(client: SyncClient, echo_body_parts_server: Subp
     with pytest.raises(RuntimeError, match="Response body reader is closed"):
         resp.bytes()
     with pytest.raises(RuntimeError, match="Response body reader is closed"):
-        resp.read(100)
+        resp.body_reader.read(100)
     assert resp.headers["content-type"] == "application/json"
 
 

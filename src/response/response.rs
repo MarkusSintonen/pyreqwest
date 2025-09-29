@@ -6,7 +6,7 @@ use crate::http::internal::json::{JsonHandler, JsonLoadsContext};
 use crate::http::internal::types::{Extensions, HeaderValue, JsonValue, StatusCode, Version};
 use crate::http::{HeaderMap, Mime};
 use crate::response::SyncResponseBodyReader;
-use crate::response::internal::{BodyConsumeConfig, BodyReader, DEFAULT_READ_BUFFER_LIMIT};
+use crate::response::internal::{BodyConsumeConfig, BodyReader};
 use crate::response::response_body_reader::{BaseResponseBodyReader, ResponseBodyReader};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
@@ -167,18 +167,6 @@ impl BaseResponse {
                 .unwrap_or(UTF_8);
             let (text, _, _) = encoding.decode(&bytes);
             Ok(text.into_owned())
-        })
-        .await
-    }
-
-    #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
-    async fn read(&mut self, amount: usize) -> PyResult<PyBytes> {
-        AllowThreads(async {
-            match self.mut_inner()?.body_reader.as_mut() {
-                Some(RespReader::Reader(reader)) => reader.read(amount).await.map(PyBytes::from),
-                Some(RespReader::PyReader(reader)) => reader.get().read_inner(amount).await.map(PyBytes::from),
-                None => Err(PyRuntimeError::new_err("Response body reader is closed")),
-            }
         })
         .await
     }
@@ -399,11 +387,6 @@ impl SyncResponse {
 
     fn text(slf: PyRefMut<Self>) -> PyResult<String> {
         Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().text())
-    }
-
-    #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
-    fn read(slf: PyRefMut<Self>, amount: usize) -> PyResult<PyBytes> {
-        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().read(amount))
     }
 }
 impl SyncResponse {

@@ -27,11 +27,11 @@ class Request:
 
     @property
     def headers(self) -> HeaderMap:
-        """Get the headers."""
+        """Get the headers. This is not a copy. Modifying it modifies the request."""
 
     @headers.setter
     def headers(self, headers: HeadersType) -> None:
-        """Replace the headers (supports HeaderMap, mapping, key-value pairs)."""
+        """Replace headers. Given value is copied."""
 
     @property
     def body(self) -> RequestBody | None:
@@ -47,7 +47,7 @@ class Request:
 
     @extensions.setter
     def extensions(self, value: ExtensionsType) -> None:
-        """Replace extensions."""
+        """Replace extensions. Given value is shallow copied."""
 
     def copy(self) -> Self:
         """Copy the request. Byte-bodies are zero-copied. Stream bodies are re-created via their own copy logic."""

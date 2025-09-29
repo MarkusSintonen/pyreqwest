@@ -24,8 +24,8 @@ impl BaseResponseBodyReader {
     }
 
     #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
-    async fn read(&self, amount: usize) -> PyResult<PyBytes> {
-        AllowThreads(async { self.read_inner(amount).await.map(PyBytes::new) }).await
+    async fn read(&self, amount: usize) -> PyResult<Option<PyBytes>> {
+        AllowThreads(async { Ok(self.read_inner(amount).await?.map(PyBytes::new)) }).await
     }
 
     async fn read_chunk(&self) -> PyResult<Option<PyBytes>> {
@@ -44,7 +44,7 @@ impl BaseResponseBodyReader {
         self.inner.lock().await.bytes().await
     }
 
-    pub async fn read_inner(&self, amount: usize) -> PyResult<Bytes> {
+    pub async fn read_inner(&self, amount: usize) -> PyResult<Option<Bytes>> {
         self.inner.lock().await.read(amount).await
     }
 
@@ -67,7 +67,7 @@ impl SyncResponseBodyReader {
     }
 
     #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
-    fn read(slf: PyRef<Self>, amount: usize) -> PyResult<PyBytes> {
+    fn read(slf: PyRef<Self>, amount: usize) -> PyResult<Option<PyBytes>> {
         Self::runtime(slf.as_ref()).blocking_spawn(slf.as_super().read(amount))
     }
 

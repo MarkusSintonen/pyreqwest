@@ -114,17 +114,17 @@ impl BodyReader {
         Ok(bytes)
     }
 
-    pub async fn read(&mut self, amount: usize) -> PyResult<Bytes> {
+    pub async fn read(&mut self, amount: usize) -> PyResult<Option<Bytes>> {
+        if amount == 0 {
+            return Ok(Some(Bytes::new()));
+        }
+
         let remaining = self
             .content_length
             .map(|content_len| content_len.saturating_sub(self.read_bytes));
         let capacity = remaining.map(|remaining| remaining.min(amount)).unwrap_or(amount);
 
-        let mut collected = if capacity > 0 {
-            BytesMut::with_capacity(capacity)
-        } else {
-            BytesMut::new()
-        };
+        let mut collected = BytesMut::with_capacity(capacity);
         let mut remaining = amount;
 
         while remaining > 0 {
@@ -140,7 +140,10 @@ impl BodyReader {
             }
         }
 
-        Ok(collected.freeze())
+        if collected.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(collected.freeze()))
     }
 
     pub fn close(&self) {

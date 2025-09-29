@@ -1,8 +1,7 @@
 """Module providing HTTP request mocking capabilities for pyreqwest clients in tests."""
 
 import json
-from collections.abc import AsyncIterable, Awaitable, Callable, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable
 from functools import cached_property
 from re import Pattern
 from typing import Any, Literal, Self, TypeVar, assert_never
@@ -319,9 +318,32 @@ class ClientMocker:
     """Main class for mocking HTTP requests."""
 
     def __init__(self) -> None:
-        """Initialize the ClientMocker."""
+        """Do not initialize ClientMocker directly.
+        Instead, use the `client_mocker` fixture or `ClientMocker.create_mocker`.
+        """
         self._mocks: list[Mock] = []
         self._strict = False
+
+    @staticmethod
+    def create_mocker(monkeypatch: pytest.MonkeyPatch) -> "ClientMocker":
+        """Create a ClientMocker for mocking HTTP requests in tests."""
+        mocker = ClientMocker()
+
+        def setup(klass: type[BaseRequestBuilder], *, is_async: bool) -> None:
+            orig_build_consumed = klass.build  # type: ignore[attr-defined]
+            orig_build_streamed = klass.build_streamed  # type: ignore[attr-defined]
+
+            def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
+                middleware = mocker._create_middleware() if is_async else mocker._create_sync_middleware()
+                return orig(self.with_middleware(middleware))  # type: ignore[attr-defined]
+
+            monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
+            monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
+
+        setup(RequestBuilder, is_async=True)
+        setup(SyncRequestBuilder, is_async=False)
+
+        return mocker
 
     def mock(self, method: MethodMatcher | None = None, path: UrlMatcher | None = None) -> Mock:
         """Add a mock rule for requests matching the given criteria."""
@@ -418,31 +440,7 @@ class ClientMocker:
         return mock_middleware
 
 
-@contextmanager
-def client_mocker_context() -> Generator[ClientMocker, None, None]:
-    """Context manager that provides a ClientMocker for mocking HTTP requests in tests."""
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        mocker = ClientMocker()
-
-        def setup(klass: type[BaseRequestBuilder], *, is_async: bool) -> None:
-            orig_build_consumed = klass.build  # type: ignore[attr-defined]
-            orig_build_streamed = klass.build_streamed  # type: ignore[attr-defined]
-
-            def build_patch(self: BaseRequestBuilder, orig: Callable[[BaseRequestBuilder], Request]) -> Request:
-                middleware = mocker._create_middleware() if is_async else mocker._create_sync_middleware()
-                return orig(self.with_middleware(middleware))  # type: ignore[attr-defined]
-
-            monkeypatch.setattr(klass, "build", lambda slf: build_patch(slf, orig_build_consumed))
-            monkeypatch.setattr(klass, "build_streamed", lambda slf: build_patch(slf, orig_build_streamed))
-
-        setup(RequestBuilder, is_async=True)
-        setup(SyncRequestBuilder, is_async=False)
-
-        yield mocker
-
-
 @pytest.fixture
-def client_mocker() -> Generator[ClientMocker, None, None]:
+def client_mocker(monkeypatch: pytest.MonkeyPatch) -> ClientMocker:
     """Fixture that provides a ClientMocker for mocking HTTP requests in tests."""
-    with client_mocker_context() as mocker:
-        yield mocker
+    return ClientMocker.create_mocker(monkeypatch)
