@@ -19,19 +19,19 @@ class Cookie(Sequence[str]):
         """Create a cookie with the given name and value (no attributes)."""
 
     @staticmethod
-    def parse(cookie: str) -> Cookie:
+    def parse(cookie: str) -> "Cookie":
         """Parses a Cookie from the given HTTP cookie header value string."""
 
     @staticmethod
-    def parse_encoded(cookie: str) -> Cookie:
+    def parse_encoded(cookie: str) -> "Cookie":
         """Like parse, but does percent-decoding of keys and values."""
 
     @staticmethod
-    def split_parse(cookie: str) -> list[Cookie]:
+    def split_parse(cookie: str) -> list["Cookie"]:
         """Parses the HTTP Cookie header, a series of cookie names and value separated by `;`."""
 
     @staticmethod
-    def split_parse_encoded(cookie: str) -> list[Cookie]:
+    def split_parse_encoded(cookie: str) -> list["Cookie"]:
         """Like split_parse, but does percent-decoding of keys and values."""
 
     @property
@@ -114,9 +114,6 @@ class Cookie(Sequence[str]):
     def with_expires_datetime(self, expires: datetime | None) -> Self:
         """Set Expires attribute, returning a new Cookie."""
 
-    def __hash__(self) -> int:
-        """Return a hash based on the cookie's string representation."""
-
     def __eq__(self, other: object) -> bool:
         """Return True if cookies are equal (by underlying attributes)."""
 
@@ -126,6 +123,7 @@ class Cookie(Sequence[str]):
     def __len__(self) -> int:
         """Length of the string representation of the cookie."""
 
+    def __hash__(self) -> int: ...
     def __copy__(self) -> Self: ...
     @overload
     def __getitem__(self, index: int) -> str: ...

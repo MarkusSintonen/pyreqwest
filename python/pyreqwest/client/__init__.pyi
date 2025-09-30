@@ -75,7 +75,7 @@ class BaseClientBuilder:
     def base_url(self, url: Url | str) -> Self:
         """Set a base URL automatically prepended to relative request URLs."""
 
-    def runtime(self, runtime: Runtime) -> Self:
+    def runtime(self, runtime: "Runtime") -> Self:
         """Use a custom runtime (advanced scenarios). Usually not needed. By default, a global runtime is used."""
 
     def max_connections(self, max_connections: int | None) -> Self:
