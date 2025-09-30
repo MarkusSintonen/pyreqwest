@@ -1,6 +1,9 @@
-from typing import Any, Self
+from typing import Any, Self, TYPE_CHECKING
 
-from pyreqwest.bytes import Bytes
+if TYPE_CHECKING:
+    from pyreqwest.bytes import Bytes
+else:
+    Bytes = Any
 from pyreqwest.http import HeaderMap, Mime
 from pyreqwest.types import ExtensionsType, HeadersType, Stream
 
