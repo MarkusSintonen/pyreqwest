@@ -9,11 +9,11 @@ from pyreqwest._pyreqwest.response import (
     SyncResponseBodyReader,
 )
 
-__all__ = [
-    "BaseResponse",
+__all__ = [  # noqa: RUF022
     "Response",
-    "ResponseBodyReader",
-    "ResponseBuilder",
     "SyncResponse",
+    "BaseResponse",
+    "ResponseBuilder",
+    "ResponseBodyReader",
     "SyncResponseBodyReader",
 ]

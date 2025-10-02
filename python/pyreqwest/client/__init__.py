@@ -10,12 +10,12 @@ from pyreqwest._pyreqwest.client import (
     SyncClientBuilder,
 )
 
-__all__ = [
-    "BaseClient",
-    "BaseClientBuilder",
+__all__ = [  # noqa: RUF022
     "Client",
     "ClientBuilder",
-    "Runtime",
     "SyncClient",
     "SyncClientBuilder",
+    "BaseClient",
+    "BaseClientBuilder",
+    "Runtime",
 ]

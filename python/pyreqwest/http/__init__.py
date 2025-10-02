@@ -9,11 +9,11 @@ from pyreqwest._pyreqwest.http import (
     Url,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022
+    "Url",
     "HeaderMap",
+    "Mime",
     "HeaderMapItemsView",
     "HeaderMapKeysView",
     "HeaderMapValuesView",
-    "Mime",
-    "Url",
 ]

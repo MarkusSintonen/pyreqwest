@@ -12,14 +12,14 @@ from pyreqwest._pyreqwest.request import (
     SyncStreamRequest,
 )
 
-__all__ = [
-    "BaseRequestBuilder",
+__all__ = [  # noqa: RUF022
     "ConsumedRequest",
-    "Request",
-    "RequestBody",
-    "RequestBuilder",
     "StreamRequest",
     "SyncConsumedRequest",
-    "SyncRequestBuilder",
     "SyncStreamRequest",
+    "Request",
+    "RequestBuilder",
+    "SyncRequestBuilder",
+    "BaseRequestBuilder",
+    "RequestBody",
 ]
