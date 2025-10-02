@@ -1,12 +1,12 @@
 """Common types and interfaces used in the library."""
 
 from collections.abc import AsyncIterable, Iterable, Mapping, Sequence
-from typing import Any
+from typing import Any, TypeAlias
 
-HeadersType = Mapping[str, str] | Sequence[tuple[str, str]]
-QueryParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
-FormParams = Mapping[str, Any] | Sequence[tuple[str, Any]]
-ExtensionsType = Mapping[str, Any] | Sequence[tuple[str, Any]]
+HeadersType: TypeAlias = Mapping[str, str] | Sequence[tuple[str, str]]
+QueryParams: TypeAlias = Mapping[str, Any] | Sequence[tuple[str, Any]]
+FormParams: TypeAlias = Mapping[str, Any] | Sequence[tuple[str, Any]]
+ExtensionsType: TypeAlias = Mapping[str, Any] | Sequence[tuple[str, Any]]
 
-SyncStream = Iterable[bytes] | Iterable[bytearray] | Iterable[memoryview]
-Stream = AsyncIterable[bytes] | AsyncIterable[bytearray] | AsyncIterable[memoryview] | SyncStream
+SyncStream: TypeAlias = Iterable[bytes] | Iterable[bytearray] | Iterable[memoryview]
+Stream: TypeAlias = AsyncIterable[bytes] | AsyncIterable[bytearray] | AsyncIterable[memoryview] | SyncStream
