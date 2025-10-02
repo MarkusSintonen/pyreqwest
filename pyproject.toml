@@ -68,6 +68,7 @@ ignore = [
     "PYI002",  # Not compatible with pdoc
     "PYI020",  # Not compatible with pdoc
     "PYI021",
+    "UP037",  # Not compatible with pdoc
     "ANN401",
     "PLC0414",
     "S101",
