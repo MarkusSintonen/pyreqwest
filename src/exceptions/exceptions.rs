@@ -1,5 +1,5 @@
 use crate::exceptions::utils::error_causes_iter;
-use crate::http::internal::types::JsonValue;
+use crate::internal::types::JsonValue;
 use pyo3::prelude::*;
 use pyo3::pyobject_native_type_core;
 use pyo3::sync::PyOnceLock;

@@ -1,5 +1,5 @@
 use crate::http::header_map::header_map::HeaderMap;
-use crate::http::internal::types::{HeaderName, HeaderValue};
+use crate::internal::types::{HeaderName, HeaderValue};
 use pyo3::exceptions::PyStopIteration;
 use pyo3::prelude::*;
 use std::collections::VecDeque;

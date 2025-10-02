@@ -1,4 +1,4 @@
-use crate::http::internal::body_stream::BodyStream;
+use crate::internal::body_stream::BodyStream;
 use bytes::Bytes;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;

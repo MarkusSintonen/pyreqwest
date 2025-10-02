@@ -1,8 +1,8 @@
 use crate::client::internal::Spawner;
 use crate::exceptions::BuilderError;
 use crate::http::HeaderMap;
-use crate::http::internal::json::{JsonDumpsContext, JsonHandler};
-use crate::http::internal::types::{Extensions, FormParams, HeaderName, HeaderValue, JsonValue, QueryParams};
+use crate::internal::json::{JsonDumpsContext, JsonHandler};
+use crate::internal::types::{Extensions, FormParams, HeaderName, HeaderValue, JsonValue, QueryParams};
 use crate::middleware::NextInner;
 use crate::multipart::FormBuilder;
 use crate::request::consumed_request::{ConsumedRequest, SyncConsumedRequest};

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pyreqwest.client import ClientBuilder
-from pyreqwest.http.cookie import Cookie, CookieStore
+from pyreqwest.cookie import Cookie, CookieStore
 
 from tests.servers.server_subprocess import SubprocessServer
 

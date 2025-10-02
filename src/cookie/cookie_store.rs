@@ -1,6 +1,5 @@
+use crate::cookie::{Cookie, CookieType};
 use crate::http::UrlType;
-use crate::http::cookie::Cookie;
-use crate::http::cookie::cookie::CookieType;
 use bytes::Bytes;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

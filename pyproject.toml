@@ -14,8 +14,8 @@ pyreqwest = "pyreqwest.pytest_plugin.plugin"
 [dependency-groups]
 dev = [
     "maturin==1.9.4",
-    "pytest==8.4.1",
-    "pytest-asyncio==1.0.0",
+    "pytest==8.4.2",
+    "pytest-asyncio==1.2.0",
     "granian==2.4.1",
     "asgi-types==0.1.0",
     "trustme==1.2.1",
@@ -25,7 +25,7 @@ dev = [
     "ruff==0.12.10",
     "mypy==1.17.1",
     "pydantic==2.11.9",
-    # Compatibility with other libraries
+    # Compatibility checks with other libraries
     "dirty-equals==0.9.0",
     "yarl==1.20.1",
     "multidict==6.6.3",
@@ -35,6 +35,8 @@ dev = [
     "httpx==0.28.1",
     "urllib3==2.5.0",
     "matplotlib==3.10.6",
+    # Documentation
+    "pdoc==15.0.4"
 ]
 
 [tool.maturin]
@@ -48,6 +50,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "session"
 asyncio_default_fixture_loop_scope = "session"
@@ -62,6 +65,8 @@ select = ["ALL"]
 ignore = [
     "FBT",
     "TC003",
+    "PYI002",  # Not compatible with pdoc
+    "PYI020",  # Not compatible with pdoc
     "PYI021",
     "ANN401",
     "PLC0414",

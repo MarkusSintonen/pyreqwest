@@ -1,8 +1,8 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::internal::Spawner;
-use crate::http::internal::json::JsonHandler;
-use crate::http::internal::types::{Extensions, Method};
 use crate::http::{HeaderMap, Url, UrlType};
+use crate::internal::json::JsonHandler;
+use crate::internal::types::{Extensions, Method};
 use crate::middleware::{Next, NextInner, SyncNext};
 use crate::request::RequestBody;
 use crate::response::BaseResponse;

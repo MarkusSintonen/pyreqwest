@@ -1,9 +1,9 @@
 use crate::client::internal::ConnectionLimiter;
 use crate::client::internal::Spawner;
 use crate::client::runtime::RuntimeHandle;
-use crate::http::internal::json::JsonHandler;
-use crate::http::internal::types::Method;
 use crate::http::{HeaderMap, Url, UrlType};
+use crate::internal::json::JsonHandler;
+use crate::internal::types::Method;
 use crate::middleware::NextInner;
 use crate::request::{BaseRequestBuilder, RequestBuilder, SyncRequestBuilder};
 use pyo3::prelude::*;

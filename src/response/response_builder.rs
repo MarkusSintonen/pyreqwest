@@ -1,7 +1,7 @@
 use crate::allow_threads::AllowThreads;
 use crate::client::RuntimeHandle;
 use crate::http::HeaderMap;
-use crate::http::internal::types::{Extensions, HeaderName, HeaderValue, JsonValue, StatusCode, Version};
+use crate::internal::types::{Extensions, HeaderName, HeaderValue, JsonValue, StatusCode, Version};
 use crate::request::RequestBody;
 use crate::response::internal::{BodyConsumeConfig, StreamedReadConfig};
 use crate::response::{BaseResponse, Response, SyncResponse};

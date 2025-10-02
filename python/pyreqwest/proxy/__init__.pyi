@@ -12,22 +12,22 @@ class ProxyBuilder:
     """
 
     @staticmethod
-    def http(url: Url | str) -> "ProxyBuilder":
+    def http(url: Url | str) -> ProxyBuilder:
         """Proxy all HTTP traffic to the passed URL."""
 
     @staticmethod
-    def https(url: Url | str) -> "ProxyBuilder":
+    def https(url: Url | str) -> ProxyBuilder:
         """Proxy all HTTPS traffic to the passed URL."""
 
     @staticmethod
-    def all(url: Url | str) -> "ProxyBuilder":
+    def all(url: Url | str) -> ProxyBuilder:
         """Proxy all traffic to the passed URL.
 
         "All" refers to https and http URLs. Other schemes are not recognized.
         """
 
     @staticmethod
-    def custom(fun: Callable[[Url], Url | str | None]) -> "ProxyBuilder":
+    def custom(fun: Callable[[Url], Url | str | None]) -> ProxyBuilder:
         """Provide a custom function to determine what traffic to proxy to where.
 
         Any exception raised or an invalid/relative return value surfaces as a `RequestPanicError`.

@@ -1,7 +1,7 @@
 use crate::http::header_map::iters::HeaderMapKeysIter;
 use crate::http::header_map::views::{HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView};
-use crate::http::internal::types::{HeaderName, HeaderValue};
-use crate::http::internal::utils::{KeyValPairs, ellipsis};
+use crate::internal::types::{HeaderName, HeaderValue};
+use crate::internal::utils::{KeyValPairs, ellipsis};
 use http::header::Entry;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;

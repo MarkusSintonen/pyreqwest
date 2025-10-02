@@ -1,4 +1,4 @@
-use crate::http::internal::types::QueryParams;
+use crate::internal::types::QueryParams;
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

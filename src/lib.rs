@@ -1,8 +1,10 @@
 mod allow_threads;
 mod asyncio;
 mod client;
+mod cookie;
 mod exceptions;
 mod http;
+mod internal;
 mod middleware;
 mod multipart;
 mod proxy;
@@ -26,7 +28,7 @@ mod pyreqwest {
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module(module, "client")
+            register_submodule(module, "client")
         }
     }
 
@@ -40,7 +42,7 @@ mod pyreqwest {
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module(module, "request")
+            register_submodule(module, "request")
         }
     }
 
@@ -53,7 +55,7 @@ mod pyreqwest {
         };
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module(module, "response")
+            register_submodule(module, "response")
         }
     }
 
@@ -64,7 +66,7 @@ mod pyreqwest {
         use crate::middleware::{Next, SyncNext};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module(module, "middleware")
+            register_submodule(module, "middleware")
         }
     }
 
@@ -75,7 +77,7 @@ mod pyreqwest {
         use crate::proxy::ProxyBuilder;
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module(module, "proxy")
+            register_submodule(module, "proxy")
         }
     }
 
@@ -86,7 +88,7 @@ mod pyreqwest {
         use crate::multipart::{FormBuilder, PartBuilder};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_module(module, "multipart")
+            register_submodule(module, "multipart")
         }
     }
 
@@ -103,19 +105,19 @@ mod pyreqwest {
             register_collections_abc::<HeaderMapItemsView>(module.py(), "ItemsView")?;
             register_collections_abc::<HeaderMapKeysView>(module.py(), "KeysView")?;
             register_collections_abc::<HeaderMapValuesView>(module.py(), "ValuesView")?;
-            register_module(module, "http")
+            register_submodule(module, "http")
         }
+    }
 
-        #[pymodule]
-        mod cookie {
-            use super::*;
-            #[pymodule_export]
-            use crate::http::{Cookie, CookieStore};
-            #[pymodule_init]
-            fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-                register_collections_abc::<Cookie>(module.py(), "Sequence")?;
-                register_module(module, "http.cookie")
-            }
+    #[pymodule]
+    mod cookie {
+        use super::*;
+        #[pymodule_export]
+        use crate::cookie::{Cookie, CookieStore};
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_collections_abc::<Cookie>(module.py(), "Sequence")?;
+            register_submodule(module, "cookie")
         }
     }
 }
@@ -128,11 +130,31 @@ fn register_collections_abc<T: PyTypeInfo>(py: Python, base: &str) -> PyResult<(
         .map(|_| ())
 }
 
-// https://github.com/PyO3/pyo3/issues/759
-fn register_module(module: &Bound<'_, PyModule>, name: &str) -> PyResult<()> {
+fn register_submodule(module: &Bound<'_, PyModule>, submodule_name: &str) -> PyResult<()> {
+    // https://github.com/PyO3/pyo3/issues/759
     module
         .py()
         .import("sys")?
         .getattr("modules")?
-        .set_item(format!("pyreqwest._pyreqwest.{}", name), module)
+        .set_item(format!("pyreqwest._pyreqwest.{}", submodule_name), module)?;
+
+    fix_module(module, Some(submodule_name))
+}
+
+fn fix_module(module: &Bound<'_, PyModule>, submodule_name: Option<&str>) -> PyResult<()> {
+    // Need to fix module names, otherwise pyo3 uses "builtin" as module name. This breaks doc generation.
+    for attr_name in module.dir()?.iter() {
+        let attr_name: &str = attr_name.extract()?;
+        if attr_name.starts_with("_") {
+            continue;
+        }
+        if let Some(submodule_name) = submodule_name {
+            module
+                .getattr(attr_name)?
+                .setattr("__module__", format!("pyreqwest.{}", submodule_name))?;
+        } else {
+            module.getattr(attr_name)?.setattr("__module__", "pyreqwest")?;
+        }
+    }
+    Ok(())
 }

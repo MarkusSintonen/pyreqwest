@@ -22,7 +22,7 @@ class FormBuilder:
     def sync_file(self, name: str, path: Path) -> Self:
         """Makes a file parameter. File read is blocking."""
 
-    def part(self, name: str, part: "PartBuilder") -> Self:
+    def part(self, name: str, part: PartBuilder) -> Self:
         """Adds a customized part from PartBuilder."""
 
     def percent_encode_path_segment(self) -> Self:
@@ -40,29 +40,29 @@ class PartBuilder:
     """
 
     @staticmethod
-    def from_text(value: str) -> "PartBuilder":
+    def from_text(value: str) -> PartBuilder:
         """Makes a text parameter."""
 
     @staticmethod
-    def from_bytes(value: bytes) -> "PartBuilder":
+    def from_bytes(value: bytes) -> PartBuilder:
         """Makes a new parameter from arbitrary bytes."""
 
     @staticmethod
-    def from_stream(stream: Stream) -> "PartBuilder":
+    def from_stream(stream: Stream) -> PartBuilder:
         """Makes a new parameter from an arbitrary stream."""
 
     @staticmethod
-    def from_stream_with_length(stream: Stream, length: int) -> "PartBuilder":
+    def from_stream_with_length(stream: Stream, length: int) -> PartBuilder:
         """Makes a new parameter from an arbitrary stream with a known length. This is particularly useful when adding
         something like file contents as a stream, where you can know the content length beforehand.
         """
 
     @staticmethod
-    async def from_file(path: Path) -> "PartBuilder":
+    async def from_file(path: Path) -> PartBuilder:
         """Makes a file parameter."""
 
     @staticmethod
-    def from_sync_file(path: Path) -> "PartBuilder":
+    def from_sync_file(path: Path) -> PartBuilder:
         """Makes a file parameter. File read is blocking."""
 
     def mime(self, mime: Mime | str) -> Self:

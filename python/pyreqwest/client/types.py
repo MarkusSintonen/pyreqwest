@@ -19,7 +19,7 @@ class JsonLoadsContext(Protocol):
     """Data for json deserializing."""
 
     @property
-    def body_reader(self) -> "ResponseBodyReader":
+    def body_reader(self) -> ResponseBodyReader:
         """The body reader to read the JSON data from."""
 
     @property
@@ -35,7 +35,7 @@ class SyncJsonLoadsContext(Protocol):
     """Data for sync json deserializing."""
 
     @property
-    def body_reader(self) -> "SyncResponseBodyReader":
+    def body_reader(self) -> SyncResponseBodyReader:
         """The body reader to read the JSON data from."""
 
     @property

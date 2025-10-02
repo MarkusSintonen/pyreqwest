@@ -15,11 +15,11 @@ class Url(Sequence[str]):
         """Parse an absolute URL from a string."""
 
     @staticmethod
-    def parse(url: str) -> "Url":
+    def parse(url: str) -> Url:
         """Parse an absolute URL from a string. Same as Url(url)."""
 
     @staticmethod
-    def parse_with_params(url: str, params: QueryParams) -> "Url":
+    def parse_with_params(url: str, params: QueryParams) -> Url:
         """Parse an absolute URL from a string and add params to its query string. Existing params are not removed."""
 
     def join(self, join_input: str) -> Self:
@@ -210,7 +210,7 @@ class Mime(Sequence[str]):
     """
 
     @staticmethod
-    def parse(mime: str) -> "Mime":
+    def parse(mime: str) -> Mime:
         """Parse a MIME string into a `Mime`."""
 
     @property
