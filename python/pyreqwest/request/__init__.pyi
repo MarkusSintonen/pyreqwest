@@ -38,11 +38,11 @@ class Request:
         """Replace headers. Given value is copied."""
 
     @property
-    def body(self) -> RequestBody | None:
+    def body(self) -> "RequestBody | None":
         """Get the body."""
 
     @body.setter
-    def body(self, value: RequestBody | None) -> None:
+    def body(self, value: "RequestBody | None") -> None:
         """Set the body or remove body."""
 
     @property
@@ -61,7 +61,7 @@ class Request:
         """Verbose repr including non-sensitive headers and body summary."""
 
     @classmethod
-    def from_request_and_body(cls, request: Self, body: RequestBody | None) -> Self:
+    def from_request_and_body(cls, request: Self, body: "RequestBody | None") -> Self:
         """Clone request with a new body instance."""
 
 class ConsumedRequest(Request):
@@ -106,15 +106,15 @@ class RequestBody:
     """Represents request body content (bytes, text, or async stream). Bodies are single-use."""
 
     @staticmethod
-    def from_text(body: str) -> RequestBody:
+    def from_text(body: str) -> "RequestBody":
         """Create body from text."""
 
     @staticmethod
-    def from_bytes(body: bytes | bytearray | memoryview) -> RequestBody:
+    def from_bytes(body: bytes | bytearray | memoryview) -> "RequestBody":
         """Create body from raw bytes."""
 
     @staticmethod
-    def from_stream(stream: Stream) -> RequestBody:
+    def from_stream(stream: Stream) -> "RequestBody":
         """Create body from async byte stream."""
 
     def copy_bytes(self) -> Bytes | None:

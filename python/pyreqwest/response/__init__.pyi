@@ -72,7 +72,7 @@ class Response(BaseResponse):
         """Decode body to text (underlying bytes cached after first read). Uses charset from Content-Type."""
 
     @property
-    def body_reader(self) -> ResponseBodyReader:
+    def body_reader(self) -> "ResponseBodyReader":
         """Access streaming reader. Using bytes(), json() or text() is not allowed after reading body partially."""
 
 class SyncResponse(BaseResponse):
@@ -90,7 +90,7 @@ class SyncResponse(BaseResponse):
         """Decode body to text (underlying bytes cached after first read). Uses charset from Content-Type."""
 
     @property
-    def body_reader(self) -> SyncResponseBodyReader:
+    def body_reader(self) -> "SyncResponseBodyReader":
         """Access streaming reader. Using bytes(), json() or text() is not allowed after reading body partially."""
 
 class ResponseBuilder:

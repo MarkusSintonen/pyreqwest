@@ -12,3 +12,5 @@ target
 __pycache__
 
 coverage
+
+docs/site
