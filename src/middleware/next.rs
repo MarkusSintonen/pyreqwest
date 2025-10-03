@@ -85,6 +85,20 @@ impl SyncNext {
         Python::attach(|py| SyncResponse::new_py(py, resp))
     }
 
+    // :NOCOV_START
+    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.0.__traverse__(&visit)
+    }
+
+    pub fn __clear__(&mut self) {
+        self.0.__clear__()
+    } // :NOCOV_END
+}
+impl SyncNext {
+    pub fn new(inner: NextInner) -> PyResult<Self> {
+        Ok(SyncNext(inner))
+    }
+
     pub fn run_inner(&self, request: &Bound<PyAny>) -> PyResult<BaseResponse> {
         let resp = self.call_next(request)?;
 
@@ -107,20 +121,6 @@ impl SyncNext {
         let py = request.py();
         let next = SyncNext(self.0.create_next(py)?);
         middleware.bind(py).call1((request, next)).map(Some)
-    }
-
-    // :NOCOV_START
-    pub fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        self.0.__traverse__(&visit)
-    }
-
-    pub fn __clear__(&mut self) {
-        self.0.__clear__()
-    } // :NOCOV_END
-}
-impl SyncNext {
-    pub fn new(inner: NextInner) -> PyResult<Self> {
-        Ok(SyncNext(inner))
     }
 }
 
