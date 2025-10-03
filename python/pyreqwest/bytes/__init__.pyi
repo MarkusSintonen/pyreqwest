@@ -1,13 +1,15 @@
-# TAKEN FROM:
+# Based on:
 # https://github.com/developmentseed/obstore/blob/b87054eaac3a26ee65a1d4bc69a5e01fdab3d5d9/pyo3-bytes/README.md?plain=1#L58
 
 import sys
-from typing import overload
+from typing import Protocol, Self, overload
 
 if sys.version_info >= (3, 12):
     from collections.abc import Buffer
 else:
-    from typing_extensions import Buffer
+    class Buffer(Protocol):
+        # Not actually a Protocol at runtime; see https://github.com/python/typeshed/issues/10224
+        def __buffer__(self, flags: int, /) -> memoryview: ...
 
 class Bytes(Buffer):
     """A `bytes`-like buffer.
@@ -17,6 +19,7 @@ class Bytes(Buffer):
 
     You can pass this to `memoryview` for a zero-copy view into the underlying
     data or to `bytes` to copy the underlying data into a Python `bytes`.
+    You can also use `to_bytes` to copy the underlying data into a Python `bytes`.
 
     Many methods from the Python `bytes` class are implemented on this,
     """
@@ -26,22 +29,22 @@ class Bytes(Buffer):
 
         This will be a zero-copy view on the Python byte slice.
         """
-    def __add__(self, other: Buffer) -> Bytes: ...
-    def __buffer__(self, flags: int) -> memoryview[int]: ...
+    def __add__(self, other: Buffer) -> Self: ...
+    def __buffer__(self, flags: int) -> memoryview: ...
     def __contains__(self, other: Buffer) -> bool: ...
     def __eq__(self, other: object) -> bool: ...
     @overload
     def __getitem__(self, key: int, /) -> int: ...
     @overload
-    def __getitem__(self, key: slice[int, int, int], /) -> Bytes: ...
-    def __getitem__(self, key: int | slice, /) -> int | Bytes: ...  # type: ignore[misc] # docstring in pyi file
+    def __getitem__(self, key: slice, /) -> Self: ...
+    def __getitem__(self, key: int | slice, /) -> int | Self: ...  # type: ignore[misc] # docstring in pyi file
     def __mul__(self, other: Buffer) -> int: ...
     def __len__(self) -> int: ...
-    def removeprefix(self, prefix: Buffer, /) -> Bytes:
+    def removeprefix(self, prefix: Buffer, /) -> Self:
         """If the binary data starts with the prefix string, return `bytes[len(prefix):]`.
         Otherwise, return the original binary data.
         """
-    def removesuffix(self, suffix: Buffer, /) -> Bytes:
+    def removesuffix(self, suffix: Buffer, /) -> Self:
         """If the binary data ends with the suffix string and that suffix is not empty,
         return `bytes[:-len(suffix)]`. Otherwise, return the original binary data.
         """
@@ -89,12 +92,12 @@ class Bytes(Buffer):
         the sequence and no lowercase ASCII characters, `False` otherwise.
         """
 
-    def lower(self) -> Bytes:
+    def lower(self) -> Self:
         """Return a copy of the sequence with all the uppercase ASCII characters converted
         to their corresponding lowercase counterpart.
         """
 
-    def upper(self) -> Bytes:
+    def upper(self) -> Self:
         """Return a copy of the sequence with all the lowercase ASCII characters converted
         to their corresponding uppercase counterpart.
         """

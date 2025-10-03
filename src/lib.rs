@@ -120,9 +120,25 @@ mod pyreqwest {
             register_submodule(module, "cookie")
         }
     }
+
+    #[pymodule]
+    mod bytes {
+        use super::*;
+        #[pymodule_export]
+        use pyo3_bytes::PyBytes;
+        #[pymodule_init]
+        fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+            register_collections_abc::<PyBytes>(module.py(), "Buffer")?;
+            register_submodule(module, "bytes")
+        }
+    }
 }
 
 fn register_collections_abc<T: PyTypeInfo>(py: Python, base: &str) -> PyResult<()> {
+    if base == "Buffer" && py.version_info() < (3, 12) {
+        return Ok(()); // Buffer ABC was added in Python 3.12
+    }
+
     py.import("collections")?
         .getattr("abc")?
         .getattr(base)?

@@ -1,12 +1,14 @@
 import gc
 import json
 import string
+import sys
 import weakref
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator, MutableMapping
+from collections.abc import AsyncGenerator, AsyncIterator, Buffer, Iterator, MutableMapping
 from typing import Any
 
 import pytest
 import trustme
+from pyreqwest.bytes import Bytes
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import BodyDecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
@@ -339,6 +341,14 @@ async def test_response_builder__sync_no_async_mix() -> None:
     builder = ResponseBuilder().body_stream(stream())
     with pytest.raises(ValueError, match="Cannot use async iterator in a blocking context"):
         builder.build_sync()
+
+
+async def test_bytes_buffer_abc(client: Client, echo_body_parts_server: SubprocessServer) -> None:
+    resp = await client.get(echo_body_parts_server.url).build().send()
+    buf = await resp.bytes()
+    assert type(buf) is Bytes
+    if sys.version_info >= (3, 12):
+        assert isinstance(buf, Buffer) and issubclass(type(buf), Buffer)
 
 
 def test_response_builder__circular_reference_collected() -> None:
