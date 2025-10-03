@@ -6,9 +6,9 @@ from pyreqwest.types import HeadersType, QueryParams
 _T = TypeVar("_T")
 
 class Url:
-    """Immutable parsed URL. Lightweight Python wrapper around the internal Rust url::Url type.
+    """Immutable parsed URL. Python wrapper around the internal Rust url::Url type.
 
-    See also Rust docs: https://docs.rs/url/latest/url/struct.Url.html
+    See also Rust [docs](https://docs.rs/url/latest/url/struct.Url.html) for more details.
     """
 
     def __init__(self, url: str) -> None:
@@ -206,7 +206,7 @@ class Url:
 class Mime:
     """Parsed media (MIME) type. Lightweight Python wrapper around the internal Rust mime::Mime type.
 
-    See also Rust docs: https://docs.rs/mime/latest/mime/struct.Mime.html
+    See also Rust [docs](https://docs.rs/mime/latest/mime/struct.Mime.html) for more details.
     """
 
     @staticmethod

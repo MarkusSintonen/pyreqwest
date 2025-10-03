@@ -8,7 +8,8 @@ class ProxyBuilder:
     """Configuration of a proxy that a Client should pass requests to.
 
     The resulting instance is passed to `ClientBuilder.proxy(...)`.
-    Based on reqwest's `Proxy` type. See also https://docs.rs/reqwest/latest/reqwest/struct.Proxy.html.
+    Based on reqwest's `Proxy` type.
+    See also Rust [docs](https://docs.rs/reqwest/latest/reqwest/struct.Proxy.html) for more details.
     """
 
     @staticmethod

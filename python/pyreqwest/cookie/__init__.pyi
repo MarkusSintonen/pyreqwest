@@ -12,7 +12,7 @@ class Cookie:
     """An immutable HTTP cookie. Lightweight Python wrapper around the internal Rust cookie::Cookie type.
     Use `with_*` methods to create modified copies of a Cookie.
 
-    See also Rust docs: https://docs.rs/cookie/latest/cookie/struct.Cookie.html
+    See also Rust [docs](https://docs.rs/cookie/latest/cookie/struct.Cookie.html) for more details.
     """
 
     def __init__(self, name: str, value: str) -> None:
@@ -129,7 +129,7 @@ class Cookie:
 class CookieStore:
     """Thread-safe in-memory cookie store (domain/path aware). Mirrors the behavior of Rust's cookie_store.
 
-    See also Rust docs: https://docs.rs/cookie_store/latest/cookie_store/struct.CookieStore.html
+    See also Rust [docs](https://docs.rs/cookie_store/latest/cookie_store/struct.CookieStore.html) for more details.
     """
 
     def __init__(self) -> None:
