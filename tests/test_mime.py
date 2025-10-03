@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from copy import copy
 
 import pytest
@@ -94,7 +93,7 @@ def test_hash():
     "mime_str",
     ["application/json", "application/json; charset=utf-8", "application/json;charset=utf-8"],
 )
-def test_sequence(mime_str: str):
+def test_sequence_dunder(mime_str: str):
     mime = Mime.parse(mime_str)
     assert len(mime) == len(mime_str)
     assert "application" in mime and "/json" in mime
@@ -106,16 +105,3 @@ def test_sequence(mime_str: str):
     assert mime[:5] == mime_str[:5]
 
     assert list(iter(mime)) == list(iter(mime_str))
-    assert list(reversed(mime)) == list(reversed(mime_str))
-
-    assert mime.index("json") == mime_str.index("json")
-    assert mime.count("/") == mime_str.count("/")
-
-
-def test_abc():
-    assert isinstance(Mime.parse("text/plain"), Mime)
-    assert isinstance(Mime.parse("text/plain"), Sequence)
-    assert not isinstance(Mime.parse("text/plain"), str)
-    assert issubclass(Mime, Mime)
-    assert issubclass(Mime, Sequence)
-    assert not issubclass(Mime, str)

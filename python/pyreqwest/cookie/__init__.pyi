@@ -2,13 +2,13 @@
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Literal, Self, TypeAlias, overload
+from typing import Any, Literal, Self, TypeAlias, overload
 
 from pyreqwest.http import Url
 
 SameSite: TypeAlias = Literal["Strict", "Lax", "None"]
 
-class Cookie(Sequence[str]):
+class Cookie:
     """An immutable HTTP cookie. Lightweight Python wrapper around the internal Rust cookie::Cookie type.
     Use `with_*` methods to create modified copies of a Cookie.
 
@@ -114,21 +114,17 @@ class Cookie(Sequence[str]):
     def with_expires_datetime(self, expires: datetime | None) -> Self:
         """Set Expires attribute, returning a new Cookie."""
 
-    def __eq__(self, other: object) -> bool:
-        """Return True if cookies are equal (by underlying attributes)."""
-
-    def __ne__(self, other: object) -> bool:
-        """Return True if cookies are not equal."""
-
-    def __len__(self) -> int:
-        """Length of the string representation of the cookie."""
-
-    def __hash__(self) -> int: ...
+    def __contains__(self, item: Any) -> bool: ...
     def __copy__(self) -> Self: ...
+    def __hash__(self) -> int: ...
     @overload
     def __getitem__(self, index: int) -> str: ...
     @overload
-    def __getitem__(self, index: slice) -> str: ...
+    def __getitem__(self, index: slice) -> Sequence[str]: ...
+    def __len__(self) -> int: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __lt__(self, other: object) -> bool: ...
+    def __le__(self, other: object) -> bool: ...
 
 class CookieStore:
     """Thread-safe in-memory cookie store (domain/path aware). Mirrors the behavior of Rust's cookie_store.

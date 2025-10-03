@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from copy import copy
 from datetime import UTC, datetime, timedelta
 
@@ -104,19 +103,21 @@ def test_cookie_hash_eq():
     assert copy(c1) == c1 and copy(c1) is not c1
 
 
-def test_cookie_sequence():
-    c = Cookie.parse("key=val;Path=/foo;HttpOnly")
-    str_c = str(c)
-    assert str_c == "key=val; HttpOnly; Path=/foo"
-    assert c == str_c
-    assert type(c) is Cookie and isinstance(c, Sequence)
-    assert len(c) == len(str_c)
-    assert "HttpOnly" in c
-    assert all(c[i] == str_c[i] for i in range(len(c)))
-    assert [*iter(c)] == [*str_c]
-    assert [*reversed(c)] == [*reversed(str_c)]
-    assert c.index("HttpOnly") == str_c.index("HttpOnly")
-    assert c.count("HttpOnly") == str_c.count("HttpOnly")
+def test_sequence_dunder():
+    cookie_str = "key=val; Path=/foo; HttpOnly"
+    cookie = Cookie.parse(cookie_str)
+    assert cookie == cookie_str
+    assert len(cookie) == len(cookie_str)
+    assert "key=val" in cookie and "Path=/foo" in cookie and "HttpOnly" in cookie
+
+    normalized = "key=val; HttpOnly; Path=/foo"
+    for i in range(len(cookie)):
+        assert cookie[i] == normalized[i]
+    with pytest.raises(IndexError):
+        _ = cookie[len(cookie) + 1]
+    assert cookie[:5] == normalized[:5]
+
+    assert list(iter(cookie)) == list(iter(normalized))
 
 
 def test_cookie_with_changes():

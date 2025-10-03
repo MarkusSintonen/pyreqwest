@@ -1,8 +1,6 @@
 use pyo3::exceptions::PyValueError;
-use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyDict, PyIterator, PyString, PyTuple};
+use pyo3::types::{PyIterator, PyString};
 use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use time::{Duration, OffsetDateTime};
@@ -221,8 +219,6 @@ impl Cookie {
         other.extract::<CookieType>().map_or(Ok(true), |c| Ok(c.0 != self.0))
     }
 
-    // Sequence methods
-
     fn __len__(&self) -> usize {
         self.0.to_string().len()
     }
@@ -237,31 +233,6 @@ impl Cookie {
 
     fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyIterator>> {
         self.__str__(py).try_iter()
-    }
-
-    fn __reversed__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        static REVERSED: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
-        REVERSED.import(py, "builtins", "reversed")?.call1((self.__str__(py),))
-    }
-
-    #[pyo3(signature = (*args, **kwargs))]
-    fn index<'py>(
-        &self,
-        args: &Bound<'py, PyTuple>,
-        kwargs: Option<&Bound<'py, PyDict>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        self.__str__(args.py())
-            .call_method(intern!(args.py(), "index"), args, kwargs)
-    }
-
-    #[pyo3(signature = (*args, **kwargs))]
-    fn count<'py>(
-        &self,
-        args: &Bound<'py, PyTuple>,
-        kwargs: Option<&Bound<'py, PyDict>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        self.__str__(args.py())
-            .call_method(intern!(args.py(), "count"), args, kwargs)
     }
 }
 impl Cookie {

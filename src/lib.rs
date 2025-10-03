@@ -99,8 +99,6 @@ mod pyreqwest {
         use crate::http::{HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView, Mime, Url};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_collections_abc::<Mime>(module.py(), "Sequence")?;
-            register_collections_abc::<Url>(module.py(), "Sequence")?;
             register_collections_abc::<HeaderMap>(module.py(), "MutableMapping")?;
             register_collections_abc::<HeaderMapItemsView>(module.py(), "ItemsView")?;
             register_collections_abc::<HeaderMapKeysView>(module.py(), "KeysView")?;
@@ -116,7 +114,6 @@ mod pyreqwest {
         use crate::cookie::{Cookie, CookieStore};
         #[pymodule_init]
         fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
-            register_collections_abc::<Cookie>(module.py(), "Sequence")?;
             register_submodule(module, "cookie")
         }
     }

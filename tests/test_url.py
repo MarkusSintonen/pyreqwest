@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from copy import copy
 
 import pytest
@@ -335,7 +334,7 @@ def test_cmp():
 
 
 @pytest.mark.parametrize("url_str", ["http://example.com/path", "http://example.com/path/"])
-def test_sequence(url_str: str):
+def test_sequence_dunder(url_str: str):
     url = Url(url_str)
     assert len(url) == len(url_str)
     assert "http://" in url and "example.com" in url and "/path" in url
@@ -347,16 +346,3 @@ def test_sequence(url_str: str):
     assert url[:5] == url_str[:5]
 
     assert list(iter(url)) == list(iter(url_str))
-    assert list(reversed(url)) == list(reversed(url_str))
-
-    assert url.index("example") == url_str.index("example")
-    assert url.count("/") == url_str.count("/")
-
-
-def test_abc():
-    assert isinstance(Url("http://example.com"), Url)
-    assert isinstance(Url("http://example.com"), Sequence)
-    assert not isinstance(Url("http://example.com"), str)
-    assert issubclass(Url, Url)
-    assert issubclass(Url, Sequence)
-    assert not issubclass(Url, str)
