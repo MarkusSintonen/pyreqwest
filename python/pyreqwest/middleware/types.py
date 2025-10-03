@@ -1,13 +1,12 @@
 """Middleware types and interfaces."""
 
-from collections.abc import Callable, Coroutine
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 from pyreqwest.middleware import Next, SyncNext
 from pyreqwest.request import Request
 from pyreqwest.response import Response, SyncResponse
 
-Middleware = Callable[[Request, Next], Coroutine[Any, Any, Response]]
+Middleware = Callable[[Request, Next], Awaitable[Response]]
 """Middleware handler which is called with a request before sending it.
 
 Call `await Next.run(Request)` to continue processing the request.

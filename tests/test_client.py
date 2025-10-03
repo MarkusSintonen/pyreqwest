@@ -353,6 +353,15 @@ async def test_json_dumps_callback(echo_server: SubprocessServer, returns: type[
         assert (await resp.json())["body_parts"] == ['{"original": "data", "test": 1}']
         assert called == 1
 
+    async def bad_dumps(_ctx: JsonDumpsContext) -> bytes | bytearray | memoryview:
+        raise RuntimeError("should not be called")
+
+    with pytest.raises(ValueError, match="dumps must be a sync function"):
+        ClientBuilder().json_handler(dumps=bad_dumps)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="Expected a callable"):
+        ClientBuilder().json_handler(dumps="bad")  # type: ignore[arg-type]
+
 
 async def test_json_loads_callback(echo_server: SubprocessServer):
     called = 0
@@ -379,6 +388,15 @@ async def test_json_loads_callback(echo_server: SubprocessServer):
         assert json.loads((await resp.bytes()).to_bytes()) == res
         assert (await resp.json()) == {**res, "test": "bar"}
         assert called == 2
+
+    def bad_loads(_ctx: JsonLoadsContext) -> Any:
+        raise RuntimeError("should not be called")
+
+    with pytest.raises(ValueError, match="loads must be an async function"):
+        ClientBuilder().json_handler(loads=bad_loads)
+
+    with pytest.raises(ValueError, match="Expected a callable"):
+        ClientBuilder().json_handler(loads="bad")  # type: ignore[arg-type]
 
 
 async def test_various_builder_functions(

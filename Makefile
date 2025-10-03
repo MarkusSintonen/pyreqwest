@@ -70,3 +70,13 @@ testcov:
 		--excl-stop ':NOCOV_END' \
 		--excl-line ':NOCOV|^( )+}$$|unreachable!|^#\['
 	rm -f *.profraw
+
+.PHONY: docs
+docs:
+	uv run maturin develop --uv
+	uv run pdoc -o ./docs/site --no-show-source pyreqwest.client.types pyreqwest
+
+.PHONY: docs-browser
+docs-browser:
+	uv run maturin develop --uv
+	uv run pdoc --no-show-source pyreqwest.client.types pyreqwest

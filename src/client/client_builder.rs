@@ -1,3 +1,4 @@
+use crate::asyncio::is_async_callable;
 use crate::client::Client;
 use crate::client::client::{BaseClient, SyncClient};
 use crate::client::internal::ConnectionLimiter;
@@ -11,7 +12,7 @@ use crate::proxy::ProxyBuilder;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use pyo3::{PyTraverseError, PyVisit};
+use pyo3::{PyTraverseError, PyVisit, intern};
 use pyo3_bytes::PyBytes;
 use reqwest::redirect;
 use std::net::{IpAddr, SocketAddr};
@@ -55,30 +56,6 @@ impl BaseClientBuilder {
     fn runtime(mut slf: PyRefMut<Self>, runtime: Py<Runtime>) -> PyResult<PyRefMut<Self>> {
         slf.check_inner()?;
         slf.runtime = Some(runtime);
-        Ok(slf)
-    }
-
-    fn with_middleware(mut slf: PyRefMut<Self>, middleware: Py<PyAny>) -> PyResult<PyRefMut<Self>> {
-        slf.check_inner()?;
-        slf.middlewares.get_or_insert_with(Vec::new).push(middleware);
-        Ok(slf)
-    }
-
-    #[pyo3(signature = (*, **kwargs))]
-    fn json_handler<'py>(
-        mut slf: PyRefMut<'py, Self>,
-        kwargs: Option<&Bound<'py, PyDict>>,
-    ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.check_inner()?;
-        let json_handler = slf.json_handler.get_or_insert_default();
-        if let Some(kwargs) = kwargs {
-            if kwargs.contains("loads")? {
-                json_handler.set_loads(kwargs.get_item("loads")?);
-            }
-            if kwargs.contains("dumps")? {
-                json_handler.set_dumps(kwargs.get_item("dumps")?);
-            }
-        }
         Ok(slf)
     }
 
@@ -415,6 +392,32 @@ impl BaseClientBuilder {
         })
     }
 
+    fn inner_with_middleware(&mut self, middleware: Bound<PyAny>) -> PyResult<()> {
+        self.check_inner()?;
+        self.middlewares.get_or_insert_with(Vec::new).push(middleware.unbind());
+        Ok(())
+    }
+
+    fn inner_json_handler<'py>(&mut self, kwargs: &Bound<'py, PyDict>) -> PyResult<()> {
+        self.check_inner()?;
+        let py = kwargs.py();
+        let json_handler = self.json_handler.get_or_insert_default();
+
+        if kwargs.contains(intern!(py, "loads"))? {
+            json_handler.set_loads(kwargs.get_item(intern!(py, "loads"))?);
+        }
+
+        if kwargs.contains(intern!(py, "dumps"))? {
+            if let Some(cb) = kwargs.get_item(intern!(py, "dumps"))?
+                && is_async_callable(&cb)?
+            {
+                return Err(PyValueError::new_err("dumps must be a sync function"));
+            }
+            json_handler.set_dumps(kwargs.get_item(intern!(py, "dumps"))?);
+        }
+        Ok(())
+    }
+
     fn apply<F>(mut slf: PyRefMut<Self>, fun: F) -> PyResult<PyRefMut<Self>>
     where
         F: FnOnce(reqwest::ClientBuilder) -> PyResult<reqwest::ClientBuilder>,
@@ -458,6 +461,35 @@ impl ClientBuilder {
     fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Client>> {
         Client::new_py(py, slf.as_super().build_client_base(py)?)
     }
+
+    fn with_middleware<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        middleware: Bound<'py, PyAny>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        if !is_async_callable(&middleware)? {
+            return Err(PyValueError::new_err("Middleware must be an async function"));
+        }
+        slf.as_super().inner_with_middleware(middleware)?;
+        Ok(slf)
+    }
+
+    #[pyo3(signature = (*, **kwargs))]
+    fn json_handler<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        py: Python<'py>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        let Some(kwargs) = kwargs else {
+            return Ok(slf);
+        };
+        if let Some(cb) = kwargs.get_item(intern!(py, "loads"))?
+            && !is_async_callable(&cb)?
+        {
+            return Err(PyValueError::new_err("loads must be an async function"));
+        }
+        slf.as_super().inner_json_handler(kwargs)?;
+        Ok(slf)
+    }
 }
 
 #[pymethods]
@@ -469,5 +501,34 @@ impl SyncClientBuilder {
 
     fn build(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<SyncClient>> {
         SyncClient::new_py(py, slf.as_super().build_client_base(py)?)
+    }
+
+    fn with_middleware<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        middleware: Bound<'py, PyAny>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        if is_async_callable(&middleware)? {
+            return Err(PyValueError::new_err("Middleware must be a sync function"));
+        }
+        slf.as_super().inner_with_middleware(middleware)?;
+        Ok(slf)
+    }
+
+    #[pyo3(signature = (*, **kwargs))]
+    fn json_handler<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        py: Python<'py>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        let Some(kwargs) = kwargs else {
+            return Ok(slf);
+        };
+        if let Some(cb) = kwargs.get_item(intern!(py, "loads"))?
+            && is_async_callable(&cb)?
+        {
+            return Err(PyValueError::new_err("loads must be a sync function"));
+        }
+        slf.as_super().inner_json_handler(kwargs)?;
+        Ok(slf)
     }
 }

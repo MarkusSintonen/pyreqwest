@@ -1,7 +1,7 @@
 """ASGI middleware."""
 
 import asyncio
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Coroutine, MutableMapping
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, MutableMapping
 from datetime import timedelta
 from typing import Any, Self
 from urllib.parse import unquote
@@ -25,7 +25,7 @@ class ASGITestMiddleware:
         app: ASGIApp,
         *,
         timeout: timedelta | None = None,
-        scope_update: Callable[[dict[str, Any], Request], Coroutine[Any, Any, None]] | None = None,
+        scope_update: Callable[[dict[str, Any], Request], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize the ASGI test client.
 

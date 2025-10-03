@@ -1,45 +1,21 @@
 """HTTP client interfaces (async + sync) modeled after Rust reqwest."""
 
 from datetime import timedelta
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, Self
 
 from pyreqwest.cookie import CookieStore
 from pyreqwest.http import Url
 from pyreqwest.middleware.types import Middleware, SyncMiddleware
 from pyreqwest.proxy import ProxyBuilder
-from pyreqwest.request import BaseRequestBuilder, RequestBuilder, SyncRequestBuilder
+from pyreqwest.request import RequestBuilder, SyncRequestBuilder
 from pyreqwest.types import HeadersType
 
 from .types import JsonDumps, JsonLoads, SyncJsonLoads, TlsVersion
 
-_RB = TypeVar("_RB", bound=BaseRequestBuilder)
+class BaseClient:
+    """Common base for async and sync clients."""
 
-class BaseClient(Generic[_RB]):
-    def request(self, method: str, url: Url | str) -> _RB:
-        """Start building a request with the method and url.
-
-        Returns a request builder, which will allow setting headers and the request body before sending.
-        """
-
-    def get(self, url: Url | str) -> _RB:
-        """Same as request("GET", url)."""
-
-    def post(self, url: Url | str) -> _RB:
-        """Same as request("POST", url)."""
-
-    def put(self, url: Url | str) -> _RB:
-        """Same as request("PUT", url)."""
-
-    def patch(self, url: Url | str) -> _RB:
-        """Same as request("PATCH", url)."""
-
-    def delete(self, url: Url | str) -> _RB:
-        """Same as request("DELETE", url)."""
-
-    def head(self, url: Url | str) -> _RB:
-        """Same as request("HEAD", url)."""
-
-class Client(BaseClient[RequestBuilder]):
+class Client(BaseClient):
     """Asynchronous HTTP client. Inspired by reqwest's Client.
 
     Use as an async context manager for graceful shutdown. Can be also manually closed. Reuse for multiple requests.
@@ -47,15 +23,39 @@ class Client(BaseClient[RequestBuilder]):
     """
 
     async def __aenter__(self) -> Self:
-        """Enter the async context manager (returns self)."""
+        """Enter the async context manager (just returns self). @public"""
 
     async def __aexit__(self, *args: object, **kwargs: Any) -> None:
-        """Close the client."""
+        """Close the client. @public"""
+
+    def request(self, method: str, url: Url | str) -> RequestBuilder:
+        """Start building a request with the method and url.
+
+        Returns a request builder, which will allow setting headers and the request body before sending.
+        """
+
+    def get(self, url: Url | str) -> RequestBuilder:
+        """Same as `request("GET", url)`."""
+
+    def post(self, url: Url | str) -> RequestBuilder:
+        """Same as `request("POST", url)`."""
+
+    def put(self, url: Url | str) -> RequestBuilder:
+        """Same as `request("PUT", url)`."""
+
+    def patch(self, url: Url | str) -> RequestBuilder:
+        """Same as `request("PATCH", url)`."""
+
+    def delete(self, url: Url | str) -> RequestBuilder:
+        """Same as `request("DELETE", url)`."""
+
+    def head(self, url: Url | str) -> RequestBuilder:
+        """Same as `request("HEAD", url)`."""
 
     async def close(self) -> None:
         """Close the client."""
 
-class SyncClient(BaseClient[SyncRequestBuilder]):
+class SyncClient(BaseClient):
     """Synchronous HTTP client. Inspired by reqwest's Client.
 
     Use as a context manager for graceful shutdown. Can be also manually closed. Reuse for multiple requests.
@@ -63,13 +63,37 @@ class SyncClient(BaseClient[SyncRequestBuilder]):
     """
 
     def __enter__(self) -> Self:
-        """Enter the context manager (returns self)."""
+        """Enter the context manager (just returns self). @public"""
 
     def __exit__(self, *args: object, **kwargs: Any) -> None:
-        """Exit the context manager and close resources."""
+        """Exit the context manager and close resources. @public"""
+
+    def request(self, method: str, url: Url | str) -> SyncRequestBuilder:
+        """Start building a request with the method and url.
+
+        Returns a request builder, which will allow setting headers and the request body before sending.
+        """
+
+    def get(self, url: Url | str) -> SyncRequestBuilder:
+        """Same as `request("GET", url)`."""
+
+    def post(self, url: Url | str) -> SyncRequestBuilder:
+        """Same as `request("POST", url)`."""
+
+    def put(self, url: Url | str) -> SyncRequestBuilder:
+        """Same as `request("PUT", url)`."""
+
+    def patch(self, url: Url | str) -> SyncRequestBuilder:
+        """Same as `request("PATCH", url)`."""
+
+    def delete(self, url: Url | str) -> SyncRequestBuilder:
+        """Same as `request("DELETE", url)`."""
+
+    def head(self, url: Url | str) -> SyncRequestBuilder:
+        """Same as `request("HEAD", url)`."""
 
     def close(self) -> None:
-        """Close the client and release resources."""
+        """Close the client."""
 
 class BaseClientBuilder:
     def base_url(self, url: Url | str) -> Self:

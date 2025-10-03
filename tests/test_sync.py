@@ -97,6 +97,14 @@ def test_middleware(echo_server: SubprocessServer) -> None:
         assert resp.headers["x-test2"] == "bar"
 
 
+def test_middleware__bad() -> None:
+    async def bad_middleware(_request: Request, _next_handler: SyncNext) -> SyncResponse:
+        raise RuntimeError("bad middleware")
+
+    with pytest.raises(ValueError, match="Middleware must be a sync function"):
+        SyncClientBuilder().with_middleware(bad_middleware)  # type: ignore[arg-type]
+
+
 def test_middleware__request_specific(echo_server: SubprocessServer) -> None:
     def middleware1(request: Request, next_handler: SyncNext) -> SyncResponse:
         request.extensions["key1"] = "val1"
@@ -266,6 +274,15 @@ def test_json_loads_callback(echo_server: SubprocessServer):
         assert json.loads((resp.bytes()).to_bytes()) == res
         assert resp.json() == {**res, "test": "bar"}
         assert called == 2
+
+    async def bad_loads(_ctx: SyncJsonLoadsContext) -> Any:
+        raise RuntimeError("should not be called")
+
+    with pytest.raises(ValueError, match="loads must be a sync function"):
+        SyncClientBuilder().json_handler(loads=bad_loads)
+
+    with pytest.raises(ValueError, match="Expected a callable"):
+        SyncClientBuilder().json_handler(loads="bad")  # type: ignore[arg-type]
 
 
 def test_use_after_close(echo_server: SubprocessServer):

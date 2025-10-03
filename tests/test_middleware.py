@@ -147,9 +147,8 @@ async def test_bad_middleware(echo_server: SubprocessServer) -> None:
     def not_async(_request: Request, _next_handler: Next) -> Response:
         return dummy_resp
 
-    req = build_client(not_async).get("http://foo.invalid").build()  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="a coroutine was expected"):
-        await req.send()
+    with pytest.raises(ValueError, match="Middleware must be an async function"):
+        ClientBuilder().with_middleware(not_async)  # type: ignore[arg-type]
 
     async def none_return(request: Request, next_handler: Next) -> Response:  # type: ignore[return]
         await next_handler.run(request)

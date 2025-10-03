@@ -1,5 +1,5 @@
 use futures_util::FutureExt;
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::PyDict;
@@ -29,6 +29,27 @@ pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult
     event_loop.call_method(py, intern!(py, "call_soon_threadsafe"), (task_creator,), Some(&kwargs))?;
 
     Ok(PyCoroWaiter { rx })
+}
+
+pub fn is_async_callable(obj: &Bound<PyAny>) -> PyResult<bool> {
+    if iscoroutinefunction(obj)? {
+        return Ok(true);
+    }
+    if obj.hasattr(intern!(obj.py(), "__call__"))? {
+        return iscoroutinefunction(&obj.getattr(intern!(obj.py(), "__call__"))?);
+    }
+    Ok(false)
+}
+
+fn iscoroutinefunction(obj: &Bound<PyAny>) -> PyResult<bool> {
+    static IS_CORO_FUNC: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+    if !obj.is_callable() {
+        return Err(PyValueError::new_err("Expected a callable"));
+    }
+    IS_CORO_FUNC
+        .import(obj.py(), "inspect", "iscoroutinefunction")?
+        .call1((obj,))?
+        .extract()
 }
 
 #[pyclass]

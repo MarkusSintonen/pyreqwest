@@ -3,15 +3,13 @@ import asyncio
 import ssl
 import statistics
 import time
-from collections.abc import AsyncGenerator, Callable, Coroutine, Iterator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 import matplotlib.pyplot as plt
 import trustme
-from aiohttp import TCPConnector
 from granian.constants import HTTPModes
 from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
@@ -52,7 +50,7 @@ class PerformanceBenchmark:
     def generate_body(self, size: int) -> bytes:
         return b"x" * size
 
-    async def meas_concurrent_batch(self, fn: Callable[[], Coroutine[Any, Any, None]], concurrency: int) -> list[float]:
+    async def meas_concurrent_batch(self, fn: Callable[[], Awaitable[None]], concurrency: int) -> list[float]:
         semaphore = asyncio.Semaphore(concurrency)
 
         async def run() -> float:
@@ -147,7 +145,7 @@ class PerformanceBenchmark:
         url_str = str(self.url)
         ssl_ctx = ssl.create_default_context(cadata=self.trust_cert_der)
 
-        async with aiohttp.ClientSession(connector=TCPConnector(ssl=ssl_ctx, limit=concurrency)) as session:
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_ctx, limit=concurrency)) as session:
 
             async def post_read() -> None:
                 if body_size <= self.big_body_limit:
