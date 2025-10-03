@@ -1,4 +1,7 @@
-"""HTTP client interfaces (async + sync) modeled after Rust reqwest."""
+"""HTTP client interfaces (async + sync) modeled after Rust reqwest.
+
+`Client`/`SyncClient` is created via `ClientBuilder`/`SyncClientBuilder`.
+Client should be reused for multiple requests."""
 
 from datetime import timedelta
 from typing import Any, Self
@@ -19,7 +22,7 @@ class Client(BaseClient):
     """Asynchronous HTTP client. Inspired by reqwest's Client.
 
     Use as an async context manager for graceful shutdown. Can be also manually closed. Reuse for multiple requests.
-    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.Client.html
+    See also Rust reqwest [docs](https://docs.rs/reqwest/latest/reqwest/struct.Client.html) for more details.
     """
 
     async def __aenter__(self) -> Self:
@@ -59,7 +62,7 @@ class SyncClient(BaseClient):
     """Synchronous HTTP client. Inspired by reqwest's Client.
 
     Use as a context manager for graceful shutdown. Can be also manually closed. Reuse for multiple requests.
-    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.Client.html
+    See also Rust reqwest [docs](https://docs.rs/reqwest/latest/reqwest/struct.Client.html) for more details.
     """
 
     def __enter__(self) -> Self:
@@ -285,7 +288,7 @@ class ClientBuilder(BaseClientBuilder):
     """Fluent builder for configuring an async `Client`.
 
     After configuring options, call `build()` to obtain a `Client`.
-    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
+    See also Rust reqwest [docs](https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html) for more details.
     """
 
     def __init__(self) -> None:
@@ -307,7 +310,7 @@ class SyncClientBuilder(BaseClientBuilder):
     """Fluent builder for configuring a synchronous `SyncClient` (blocking style).
 
     After configuring options, call `build()` to obtain a `Client`.
-    See also Rust reqwest docs: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
+    See also Rust reqwest [docs](https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html) for more details.
     """
 
     def __init__(self) -> None:
@@ -326,7 +329,7 @@ class SyncClientBuilder(BaseClientBuilder):
         """Override JSON loads / dumps callables for this sync client."""
 
 class Runtime:
-    """Tokio runtime instance. Usually not needed, as a global runtime is used by default."""
+    """Tokio runtime instance. Usually not needed, as library global runtime is used by default."""
 
     def __init__(self) -> None:
         """Create a tokio runtime instance. This is an advanced feature."""
