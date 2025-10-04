@@ -139,10 +139,10 @@ class ResponseBodyReader:
         """Read remaining stream fully and return bytes (caches)."""
 
     async def read(self, amount: int = ...) -> Bytes | None:
-        """Read up to amount bytes (or default chunk size) from stream. None when stream exhausted."""
+        """Read up to amount bytes (or default chunk size) from stream. None when stream is exhausted."""
 
     async def read_chunk(self) -> Bytes | None:
-        """Return next raw chunk. Sizes are arbitrary and depend on OS. None when stream exhausted."""
+        """Return next raw chunk. Sizes are arbitrary and depend on OS. None when stream is exhausted."""
 
 class SyncResponseBodyReader:
     """Streaming body reader."""
@@ -151,7 +151,7 @@ class SyncResponseBodyReader:
         """Read remaining stream fully and return bytes (caches)."""
 
     def read(self, amount: int = ...) -> Bytes | None:
-        """Read up to amount bytes (or default chunk size) from stream. None when stream exhausted."""
+        """Read up to amount bytes (or default chunk size) from stream. None when stream is exhausted."""
 
     def read_chunk(self) -> Bytes | None:
-        """Return next raw chunk. Sizes are arbitrary and depend on OS. None when stream exhausted."""
+        """Return next raw chunk. Sizes are arbitrary and depend on OS. None when stream is exhausted."""

@@ -1,4 +1,4 @@
-pyreqwest - Powerful and fast Rust based HTTP client library.
+# pyreqwest - Powerful and fast Rust based HTTP client library.
 
 Inspired and using [reqwest](https://github.com/seanmonstar/reqwest).
 

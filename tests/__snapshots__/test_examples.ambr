@@ -1,0 +1,27 @@
+# serializer version: 1
+# name: test_examples[basic_client]
+  '''
+  
+  # running: example_simple_get
+  {'example': 'simple_get', 'status': 200, 'args': {'q': 'pyreqwest'}, 'url': 'http://127.0.0.1:<PORT>/get?q=pyreqwest'}
+  
+  # running: example_post_json
+  {'example': 'post_json', 'status': 200, 'echo': {'message': 'hello'}}
+  
+  # running: example_stream_download
+  {'example': 'stream_download', 'status': 200, 'chunks': 2, 'total_bytes': 950}
+  
+  # running: example_concurrent_requests
+  {'example': 'concurrent_requests', 'count': 3, 'indices': [0, 1, 2]}
+  
+  # running: example_timeouts
+  {'example': 'timeouts', 'error': "('connection timeout', {'causes': [{'message': 'error sending request for url (http://127.0.0.1:<PORT>/delay/2)'}, {'message': 'operation timed out'}]})"}
+  
+  # running: example_custom_json_dumps
+  {'example': 'custom_json_dumps', 'status': 200, 'json_keys': ['_trace', 'value']}
+  
+  # running: example_session_features
+  {'example': 'session_features', 'status': 200, 'x_client': 'pyreqwest-demo', 'user_agent': 'pyreqwest-example/1.0'}
+  
+  '''
+# ---

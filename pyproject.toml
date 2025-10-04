@@ -1,9 +1,7 @@
 [project]
 name = "pyreqwest"
 version = "0.1.0"
-authors = [
-    { name = "Markus Sintonen", email = "pyreqwest@gmail.com" }
-]
+authors = [{ name = "Markus Sintonen", email = "pyreqwest@gmail.com" }]
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
 dependencies = [] # Pure Rust project, no Python dependencies
@@ -36,7 +34,9 @@ dev = [
     "urllib3==2.5.0",
     "matplotlib==3.10.6",
     # Documentation
-    "pdoc==15.0.4"
+    "pdoc==15.0.4",
+    # Examples
+    "pytest-httpbin==2.1.0",
 ]
 
 [tool.maturin]
@@ -56,6 +56,7 @@ asyncio_default_test_loop_scope = "session"
 asyncio_default_fixture_loop_scope = "session"
 
 [tool.ruff]
+exclude = [".venv", "venv", "target", "coverage"]
 target-version = "py311"
 line-length = 120
 indent-width = 4
@@ -113,9 +114,11 @@ max-args = 8
     "SLF001",
 ]
 "./tests/bench/*" = ["T201", "EM102", "PLC0415", "TC002"]
+"./examples/*" = ["D104", "T201", "TRY003", "EM101"]
 
 [tool.mypy]
 strict = true
+exclude = [".venv", "venv", "target", "coverage"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"

@@ -1,5 +1,3 @@
-PYTHON_DIRS := python tests
-
 .PHONY: install
 install:
 	uv sync
@@ -16,21 +14,21 @@ test:
 
 .PHONY: lint
 lint:
-	uv run ruff check $(PYTHON_DIRS)
-	uv run ruff format --check $(PYTHON_DIRS)
+	uv run ruff check .
+	uv run ruff format --check .
 	cargo fmt --check
 	cargo clippy -- -D warnings
 
 .PHONY: format
 format:
-	uv run ruff format $(PYTHON_DIRS)
-	uv run ruff check --fix $(PYTHON_DIRS)
+	uv run ruff format .
+	uv run ruff check --fix .
 	cargo fmt
 	cargo clippy --fix --allow-dirty
 
 .PHONY: type-check
 type-check:
-	uv run mypy $(PYTHON_DIRS)
+	uv run mypy .
 
 .PHONY: static-checks
 static-checks: lint type-check

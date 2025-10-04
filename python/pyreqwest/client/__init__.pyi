@@ -1,7 +1,8 @@
 """HTTP client interfaces (async + sync) modeled after Rust reqwest.
 
 `Client`/`SyncClient` is created via `ClientBuilder`/`SyncClientBuilder`.
-Client should be reused for multiple requests."""
+Client should be reused for multiple requests.
+"""
 
 from datetime import timedelta
 from typing import Any, Self
