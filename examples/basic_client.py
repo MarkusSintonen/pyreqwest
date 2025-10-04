@@ -13,13 +13,13 @@ from pyreqwest.client import ClientBuilder, SyncClientBuilder
 from pyreqwest.exceptions import ConnectTimeoutError, StatusError
 from pyreqwest.http import Url
 
-from ._utils import HTTPBIN, run_examples
+from ._utils import httpbin_url, parse_data_uri, run_examples
 
 
 async def example_simple_get() -> None:
     """Simple GET"""
     async with ClientBuilder().error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "get").query({"q": "pyreqwest"}).build().send()
+        resp = await client.get(httpbin_url() / "get").query({"q": "pyreqwest"}).build().send()
         data = await resp.json()
         print({"args": data.get("args"), "url": data.get("url"), "status": resp.status})
 
@@ -27,13 +27,13 @@ async def example_simple_get() -> None:
 def example_simple_get_sync() -> None:
     """Simple sync GET"""
     with SyncClientBuilder().error_for_status(True).build() as client:
-        data = client.get(HTTPBIN / "get").query({"q": "pyreqwest"}).build().send().json()
+        data = client.get(httpbin_url() / "get").query({"q": "pyreqwest"}).build().send().json()
         print({"args": data.get("args"), "url": data.get("url")})
 
 
 async def example_url_usage() -> None:
     """Url class usage (can be used to pass query params also)"""
-    httpbin = Url(str(HTTPBIN))  # Contruct from str
+    httpbin = Url(str(httpbin_url()))  # Contruct from str
     with_path = httpbin / "get"  # Append path
     url = with_path.with_query({"q": "pyreqwest"})  # Add query params
     async with ClientBuilder().error_for_status(True).build() as client:
@@ -45,7 +45,7 @@ async def example_url_usage() -> None:
 async def example_error_for_status() -> None:
     """Error for status"""
     async with ClientBuilder().error_for_status(True).build() as client:
-        req = client.get(HTTPBIN / "status/400").build()
+        req = client.get(httpbin_url() / "status/400").build()
         try:
             await req.send()
             raise RuntimeError("should have raised")
@@ -54,7 +54,7 @@ async def example_error_for_status() -> None:
 
     # Does not raise if error_for_status is False (default)
     async with ClientBuilder().build() as client:
-        req = client.get(HTTPBIN / "status/400").build()
+        req = client.get(httpbin_url() / "status/400").build()
         resp = await req.send()  # No error
         assert resp.status == 400
         print({"status": resp.status})
@@ -62,7 +62,7 @@ async def example_error_for_status() -> None:
 
 async def example_base_url() -> None:
     """Client base URL"""
-    async with ClientBuilder().base_url(HTTPBIN).error_for_status(True).build() as client:
+    async with ClientBuilder().base_url(httpbin_url()).error_for_status(True).build() as client:
         resp = await client.get("/base64/Zm9vYmFy").build().send()
         print({"status": resp.status, "body": await resp.text()})
 
@@ -70,7 +70,7 @@ async def example_base_url() -> None:
 async def example_read_bytes() -> None:
     """Read bytes"""
     async with ClientBuilder().error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "bytes/16").query({"seed": 0}).build().send()
+        resp = await client.get(httpbin_url() / "bytes/16").query({"seed": 0}).build().send()
         body = await resp.bytes()
         print({"status": resp.status, "body": body})
 
@@ -78,7 +78,7 @@ async def example_read_bytes() -> None:
 async def example_read_text() -> None:
     """Read text"""
     async with ClientBuilder().error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "encoding/utf8").build().send()
+        resp = await client.get(httpbin_url() / "encoding/utf8").build().send()
         text = await resp.text()
         print({"status": resp.status, "text": text[:21]})
 
@@ -92,7 +92,7 @@ async def example_headers() -> None:
         .error_for_status(True)
         .build() as client
     ):
-        req = client.get(HTTPBIN / "headers").headers({"X-Req": "req_value"}).build()
+        req = client.get(httpbin_url() / "headers").headers({"X-Req": "req_value"}).build()
         req.headers["X-Req2"] = "req2_value"  # Can also modify directly
         data = await (await req.send()).json()
         headers = data.get("headers", {})
@@ -110,7 +110,7 @@ async def example_stream_download() -> None:
     """Streaming download"""
     async with (
         ClientBuilder().error_for_status(True).build() as client,
-        client.get(HTTPBIN / "stream-bytes/500").query({"seed": 0, "chunk_size": 100}).build_streamed() as resp,
+        client.get(httpbin_url() / "stream-bytes/500").query({"seed": 0, "chunk_size": 100}).build_streamed() as resp,
     ):
         chunks: list[bytes] = []
         while (chunk := await resp.body_reader.read(100)) is not None:
@@ -126,17 +126,17 @@ async def example_stream_upload() -> None:
             yield f"part-{i}_".encode()
 
     async with ClientBuilder().error_for_status(True).build() as client:
-        req = client.post(HTTPBIN / "post").body_stream(byte_stream()).build()
+        req = client.post(httpbin_url() / "post").body_stream(byte_stream()).build()
         resp = await req.send()
         data = await resp.json()
-        assert data.get("data") == "part-0_part-1_part-2_part-3_part-4_"
-        print({"status": resp.status, "data": data.get("data")})
+        assert parse_data_uri(data["data"]) == "part-0_part-1_part-2_part-3_part-4_"
+        print({"status": resp.status, "data": data["data"]})
 
 
 async def example_timeouts() -> None:
     """Timeouts"""
     async with ClientBuilder().timeout(timedelta(seconds=1)).error_for_status(True).build() as client:
-        req = client.get(HTTPBIN / "delay/2").build()
+        req = client.get(httpbin_url() / "delay/2").build()
         try:
             await req.send()
             raise RuntimeError("should have raised")

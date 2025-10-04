@@ -36,7 +36,8 @@ dev = [
     # Documentation
     "pdoc==15.0.4",
     # Examples
-    "pytest-httpbin==2.1.0",
+    "docker==7.1.0",  # For go httpbin (python httpbin is not great)
+    "types-docker==7.1.0.20250916",
 ]
 
 [tool.maturin]
@@ -92,6 +93,7 @@ max-args = 8
 "./python/pyreqwest/pytest_plugin/*" = ["SLF001", "PLC0415"]
 "./python/pyreqwest/pytest_plugin/internal/*" = ["D"]
 "./tests/*" = [
+    "ARG001",
     "D",
     "B011",
     "S101",

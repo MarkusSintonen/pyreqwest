@@ -15,7 +15,7 @@ from pyreqwest.middleware import Next
 from pyreqwest.request import Request, RequestBody
 from pyreqwest.response import Response, ResponseBuilder
 
-from ._utils import HTTPBIN, run_examples
+from ._utils import httpbin_url, parse_data_uri, run_examples
 
 
 async def example_simple() -> None:
@@ -28,9 +28,9 @@ async def example_simple() -> None:
         return resp
 
     async with ClientBuilder().with_middleware(mw).error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "get").build().send()
+        resp = await client.get(httpbin_url() / "get").build().send()
         data = await resp.json()
-        assert data["headers"]["X-Mw"] == "val1" and resp.headers["X-Mw-Resp"] == "val2"
+        assert data["headers"]["X-Mw"] == ["val1"] and resp.headers["X-Mw-Resp"] == "val2"
         print({"request_header": data["headers"]["X-Mw"], "response_header": resp.headers["X-Mw-Resp"]})
 
 
@@ -46,7 +46,7 @@ async def example_multiple() -> None:
         return await next_handler.run(request)
 
     async with ClientBuilder().with_middleware(mw1).with_middleware(mw2).error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "get").build().send()
+        resp = await client.get(httpbin_url() / "get").build().send()
         headers = (await resp.json())["headers"]
         print({"order": [headers["X-Mw1"], headers["X-Mw2"]]})
 
@@ -66,10 +66,10 @@ async def example_extensions() -> None:
         return await next_handler.run(request)
 
     async with ClientBuilder().with_middleware(mw1).with_middleware(mw2).error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "get").extensions(req_ext).build().send()
+        resp = await client.get(httpbin_url() / "get").extensions(req_ext).build().send()
         assert resp.extensions["demo_ext"] == "init_mw1_mw2"
         headers = (await resp.json())["headers"]
-        assert headers["X-Mw1"] == "init" and headers["X-Mw2"] == "init_mw1"
+        assert headers["X-Mw1"] == ["init"] and headers["X-Mw2"] == ["init_mw1"]
         print({"mws": [headers["X-Mw1"], headers["X-Mw2"]], "extensions": resp.extensions})
 
 
@@ -91,7 +91,7 @@ async def example_retry_middleware() -> None:
     async with (
         ClientBuilder().with_middleware(retry_mw).timeout(timedelta(seconds=1)).error_for_status(True).build() as client
     ):
-        resp = await client.get(HTTPBIN / "delay/2").build().send()  # First timeouts
+        resp = await client.get(httpbin_url() / "delay/2").build().send()  # First timeouts
         assert resp.extensions["retried"] is True
         data = await resp.json()
         print({"url": data.get("url"), "status": resp.status, "retried": resp.extensions["retried"]})
@@ -106,9 +106,9 @@ async def example_middleware_modify_request_body() -> None:
         return await next_handler.run(request)
 
     async with ClientBuilder().with_middleware(mw).error_for_status(True).build() as client:
-        resp = await client.post(HTTPBIN / "post").body_bytes(b"hello").build().send()
+        resp = await client.post(httpbin_url() / "post").body_bytes(b"hello").build().send()
         data = await resp.json()
-        assert data["data"] == "hello_world"
+        assert parse_data_uri(data["data"]) == "hello_world"
         print({"data": data["data"]})
 
 
@@ -132,9 +132,9 @@ async def example_middleware_modify_request_body_streamed() -> None:
         yield b"_world"
 
     async with ClientBuilder().with_middleware(mw).error_for_status(True).build() as client:
-        resp = await client.post(HTTPBIN / "post").body_stream(src()).build().send()
+        resp = await client.post(httpbin_url() / "post").body_stream(src()).build().send()
         data = await resp.json()
-        assert data["data"] == "hello_world_middleware"
+        assert parse_data_uri(data["data"]) == "hello_world_middleware"
         print({"data": data["data"]})
 
 
@@ -145,7 +145,7 @@ async def example_middleware_override_response_builder() -> None:
         return await ResponseBuilder().status(202).body_text("overridden").build()
 
     async with ClientBuilder().with_middleware(mw).error_for_status(True).build() as client:
-        resp = await client.get(HTTPBIN / "get").build().send()
+        resp = await client.get(httpbin_url() / "get").build().send()
         assert (await resp.text()) == "overridden" and resp.status == 202
         print({"status": resp.status, "body": await resp.text()})
 
@@ -162,11 +162,11 @@ async def example_middleware_request_specific() -> None:
         return await next_handler.run(request)
 
     async with ClientBuilder().with_middleware(mw1).error_for_status(True).build() as client:
-        req1 = client.get(HTTPBIN / "get").with_middleware(mw2).build()  # Uses both middlewares
-        req2 = client.get(HTTPBIN / "get").build()
+        req1 = client.get(httpbin_url() / "get").with_middleware(mw2).build()  # Uses both middlewares
+        req2 = client.get(httpbin_url() / "get").build()
         resp1, resp2 = await req1.send(), await req2.send()
-        assert (await resp1.json())["args"] == {"mw1": "val1", "mw2": "val2"}
-        assert (await resp2.json())["args"] == {"mw1": "val1"}
+        assert (await resp1.json())["args"] == {"mw1": ["val1"], "mw2": ["val2"]}
+        assert (await resp2.json())["args"] == {"mw1": ["val1"]}
         print({"req1_args": (await resp1.json())["args"], "req2_args": (await resp2.json())["args"]})
 
 

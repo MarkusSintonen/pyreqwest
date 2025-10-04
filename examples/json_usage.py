@@ -13,16 +13,18 @@ from typing import Any
 from pyreqwest.client import ClientBuilder
 from pyreqwest.client.types import JsonDumpsContext, JsonLoadsContext
 
-from ._utils import HTTPBIN, run_examples
+from ._utils import httpbin_url, run_examples
 
 
 async def example_post_json() -> None:
     """POST JSON"""
     async with ClientBuilder().error_for_status(True).build() as client:
-        resp = await client.post(HTTPBIN / "post").body_json({"message": "hello"}).build().send()
+        resp = await client.post(httpbin_url() / "post").body_json({"message": "hello"}).build().send()
         data = await resp.json()
-        assert resp.headers.get("Content-Type") == "application/json"  # Set by default
-        print({"status": resp.status, "echo": data.get("json"), "content_type": resp.headers.get("Content-Type")})
+        assert data.get("headers").get("Content-Type") == ["application/json"]  # Set by default
+        print(
+            {"status": resp.status, "echo": data.get("json"), "content_type": data.get("headers").get("Content-Type")}
+        )
 
 
 async def example_custom_json_dumps() -> None:
@@ -37,7 +39,7 @@ async def example_custom_json_dumps() -> None:
         return json.dumps(ctx.data, default=ser_bytes).encode()
 
     async with ClientBuilder().json_handler(dumps=dumps).error_for_status(True).build() as client:
-        resp = await client.post(HTTPBIN / "post").body_json({"value": b"foo"}).build().send()
+        resp = await client.post(httpbin_url() / "post").body_json({"value": b"foo"}).build().send()
         data = await resp.json()
         assert data.get("json") == {"value": "Zm9v"}
         print({"status": resp.status, "json": data.get("json")})
@@ -55,7 +57,7 @@ async def example_custom_json_loads() -> None:
         return json.loads(bytes(await ctx.body_reader.bytes()), object_hook=des_bytes)
 
     async with ClientBuilder().json_handler(loads=loads).error_for_status(True).build() as client:
-        resp = await client.post(HTTPBIN / "post").body_json({"value": "Zm9v"}).build().send()
+        resp = await client.post(httpbin_url() / "post").body_json({"value": "Zm9v"}).build().send()
         data = await resp.json()
         assert data.get("json") == {"value": b"foo"}
         print({"status": resp.status, "json": data.get("json")})
