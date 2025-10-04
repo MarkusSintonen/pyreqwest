@@ -113,7 +113,9 @@ class BaseClientBuilder:
         """Enable automatic HTTP error raising (4xx/5xx)."""
 
     def user_agent(self, value: str) -> Self:
-        """Sets the User-Agent header to be used by this client (unless overridden)."""
+        """Sets the User-Agent header to be used by this client (unless overridden).
+        Default is `python-pyreqwest/1.0.0`.
+        """
 
     def default_headers(self, headers: HeadersType) -> Self:
         """Sets the default headers for every request (unless overridden)."""

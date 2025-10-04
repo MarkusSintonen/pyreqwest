@@ -1,6 +1,11 @@
 import inspect
+import os
 from collections.abc import Awaitable, Callable
 from types import ModuleType
+
+from pyreqwest.http import Url
+
+HTTPBIN = Url(os.environ.get("HTTPBIN", "https://httpbin.org"))
 
 
 async def run_examples(mod: ModuleType) -> None:

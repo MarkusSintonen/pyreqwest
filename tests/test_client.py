@@ -192,6 +192,10 @@ async def test_too_big_response_header(echo_server: SubprocessServer):
 
 
 async def test_user_agent(echo_server: SubprocessServer):
+    async with ClientBuilder().error_for_status(True).build() as client:
+        res = await (await client.get(echo_server.url).build().send()).json()
+        assert ["user-agent", "python-pyreqwest/1.0.0"] in res["headers"]
+
     async with ClientBuilder().user_agent("ua-test").error_for_status(True).build() as client:
         res = await (await client.get(echo_server.url).build().send()).json()
         assert ["user-agent", "ua-test"] in res["headers"]

@@ -20,6 +20,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+const DEFAULT_UA: &str = "python-pyreqwest/1.0.0";
+
 #[derive(Default)]
 #[pyclass(subclass)]
 pub struct BaseClientBuilder {
@@ -352,7 +354,7 @@ impl BaseClientBuilder {
 impl BaseClientBuilder {
     fn new() -> Self {
         Self {
-            inner: Some(reqwest::ClientBuilder::new()),
+            inner: Some(reqwest::ClientBuilder::new().user_agent(DEFAULT_UA)),
             ..Default::default()
         }
     }

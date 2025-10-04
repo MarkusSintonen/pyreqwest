@@ -3,25 +3,49 @@
   '''
   
   # running: example_simple_get
-  {'example': 'simple_get', 'status': 200, 'args': {'q': 'pyreqwest'}, 'url': 'http://127.0.0.1:<PORT>/get?q=pyreqwest'}
+  {'args': {'q': 'pyreqwest'}, 'url': 'https://httpbin.org/get?q=pyreqwest', 'status': 200}
   
-  # running: example_post_json
-  {'example': 'post_json', 'status': 200, 'echo': {'message': 'hello'}}
+  # running: example_simple_get_sync
+  {'args': {'q': 'pyreqwest'}, 'url': 'https://httpbin.org/get?q=pyreqwest'}
+  
+  # running: example_url_usage
+  {'args': {'q': 'pyreqwest'}, 'url': 'https://httpbin.org/get?q=pyreqwest'}
+  
+  # running: example_error_for_status
+  {'error': "('HTTP status client error', {'status': 400})"}
+  {'status': 400}
+  
+  # running: example_base_url
+  {'status': 200, 'body': 'foobar'}
+  
+  # running: example_read_bytes
+  {'status': 200, 'body': Bytes(b"\xc5\xd7\x14\x84\xf8\xcf\x9b\xf4\xb7oG\x90G0\x80K")}
+  
+  # running: example_read_text
+  {'status': 200, 'text': '<h1>Unicode Demo</h1>'}
+  
+  # running: example_headers
+  {'x_client': 'client_value', 'x_req': 'req_value', 'x_req2': 'req2_value', 'user_agent': 'ua-example/1.0'}
   
   # running: example_stream_download
-  {'example': 'stream_download', 'status': 200, 'chunks': 2, 'total_bytes': 950}
-  
-  # running: example_concurrent_requests
-  {'example': 'concurrent_requests', 'count': 3, 'indices': [0, 1, 2]}
+  {'chunks': 5, 'total_bytes': 500}
   
   # running: example_timeouts
-  {'example': 'timeouts', 'error': "('connection timeout', {'causes': [{'message': 'error sending request for url (http://127.0.0.1:<PORT>/delay/2)'}, {'message': 'operation timed out'}]})"}
+  {'error': "('connection timeout', {'causes': [{'message': 'error sending request for url (https://httpbin.org/delay/1)'}, {'message': 'operation timed out'}]})"}
+  
+  '''
+# ---
+# name: test_examples[json_usage]
+  '''
+  
+  # running: example_post_json
+  {'status': 200, 'echo': {'message': 'hello'}, 'content_type': 'application/json'}
   
   # running: example_custom_json_dumps
-  {'example': 'custom_json_dumps', 'status': 200, 'json_keys': ['_trace', 'value']}
+  {'status': 200, 'json': {'value': 'Zm9v'}}
   
-  # running: example_session_features
-  {'example': 'session_features', 'status': 200, 'x_client': 'pyreqwest-demo', 'user_agent': 'pyreqwest-example/1.0'}
+  # running: example_custom_json_loads
+  {'status': 200, 'json': {'value': b'foo'}}
   
   '''
 # ---
