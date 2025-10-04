@@ -10,6 +10,7 @@ use crate::response::internal::{BodyConsumeConfig, BodyReader};
 use crate::response::response_body_reader::{BaseResponseBodyReader, ResponseBodyReader};
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8};
+use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -127,11 +128,11 @@ impl BaseResponse {
         py.detach(|| self.content_type_mime_inner())
     }
 
-    async fn bytes(&mut self) -> PyResult<PyBytes> {
-        AllowThreads(async { self.bytes_inner().await.map(PyBytes::new) }).await
+    async fn bytes(&mut self, #[pyo3(cancel_handle)] mut cancel: CancelHandle) -> PyResult<PyBytes> {
+        AllowThreads(async { self.bytes_inner(&mut cancel).await.map(PyBytes::new) }).await
     }
 
-    async fn json(&mut self) -> PyResult<Py<PyAny>> {
+    async fn json(&mut self, #[pyo3(cancel_handle)] cancel: CancelHandle) -> PyResult<Py<PyAny>> {
         if self.ref_inner()?.json_handler.as_ref().is_some_and(|v| v.has_loads()) {
             let coro = Python::attach(|py| {
                 let task_local = TaskLocal::current(py)?;
@@ -145,30 +146,12 @@ impl BaseResponse {
             })?;
             AllowThreads(coro).await
         } else {
-            let serde_val: serde_json::Value = AllowThreads(async {
-                let bytes = self.bytes_inner().await?;
-                match serde_json::from_slice(&bytes) {
-                    Ok(v) => Ok(v),
-                    Err(e) => Err(self.json_error(&e).await?),
-                }
-            })
-            .await?;
-            Python::attach(|py| Ok(JsonValue(serde_val).into_pyobject(py)?.unbind()))
+            self.json_inner(cancel).await // AllowThreads is used inside
         }
     }
 
-    async fn text(&mut self) -> PyResult<String> {
-        AllowThreads(async {
-            let bytes = self.bytes_inner().await?;
-            let encoding = self
-                .content_type_mime_inner()?
-                .and_then(|mime| mime.get_param("charset").map(String::from))
-                .and_then(|charset| Encoding::for_label(charset.as_bytes()))
-                .unwrap_or(UTF_8);
-            let (text, _, _) = encoding.decode(&bytes);
-            Ok(text.into_owned())
-        })
-        .await
+    async fn text(&mut self, #[pyo3(cancel_handle)] mut cancel: CancelHandle) -> PyResult<String> {
+        self.text_inner(&mut cancel).await // AllowThreads is used inside
     }
 
     // :NOCOV_START
@@ -259,12 +242,38 @@ impl BaseResponse {
         Ok(Some(Mime::new(mime)))
     }
 
-    async fn bytes_inner(&mut self) -> PyResult<Bytes> {
+    async fn bytes_inner(&mut self, cancel: &mut CancelHandle) -> PyResult<Bytes> {
         match self.mut_inner()?.body_reader.as_mut() {
-            Some(RespReader::Reader(reader)) => reader.bytes().await,
-            Some(RespReader::PyReader(reader)) => reader.get().bytes_inner().await,
+            Some(RespReader::Reader(reader)) => reader.bytes(cancel).await,
+            Some(RespReader::PyReader(reader)) => reader.get().bytes_inner(cancel).await,
             None => Err(PyRuntimeError::new_err("Response body reader is closed")),
         }
+    }
+
+    async fn json_inner(&mut self, mut cancel: CancelHandle) -> PyResult<Py<PyAny>> {
+        let serde_val = AllowThreads(async {
+            let bytes = self.bytes_inner(&mut cancel).await?;
+            match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                Ok(v) => Ok(v),
+                Err(e) => Err(self.json_error(&e, &mut cancel).await?),
+            }
+        })
+        .await?;
+        Python::attach(|py| Ok(JsonValue(serde_val).into_pyobject(py)?.unbind()))
+    }
+
+    async fn text_inner(&mut self, cancel: &mut CancelHandle) -> PyResult<String> {
+        AllowThreads(async {
+            let bytes = self.bytes_inner(cancel).await?;
+            let encoding = self
+                .content_type_mime_inner()?
+                .and_then(|mime| mime.get_param("charset").map(String::from))
+                .and_then(|charset| Encoding::for_label(charset.as_bytes()))
+                .unwrap_or(UTF_8);
+            let (text, _, _) = encoding.decode(&bytes);
+            Ok(text.into_owned())
+        })
+        .await
     }
 
     fn get_body_reader_inner(&mut self, py: Python, is_blocking: bool) -> PyResult<Py<BaseResponseBodyReader>> {
@@ -292,8 +301,8 @@ impl BaseResponse {
         }
     }
 
-    async fn json_error(&mut self, e: &serde_json::error::Error) -> PyResult<PyErr> {
-        let text = self.text().await?;
+    async fn json_error(&mut self, e: &serde_json::error::Error, cancel: &mut CancelHandle) -> PyResult<PyErr> {
+        let text = self.text_inner(cancel).await?;
         let details = json!({"pos": Self::json_error_pos(&text, e), "doc": text, "causes": serde_json::Value::Null});
         Ok(JSONDecodeError::from_custom(&e.to_string(), details))
     }
@@ -365,7 +374,7 @@ impl SyncResponse {
     }
 
     fn bytes(slf: PyRefMut<Self>) -> PyResult<PyBytes> {
-        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().bytes())
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().bytes(CancelHandle::new()))
     }
 
     fn json(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<PyAny>> {
@@ -381,12 +390,12 @@ impl SyncResponse {
             };
             Ok(json_handler.call_loads(py, ctx)?.unbind())
         } else {
-            Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json())
+            Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json_inner(CancelHandle::new()))
         }
     }
 
     fn text(slf: PyRefMut<Self>) -> PyResult<String> {
-        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().text())
+        Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().text(CancelHandle::new()))
     }
 }
 impl SyncResponse {

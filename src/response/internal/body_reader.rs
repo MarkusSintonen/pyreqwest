@@ -1,9 +1,12 @@
 use crate::client::RuntimeHandle;
 use crate::exceptions::utils::map_read_error;
 use bytes::{Bytes, BytesMut};
+use futures_util::FutureExt;
 use http_body_util::BodyExt;
 use pyo3::PyResult;
+use pyo3::coroutine::CancelHandle;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::asyncio::CancelledError;
 use std::collections::VecDeque;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
@@ -59,8 +62,8 @@ impl BodyReader {
         Ok((body_reader, head))
     }
 
-    pub async fn next_chunk(&mut self) -> PyResult<Option<Bytes>> {
-        async fn next(this: &mut BodyReader) -> PyResult<Option<Bytes>> {
+    pub async fn next_chunk(&mut self, cancel: &mut CancelHandle) -> PyResult<Option<Bytes>> {
+        async fn next(this: &mut BodyReader, cancel: &mut CancelHandle) -> PyResult<Option<Bytes>> {
             if let Some(chunk) = this.chunks.pop_front() {
                 return Ok(Some(chunk));
             }
@@ -69,7 +72,11 @@ impl BodyReader {
                 return Ok(None); // No body receiver, fully consumed
             };
 
-            let Some(buffer) = body_rx.recv().await? else {
+            let buffer = tokio::select! {
+                res = body_rx.recv() => res,
+                _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Read was cancelled")),
+            };
+            let Some(buffer) = buffer? else {
                 return Ok(None); // No more data
             };
 
@@ -81,7 +88,7 @@ impl BodyReader {
             Ok(Some(first_chunk))
         }
 
-        match next(self).await {
+        match next(self, cancel).await {
             Ok(Some(chunk)) => {
                 self.read_bytes += chunk.len();
                 Ok(Some(chunk))
@@ -91,7 +98,7 @@ impl BodyReader {
         }
     }
 
-    pub async fn bytes(&mut self) -> PyResult<Bytes> {
+    pub async fn bytes(&mut self, cancel: &mut CancelHandle) -> PyResult<Bytes> {
         if let Some(fully_consumed_body) = self.fully_consumed_body.as_ref() {
             return Ok(fully_consumed_body.clone()); // Zero-copy clone
         }
@@ -105,7 +112,7 @@ impl BodyReader {
             None => BytesMut::new(),
         };
 
-        while let Some(chunk) = self.next_chunk().await? {
+        while let Some(chunk) = self.next_chunk(cancel).await? {
             bytes.extend_from_slice(&chunk);
         }
 
@@ -114,7 +121,7 @@ impl BodyReader {
         Ok(bytes)
     }
 
-    pub async fn read(&mut self, amount: usize) -> PyResult<Option<Bytes>> {
+    pub async fn read(&mut self, amount: usize, cancel: &mut CancelHandle) -> PyResult<Option<Bytes>> {
         if amount == 0 {
             return Ok(Some(Bytes::new()));
         }
@@ -128,7 +135,7 @@ impl BodyReader {
         let mut remaining = amount;
 
         while remaining > 0 {
-            if let Some(mut chunk) = self.next_chunk().await? {
+            if let Some(mut chunk) = self.next_chunk(cancel).await? {
                 if chunk.len() > remaining {
                     let extra = chunk.split_off(remaining);
                     self.chunks.push_front(extra);
