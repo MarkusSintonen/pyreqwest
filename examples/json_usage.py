@@ -47,7 +47,7 @@ async def example_custom_json_loads() -> None:
     """Custom JSON loads (bytes base64 deserializer)"""
 
     async def loads(ctx: JsonLoadsContext) -> Any:
-        def des_bytes(d: dict) -> dict:
+        def des_bytes(d: dict[str, Any]) -> dict[str, Any]:
             if "value" in d:
                 d["value"] = base64.b64decode(d["value"])
             return d

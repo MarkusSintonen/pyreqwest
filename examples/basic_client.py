@@ -6,6 +6,7 @@ Run directly:
 
 import asyncio
 import sys
+from collections.abc import AsyncIterator
 from datetime import timedelta
 
 from pyreqwest.client import ClientBuilder, SyncClientBuilder
@@ -117,10 +118,25 @@ async def example_stream_download() -> None:
     print({"chunks": len(chunks), "total_bytes": sum(len(c) for c in chunks)})
 
 
+async def example_stream_upload() -> None:
+    """Streaming upload"""
+
+    async def byte_stream() -> AsyncIterator[bytes]:
+        for i in range(5):
+            yield f"part-{i}_".encode()
+
+    async with ClientBuilder().error_for_status(True).build() as client:
+        req = client.post(HTTPBIN / "post").body_stream(byte_stream()).build()
+        resp = await req.send()
+        data = await resp.json()
+        assert data.get("data") == "part-0_part-1_part-2_part-3_part-4_"
+        print({"status": resp.status, "data": data.get("data")})
+
+
 async def example_timeouts() -> None:
     """Timeouts"""
-    async with ClientBuilder().timeout(timedelta(seconds=0.5)).error_for_status(True).build() as client:
-        req = client.get(HTTPBIN / "delay/1").build()
+    async with ClientBuilder().timeout(timedelta(seconds=1)).error_for_status(True).build() as client:
+        req = client.get(HTTPBIN / "delay/2").build()
         try:
             await req.send()
             raise RuntimeError("should have raised")

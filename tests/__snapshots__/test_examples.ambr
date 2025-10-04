@@ -30,8 +30,11 @@
   # running: example_stream_download
   {'chunks': 5, 'total_bytes': 500}
   
+  # running: example_stream_upload
+  {'status': 200, 'data': 'part-0_part-1_part-2_part-3_part-4_'}
+  
   # running: example_timeouts
-  {'error': "('connection timeout', {'causes': [{'message': 'error sending request for url (https://httpbin.org/delay/1)'}, {'message': 'operation timed out'}]})"}
+  {'error': "('connection timeout', {'causes': [{'message': 'error sending request for url (https://httpbin.org/delay/2)'}, {'message': 'operation timed out'}]})"}
   
   '''
 # ---
@@ -46,6 +49,35 @@
   
   # running: example_custom_json_loads
   {'status': 200, 'json': {'value': b'foo'}}
+  
+  '''
+# ---
+# name: test_examples[middleware]
+  '''
+  
+  # running: example_simple
+  {'request_header': 'val1', 'response_header': 'val2'}
+  
+  # running: example_multiple
+  {'order': ['1', '2']}
+  
+  # running: example_extensions
+  {'mws': ['init', 'init_mw1'], 'extensions': {'demo_ext': 'init_mw1_mw2'}}
+  
+  # running: example_retry_middleware
+  {'url': 'https://httpbin.org/delay/0', 'status': 200, 'retried': True}
+  
+  # running: example_middleware_modify_request_body
+  {'data': 'hello_world'}
+  
+  # running: example_middleware_modify_request_body_streamed
+  {'data': 'hello_world_middleware'}
+  
+  # running: example_middleware_override_response_builder
+  {'status': 202, 'body': 'overridden'}
+  
+  # running: example_middleware_request_specific
+  {'req1_args': {'mw1': 'val1', 'mw2': 'val2'}, 'req2_args': {'mw1': 'val1'}}
   
   '''
 # ---
