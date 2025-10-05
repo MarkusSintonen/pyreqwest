@@ -28,7 +28,7 @@ impl PartBuilder {
     #[staticmethod]
     fn from_stream(py: Python, stream: Bound<PyAny>) -> PyResult<Self> {
         let mut stream = BodyStream::new(stream)?;
-        stream.set_task_local()?;
+        stream.set_task_local(py)?;
         let is_async = stream.is_async();
         py.detach(|| Ok(Self::new(reqwest::multipart::Part::stream(stream.into_reqwest(false)?), is_async)))
     }
@@ -36,7 +36,7 @@ impl PartBuilder {
     #[staticmethod]
     fn from_stream_with_length(py: Python, stream: Bound<PyAny>, length: u64) -> PyResult<Self> {
         let mut stream = BodyStream::new(stream)?;
-        stream.set_task_local()?;
+        stream.set_task_local(py)?;
         let is_async = stream.is_async();
         py.detach(|| {
             Ok(Self::new(

@@ -7,7 +7,7 @@ use pyo3::sync::{MutexExt, PyOnceLock};
 use pyo3::types::PyDict;
 use pyo3::{Bound, Py, PyAny, PyResult, PyTraverseError, PyVisit, Python, intern, pyclass, pymethods};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 use std::task::{Context, Poll};
 
 pub fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
@@ -58,7 +58,7 @@ fn iscoroutinefunction(obj: &Bound<PyAny>) -> PyResult<bool> {
 }
 
 #[pyclass(frozen)]
-struct TaskCreator(Arc<Mutex<InnerTaskCreator>>);
+struct TaskCreator(Mutex<InnerTaskCreator>);
 struct InnerTaskCreator {
     on_done_callback: Py<TaskDoneCallback>,
     event_loop: Option<Py<PyAny>>,
@@ -73,7 +73,7 @@ impl TaskCreator {
 
     // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        let Ok(slf) = self.0.lock() else {
+        let Ok(slf) = self.0.try_lock() else {
             return Ok(());
         };
         visit.call(&slf.event_loop)?;
@@ -81,7 +81,7 @@ impl TaskCreator {
     }
 
     fn __clear__(&self) {
-        let Ok(mut slf) = self.0.lock() else {
+        let Ok(mut slf) = self.0.try_lock() else {
             return;
         };
         slf.event_loop = None;
@@ -90,12 +90,12 @@ impl TaskCreator {
 }
 impl TaskCreator {
     fn new(on_done_callback: Py<TaskDoneCallback>, event_loop: Py<PyAny>, coro: Py<PyAny>) -> Self {
-        TaskCreator(Arc::new(Mutex::new(InnerTaskCreator {
+        TaskCreator(Mutex::new(InnerTaskCreator {
             on_done_callback,
             event_loop: Some(event_loop),
             coro: Some(coro),
             task: None,
-        })))
+        }))
     }
 
     fn cancel(&self, py: Python) -> PyResult<()> {
@@ -190,7 +190,7 @@ impl Future for PyCoroWaiter {
 type OnceResultSender = Option<tokio::sync::oneshot::Sender<PyResult<Py<PyAny>>>>;
 
 #[pyclass(frozen)]
-struct TaskDoneCallback(Arc<Mutex<OnceResultSender>>);
+struct TaskDoneCallback(Mutex<OnceResultSender>);
 #[pymethods]
 impl TaskDoneCallback {
     fn __call__(&self, py: Python, task: Bound<PyAny>) -> PyResult<()> {
@@ -200,7 +200,7 @@ impl TaskDoneCallback {
 }
 impl TaskDoneCallback {
     fn new(tx: tokio::sync::oneshot::Sender<PyResult<Py<PyAny>>>) -> Self {
-        TaskDoneCallback(Arc::new(Mutex::new(Some(tx))))
+        TaskDoneCallback(Mutex::new(Some(tx)))
     }
 
     fn tx_send(&self, py: Python, res: PyResult<Bound<PyAny>>) -> PyResult<()> {

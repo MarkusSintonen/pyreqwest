@@ -75,7 +75,7 @@ impl Request {
         let inner = self.mut_inner()?;
         match inner.body.as_mut() {
             Some(ReqBody::Body(body)) => {
-                let py_body = Py::new(py, body.take_inner()?)?;
+                let py_body = Py::new(py, body.take_inner(py)?)?;
                 inner.body = Some(ReqBody::PyBody(py_body.clone_ref(py)));
                 Ok(Some(py_body))
             }
@@ -182,7 +182,7 @@ impl Request {
         let middlewares_next = Python::attach(|py| -> PyResult<_> {
             let mut req = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
             let inner = req.mut_inner()?;
-            inner.body_set_task_local()?;
+            inner.body_set_task_local(py)?;
             inner.middlewares_next.take().map(|v| Next::new(v, py)).transpose()
         })?;
 
@@ -197,7 +197,7 @@ impl Request {
         let middlewares_next = Python::attach(|py| {
             let mut req = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?;
             let inner = req.mut_inner()?;
-            inner.body_set_task_local()?;
+            inner.body_set_task_local(py)?;
             inner.middlewares_next.take().map(SyncNext::new).transpose()
         })?;
 
@@ -218,26 +218,28 @@ impl Request {
 
     fn prepare_spawn_request(py_request: &Py<PyAny>, is_blocking: bool) -> PyResult<RequestData> {
         let mut this = Python::attach(|py| -> PyResult<_> {
-            py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?.take_inner()
+            let mut this = py_request.bind(py).downcast::<Self>()?.try_borrow_mut()?.take_inner()?;
+
+            let request = &mut this.request.reqwest;
+            match this.body.take() {
+                Some(ReqBody::Body(body)) => {
+                    body.set_task_local(py)?;
+                    *request.body_mut() = Some(body.into_reqwest(py, is_blocking)?);
+                }
+                Some(ReqBody::PyBody(py_body)) => {
+                    let py_body = py_body.get();
+                    py_body.set_task_local(py)?;
+                    *request.body_mut() = Some(py_body.into_reqwest(py, is_blocking)?);
+                }
+                None => {}
+            }
+            Ok(this)
         })?;
         let request = &mut this.request.reqwest;
 
         match this.headers.take() {
             Some(ReqHeaders::Headers(h)) => *request.headers_mut() = h.try_take_inner()?,
             Some(ReqHeaders::PyHeaders(py_headers)) => *request.headers_mut() = py_headers.get().try_take_inner()?,
-            None => {}
-        }
-
-        match this.body.take() {
-            Some(ReqBody::Body(body)) => {
-                body.set_task_local()?;
-                *request.body_mut() = Some(body.into_reqwest(is_blocking)?)
-            }
-            Some(ReqBody::PyBody(py_body)) => {
-                let py_body = py_body.get();
-                py_body.set_task_local()?;
-                *request.body_mut() = Some(py_body.into_reqwest(is_blocking)?)
-            }
             None => {}
         }
 
@@ -249,17 +251,17 @@ impl Request {
         let request = inner.request.try_clone(py)?;
         let middlewares_next = inner.middlewares_next.as_ref().map(|next| next.clone_ref(py));
 
-        py.detach(|| {
-            let body = if let Some(body) = body {
-                Some(ReqBody::PyBody(body))
-            } else {
-                match inner.body.as_ref() {
-                    Some(ReqBody::Body(body)) => Some(ReqBody::Body(body.try_clone()?)),
-                    Some(ReqBody::PyBody(py_body)) => Some(ReqBody::Body(py_body.get().try_clone()?)),
-                    None => None,
-                }
-            };
+        let body = if let Some(body) = body {
+            Some(ReqBody::PyBody(body))
+        } else {
+            match inner.body.as_ref() {
+                Some(ReqBody::Body(body)) => Some(ReqBody::Body(body.try_clone(py)?)),
+                Some(ReqBody::PyBody(py_body)) => Some(ReqBody::Body(py_body.get().try_clone(py)?)),
+                None => None,
+            }
+        };
 
+        py.detach(|| {
             let headers = match inner.headers.as_ref() {
                 Some(ReqHeaders::Headers(h)) => Some(ReqHeaders::Headers(h.try_clone()?)),
                 Some(ReqHeaders::PyHeaders(h)) => Some(ReqHeaders::Headers(h.get().try_clone()?)),
@@ -325,10 +327,10 @@ impl Request {
 }
 
 impl Inner {
-    fn body_set_task_local(&self) -> PyResult<()> {
+    fn body_set_task_local(&self, py: Python) -> PyResult<()> {
         match self.body.as_ref() {
-            Some(ReqBody::Body(body)) => body.set_task_local(),
-            Some(ReqBody::PyBody(py_body)) => py_body.get().set_task_local(),
+            Some(ReqBody::Body(body)) => body.set_task_local(py),
+            Some(ReqBody::PyBody(py_body)) => py_body.get().set_task_local(py),
             None => Ok(()),
         }
     }

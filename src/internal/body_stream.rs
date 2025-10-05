@@ -85,9 +85,9 @@ impl BodyStream {
         Ok(reqwest::Body::wrap_stream(self))
     }
 
-    pub fn set_task_local(&mut self) -> PyResult<()> {
+    pub fn set_task_local(&mut self, py: Python) -> PyResult<()> {
         if self.is_async && self.task_local.is_none() {
-            self.task_local = Some(Python::attach(TaskLocal::current)?);
+            self.task_local = Some(TaskLocal::current(py)?);
         }
         Ok(())
     }

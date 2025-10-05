@@ -83,7 +83,7 @@ impl ResponseBuilder {
     }
 
     async fn build(slf: Py<Self>) -> PyResult<Py<Response>> {
-        let inner = Python::attach(|py| slf.bind(py).try_borrow_mut()?.build_inner(false))?;
+        let inner = Python::attach(|py| slf.bind(py).try_borrow_mut()?.build_inner(py, false))?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig::default());
         let runtime = RuntimeHandle::global_handle()?.clone();
@@ -92,8 +92,8 @@ impl ResponseBuilder {
         Python::attach(|py| Response::new_py(py, resp))
     }
 
-    fn build_sync(mut slf: PyRefMut<Self>) -> PyResult<Py<SyncResponse>> {
-        let inner = slf.build_inner(true)?;
+    fn build_sync(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<SyncResponse>> {
+        let inner = slf.build_inner(py, true)?;
 
         let config = BodyConsumeConfig::Streamed(StreamedReadConfig::default());
         let runtime = RuntimeHandle::global_handle()?;
@@ -115,7 +115,7 @@ impl ResponseBuilder {
                     .ok_or_else(|| PyRuntimeError::new_err("Response was already built"))?
                     .clone(),
             ),
-            body: self.body.as_ref().map(|b| b.try_clone()).transpose()?,
+            body: self.body.as_ref().map(|b| b.try_clone(py)).transpose()?,
             extensions: self.extensions.as_ref().map(|e| e.copy(py)).transpose()?,
         })
     }
@@ -153,13 +153,13 @@ impl ResponseBuilder {
         }
     }
 
-    fn build_inner(&mut self, is_blocking: bool) -> PyResult<reqwest::Response> {
+    fn build_inner(&mut self, py: Python, is_blocking: bool) -> PyResult<reqwest::Response> {
         let body: reqwest::Body = self
             .body
             .take()
             .map(|b| {
-                b.set_task_local()?;
-                b.into_reqwest(is_blocking)
+                b.set_task_local(py)?;
+                b.into_reqwest(py, is_blocking)
             })
             .transpose()?
             .unwrap_or_else(|| reqwest::Body::from(b"".as_ref()));

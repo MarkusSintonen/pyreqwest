@@ -10,11 +10,10 @@ use pyo3::{IntoPyObjectExt, intern};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+type Inner = Option<http::HeaderMap>;
+
 #[pyclass(frozen)]
 pub struct HeaderMap(Arc<Mutex<Inner>>);
-pub struct Inner {
-    map: Option<http::HeaderMap>,
-}
 #[pymethods]
 impl HeaderMap {
     #[new]
@@ -275,9 +274,7 @@ impl HeaderMap {
     }
 
     pub fn try_take_inner(&self) -> PyResult<http::HeaderMap> {
-        let mut inner = self.0.lock().unwrap();
-        inner
-            .map
+        self.safe_lock()?
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("HeaderMap was already consumed"))
     }
@@ -287,18 +284,23 @@ impl HeaderMap {
     }
 
     pub fn ref_map<U, F: FnOnce(&http::HeaderMap) -> PyResult<U>>(&self, f: F) -> PyResult<U> {
-        match self.0.lock().unwrap().map.as_ref() {
+        match self.safe_lock()?.as_ref() {
             Some(map) => f(map),
             None => Err(PyRuntimeError::new_err("HeaderMap was already consumed")),
         }
     }
 
     pub fn mut_map<U, F: FnOnce(&mut http::HeaderMap) -> PyResult<U>>(&self, f: F) -> PyResult<U> {
-        let mut inner = self.0.lock().unwrap();
-        match inner.map.as_mut() {
+        match self.safe_lock()?.as_mut() {
             Some(map) => f(map),
             None => Err(PyRuntimeError::new_err("HeaderMap was already consumed")),
         }
+    }
+
+    fn safe_lock(&self) -> PyResult<std::sync::MutexGuard<'_, Inner>> {
+        self.0
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("HeaderMap mutex poisoned"))
     }
 
     pub fn keys_once_deque(&self) -> PyResult<VecDeque<HeaderName>> {
@@ -391,8 +393,7 @@ impl HeaderMap {
 }
 impl From<http::HeaderMap> for HeaderMap {
     fn from(value: http::HeaderMap) -> Self {
-        let inner = Inner { map: Some(value) };
-        HeaderMap(Arc::new(Mutex::new(inner)))
+        HeaderMap(Arc::new(Mutex::new(Some(value))))
     }
 }
 

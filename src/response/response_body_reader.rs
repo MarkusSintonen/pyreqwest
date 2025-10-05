@@ -26,7 +26,16 @@ impl BaseResponseBodyReader {
 
     #[pyo3(signature = (amount=DEFAULT_READ_BUFFER_LIMIT))]
     async fn read(&self, amount: usize, #[pyo3(cancel_handle)] mut cancel: CancelHandle) -> PyResult<Option<PyBytes>> {
-        AllowThreads(async { Ok(self.read_inner(amount, &mut cancel).await?.map(PyBytes::new)) }).await
+        AllowThreads(async {
+            Ok(self
+                .inner
+                .lock()
+                .await
+                .read(amount, &mut cancel)
+                .await?
+                .map(PyBytes::new))
+        })
+        .await
     }
 
     async fn read_chunk(&self, #[pyo3(cancel_handle)] mut cancel: CancelHandle) -> PyResult<Option<PyBytes>> {
@@ -43,10 +52,6 @@ impl BaseResponseBodyReader {
 
     pub async fn bytes_inner(&self, cancel: &mut CancelHandle) -> PyResult<Bytes> {
         self.inner.lock().await.bytes(cancel).await
-    }
-
-    pub async fn read_inner(&self, amount: usize, cancel: &mut CancelHandle) -> PyResult<Option<Bytes>> {
-        self.inner.lock().await.read(amount, cancel).await
     }
 
     pub async fn close(&self) {

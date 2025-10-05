@@ -60,8 +60,7 @@ class ServerPool:
 
     async def __aexit__(self, *args: object) -> None:
         for server_queue in self._pools.values():
-            server_queue.shutdown(immediate=True)
-
+            server_queue.shutdown()
             while not server_queue.empty():
                 server = await server_queue.get()
                 await server.kill()
