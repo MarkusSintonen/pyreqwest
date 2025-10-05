@@ -9,7 +9,7 @@ import sys
 from typing import Any
 
 from pyreqwest.client import ClientBuilder
-from pyreqwest.cookie import Cookie, CookieStore
+from pyreqwest.cookie import CookieStore
 
 from ._utils import httpbin_url, run_examples
 
@@ -46,7 +46,9 @@ async def example_cookie_store() -> None:
 
 
 def _get_cookies(resp: dict[str, Any]) -> dict[str, Any]:
-    return resp.get("cookies", resp)  # go httpbin does not always wrap cookies in "cookies"
+    cookies = resp.get("cookies", resp)  # go httpbin does not always wrap cookies in "cookies"
+    assert isinstance(cookies, dict)
+    return cookies
 
 
 if __name__ == "__main__":
