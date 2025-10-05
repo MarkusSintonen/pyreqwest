@@ -432,10 +432,36 @@ async def test_request_specific(echo_server: SubprocessServer) -> None:
 
 
 async def test_cancel(echo_server: SubprocessServer) -> None:
+    mw_task: Task[Any] | None = None
+
+    async def mw(request: Request, next_handler: Next) -> Response:
+        nonlocal mw_task
+        mw_task = asyncio.current_task()
+        return await next_handler.run(request)
+
+    request = (
+        ClientBuilder()
+        .with_middleware(mw)
+        .error_for_status(True)
+        .build()
+        .get(echo_server.url.with_query({"sleep_start": 5}))
+        .build()
+    )
+
+    task = asyncio.create_task(request.send())
+    start = time.time()
+    await asyncio.sleep(0.5)  # Allow the request to start processing
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.time() - start < 1
+    assert mw_task is not None and mw_task.cancelled()
+
+
+async def test_cancel_inside_middleware(echo_server: SubprocessServer) -> None:
     mw2_task: Task[Any] | None = None
 
     async def mw1(request: Request, next_handler: Next) -> Response:
-        request.extensions["key1"] = "val1"
         task = asyncio.create_task(next_handler.run(request))
         await asyncio.sleep(0.5)  # Allow the request to start processing
         task.cancel()  # Cancels the mw2
