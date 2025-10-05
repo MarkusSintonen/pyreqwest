@@ -1,5 +1,8 @@
+import asyncio
 import gc
+import time
 import weakref
+from asyncio import Task
 from collections.abc import AsyncGenerator, AsyncIterable
 from contextvars import ContextVar
 from typing import Any
@@ -426,6 +429,38 @@ async def test_request_specific(echo_server: SubprocessServer) -> None:
     client = ClientBuilder().error_for_status(True).build()
     req3 = client.get(echo_server.url).with_middleware(middleware2).build()
     assert (await req3.send()).extensions == {"key2": "val2"}
+
+
+async def test_cancel(echo_server: SubprocessServer) -> None:
+    mw2_task: Task[Any] | None = None
+
+    async def mw1(request: Request, next_handler: Next) -> Response:
+        request.extensions["key1"] = "val1"
+        task = asyncio.create_task(next_handler.run(request))
+        await asyncio.sleep(0.5)  # Allow the request to start processing
+        task.cancel()  # Cancels the mw2
+        return await task
+
+    async def mw2(request: Request, next_handler: Next) -> Response:
+        nonlocal mw2_task
+        mw2_task = asyncio.current_task()
+        return await next_handler.run(request)
+
+    request = (
+        ClientBuilder()
+        .with_middleware(mw1)
+        .with_middleware(mw2)
+        .error_for_status(True)
+        .build()
+        .get(echo_server.url.with_query({"sleep_start": 5}))
+        .build()
+    )
+
+    start = time.time()
+    with pytest.raises(asyncio.CancelledError):
+        await request.send()
+    assert time.time() - start < 1
+    assert mw2_task is not None and mw2_task.cancelled()
 
 
 async def test_circular_reference_collected(echo_server: SubprocessServer) -> None:

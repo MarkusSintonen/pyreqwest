@@ -109,7 +109,7 @@ impl BodyStream {
                 let coro = ANEXT
                     .import(py, "builtins", "anext")?
                     .call1((py_iter, self.ellipsis(py)))?;
-                Ok(StreamWaiter::Async(py_coro_waiter(coro, task_local)?))
+                Ok(StreamWaiter::Async(py_coro_waiter(coro, task_local, None)?))
             } else {
                 static NEXT: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
                 let res = NEXT

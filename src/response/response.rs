@@ -142,7 +142,7 @@ impl BaseResponse {
                     extensions: self.get_extensions(py)?,
                 };
                 let coro = self.ref_inner()?.json_handler.as_ref().unwrap().call_loads(py, ctx)?;
-                py_coro_waiter(coro, &task_local)
+                py_coro_waiter(coro, &task_local, Some(cancel))
             })?;
             AllowThreads(coro).await
         } else {

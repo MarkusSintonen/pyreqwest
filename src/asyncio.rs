@@ -1,10 +1,13 @@
 use futures_util::FutureExt;
+use pyo3::coroutine::CancelHandle;
+use pyo3::exceptions::asyncio::CancelledError;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::sync::PyOnceLock;
+use pyo3::sync::{MutexExt, PyOnceLock};
 use pyo3::types::PyDict;
 use pyo3::{Bound, Py, PyAny, PyResult, PyTraverseError, PyVisit, Python, intern, pyclass, pymethods};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 
 pub fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
@@ -12,23 +15,25 @@ pub fn get_running_loop(py: Python) -> PyResult<Bound<PyAny>> {
     GET_EV_LOOP.import(py, "asyncio", "get_running_loop")?.call0()
 }
 
-pub fn py_coro_waiter(py_coro: Bound<PyAny>, task_local: &TaskLocal) -> PyResult<PyCoroWaiter> {
+pub fn py_coro_waiter(
+    py_coro: Bound<PyAny>,
+    task_local: &TaskLocal,
+    cancel_handle: Option<CancelHandle>,
+) -> PyResult<PyCoroWaiter> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let py = py_coro.py();
 
     let event_loop = task_local.event_loop()?;
 
-    let task_creator = TaskCreator {
-        on_done_callback: Py::new(py, TaskDoneCallback { tx: Some(tx) })?,
-        event_loop: Some(event_loop.clone_ref(py)),
-        coro: Some(py_coro.unbind()),
-    };
+    let task_creator =
+        TaskCreator::new(Py::new(py, TaskDoneCallback::new(tx))?, event_loop.clone_ref(py), py_coro.unbind());
+    let task_creator = Py::new(py, task_creator)?;
 
     let kwargs = PyDict::new(py);
     kwargs.set_item("context", &task_local.context)?;
-    event_loop.call_method(py, intern!(py, "call_soon_threadsafe"), (task_creator,), Some(&kwargs))?;
+    event_loop.call_method(py, intern!(py, "call_soon_threadsafe"), (task_creator.clone_ref(py),), Some(&kwargs))?;
 
-    Ok(PyCoroWaiter { rx })
+    Ok(PyCoroWaiter::new(rx, task_creator, cancel_handle))
 }
 
 pub fn is_async_callable(obj: &Bound<PyAny>) -> PyResult<bool> {
@@ -52,53 +57,125 @@ fn iscoroutinefunction(obj: &Bound<PyAny>) -> PyResult<bool> {
         .extract()
 }
 
-#[pyclass]
-struct TaskCreator {
+#[pyclass(frozen)]
+struct TaskCreator(Arc<Mutex<InnerTaskCreator>>);
+struct InnerTaskCreator {
     on_done_callback: Py<TaskDoneCallback>,
     event_loop: Option<Py<PyAny>>,
     coro: Option<Py<PyAny>>,
+    task: Option<Py<PyAny>>,
 }
 #[pymethods]
 impl TaskCreator {
     fn __call__(&self, py: Python) -> PyResult<()> {
-        match self.create_task(py) {
-            Ok(_) => Ok(()),
-            Err(e) => self.on_done_callback.try_borrow_mut(py)?.tx_send(Err(e)),
-        }
+        self.lock(py)?.create_task(py)
     }
 
     // :NOCOV_START
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.event_loop)?;
-        visit.call(&self.coro)
+        let Ok(slf) = self.0.lock() else {
+            return Ok(());
+        };
+        visit.call(&slf.event_loop)?;
+        visit.call(&slf.coro)
     }
 
-    fn __clear__(&mut self) {
-        self.event_loop = None;
-        self.coro = None;
+    fn __clear__(&self) {
+        let Ok(mut slf) = self.0.lock() else {
+            return;
+        };
+        slf.event_loop = None;
+        slf.coro = None;
     } // :NOCOV_END
 }
 impl TaskCreator {
-    fn create_task(&self, py: Python) -> PyResult<()> {
-        let py_task = self
-            .event_loop
-            .as_ref()
-            .ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))?
-            .bind(py)
-            .call_method1(intern!(py, "create_task"), (&self.coro,))?;
-        py_task.call_method1(intern!(py, "add_done_callback"), (&self.on_done_callback,))?;
+    fn new(on_done_callback: Py<TaskDoneCallback>, event_loop: Py<PyAny>, coro: Py<PyAny>) -> Self {
+        TaskCreator(Arc::new(Mutex::new(InnerTaskCreator {
+            on_done_callback,
+            event_loop: Some(event_loop),
+            coro: Some(coro),
+            task: None,
+        })))
+    }
+
+    fn cancel(&self, py: Python) -> PyResult<()> {
+        self.lock(py)?.cancel(py)
+    }
+
+    fn lock(&self, py: Python) -> PyResult<MutexGuard<'_, InnerTaskCreator>> {
+        self.0
+            .lock_py_attached(py)
+            .map_err(|_| PyRuntimeError::new_err("TaskCreator mutex poisoned"))
+    }
+}
+impl InnerTaskCreator {
+    fn create_task(&mut self, py: Python) -> PyResult<()> {
+        fn inner_create<'py>(slf: &mut InnerTaskCreator, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+            let Some(coro) = slf.coro.take() else {
+                return Err(CancelledError::new_err("Task was cancelled"));
+            };
+            let task = slf
+                .event_loop
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("Expected event_loop"))?
+                .bind(py)
+                .call_method1(intern!(py, "create_task"), (&coro,))?;
+            task.call_method1(intern!(py, "add_done_callback"), (&slf.on_done_callback,))?;
+            Ok(task)
+        }
+
+        match inner_create(self, py) {
+            Ok(task) => self.task = Some(task.unbind()),
+            Err(e) => self.on_done_callback.get().tx_send(py, Err(e))?,
+        }
+        Ok(())
+    }
+
+    fn cancel(&mut self, py: Python) -> PyResult<()> {
+        self.coro = None;
+        if let Some(task) = self.task.take() {
+            task.bind(py).call_method0(intern!(py, "cancel"))?;
+        }
         Ok(())
     }
 }
 
 pub struct PyCoroWaiter {
     rx: tokio::sync::oneshot::Receiver<PyResult<Py<PyAny>>>,
+    task_creator: Py<TaskCreator>,
+    cancel_handle: Option<CancelHandle>,
+}
+impl PyCoroWaiter {
+    fn new(
+        rx: tokio::sync::oneshot::Receiver<PyResult<Py<PyAny>>>,
+        task_creator: Py<TaskCreator>,
+        cancel_handle: Option<CancelHandle>,
+    ) -> Self {
+        PyCoroWaiter {
+            rx,
+            task_creator,
+            cancel_handle,
+        }
+    }
 }
 impl Future for PyCoroWaiter {
     type Output = PyResult<Py<PyAny>>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.get_mut().rx.poll_unpin(cx) {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(cancel_handle) = self.cancel_handle.as_mut() {
+            match cancel_handle.poll_cancelled(cx) {
+                Poll::Ready(_) => {
+                    // Cancel inner task and cancel the Future right away
+                    return match Python::attach(|py| self.task_creator.get().cancel(py)) {
+                        Ok(()) => Poll::Ready(Err(CancelledError::new_err("Task was cancelled"))),
+                        Err(e) => Poll::Ready(Err(e)),
+                    };
+                }
+                Poll::Pending => {}
+            }
+        }
+
+        match self.rx.poll_unpin(cx) {
             Poll::Ready(ready) => {
                 let res = ready
                     .map_err(|e| PyRuntimeError::new_err(format!("Failed to receive task result: {}", e)))
@@ -110,23 +187,34 @@ impl Future for PyCoroWaiter {
     }
 }
 
-#[pyclass]
-struct TaskDoneCallback {
-    tx: Option<tokio::sync::oneshot::Sender<PyResult<Py<PyAny>>>>,
-}
+type OnceResultSender = Option<tokio::sync::oneshot::Sender<PyResult<Py<PyAny>>>>;
+
+#[pyclass(frozen)]
+struct TaskDoneCallback(Arc<Mutex<OnceResultSender>>);
 #[pymethods]
 impl TaskDoneCallback {
-    fn __call__(&mut self, task: Bound<PyAny>) -> PyResult<()> {
-        self.tx_send(task.call_method0(intern!(task.py(), "result")).map(|res| res.unbind()))
+    fn __call__(&self, py: Python, task: Bound<PyAny>) -> PyResult<()> {
+        let task_res = task.call_method0(intern!(task.py(), "result"));
+        self.tx_send(py, task_res)
     }
 }
 impl TaskDoneCallback {
-    pub fn tx_send(&mut self, res: PyResult<Py<PyAny>>) -> PyResult<()> {
-        self.tx
+    fn new(tx: tokio::sync::oneshot::Sender<PyResult<Py<PyAny>>>) -> Self {
+        TaskDoneCallback(Arc::new(Mutex::new(Some(tx))))
+    }
+
+    fn tx_send(&self, py: Python, res: PyResult<Bound<PyAny>>) -> PyResult<()> {
+        self.lock(py)?
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("tx already consumed"))?
-            .send(res)
+            .send(res.map(|r| r.unbind()))
             .map_err(|_| PyRuntimeError::new_err("Failed to send task result"))
+    }
+
+    fn lock(&self, py: Python) -> PyResult<MutexGuard<'_, OnceResultSender>> {
+        self.0
+            .lock_py_attached(py)
+            .map_err(|_| PyRuntimeError::new_err("TaskDoneCallback mutex poisoned"))
     }
 }
 
