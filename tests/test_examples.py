@@ -29,7 +29,7 @@ def httpbin() -> Generator[Url, None, None]:
         container.remove(v=True, force=True)  # Remove existing
 
     container = client.containers.run(
-        "mccutchen/go-httpbin:2.18@sha256:7ca85b5259e207a43b89c56b9fd53305c4ae81f7e11409d31d16ffcdc6f5d0af",
+        "ghcr.io/mccutchen/go-httpbin:2.18.3@sha256:3992f3763e9ce5a4307eae0a869a78b4df3931dc8feba74ab823dd2444af6a6b",
         name=HTTPBIN_CONTAINER,
         ports={"8080/tcp": None},
         detach=True,

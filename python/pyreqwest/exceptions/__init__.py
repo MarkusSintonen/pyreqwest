@@ -41,9 +41,9 @@ class DetailedPyreqwestError(PyreqwestError, Generic[T]):
     Details may be available in `details`.
     """
 
-    def __init__(self, message: str, details: T | None = None) -> None:
+    def __init__(self, message: str, details: T) -> None:
         """Internally initialized."""
-        assert isinstance(details, dict | None)
+        assert isinstance(details, dict)
         PyreqwestError.__init__(self, message, details)
         self.details = details
 
@@ -87,7 +87,7 @@ class JSONDecodeError(BodyDecodeError, JSONDecodeError_):
     """Error while decoding the response body as JSON.
 
     This corresponds to Python's built-in `json.JSONDecodeError`. With the difference that `pos` and `colno` are byte
-    offsets instead of UTF8 char offsets. This difference is for efficient error case (avoiding UTF8 conversions).
+    offsets instead of UTF8 char offsets. This difference is for efficient error handling (avoiding UTF8 conversions).
     """
 
     def __init__(self, message: str, details: dict[str, Any]) -> None:

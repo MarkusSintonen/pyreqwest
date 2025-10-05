@@ -116,7 +116,7 @@ max-args = 8
     "SLF001",
 ]
 "./tests/bench/*" = ["T201", "EM102", "PLC0415", "TC002"]
-"./examples/*" = ["D104", "T201", "TRY003", "EM101", "PLR2004"]
+"./examples/*" = ["D104", "T201", "TRY003", "EM101", "PLR2004", "PT017"]
 
 [tool.mypy]
 strict = true

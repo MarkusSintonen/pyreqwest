@@ -1,4 +1,22 @@
 # serializer version: 1
+# name: test_examples[auth-example_basic_auth]
+  '''
+  
+  # running: example_basic_auth
+  {'authenticated': None, 'user': 'user'}
+  {'error': "('HTTP status client error', {'status': 401})"}
+  
+  '''
+# ---
+# name: test_examples[auth-example_bearer_auth]
+  '''
+  
+  # running: example_bearer_auth
+  {'authenticated': True, 'token': 'mytoken'}
+  {'error': "('HTTP status client error', {'status': 401})"}
+  
+  '''
+# ---
 # name: test_examples[basic_client-example_base_url]
   '''
   
@@ -56,35 +74,29 @@
   
   '''
 # ---
-# name: test_examples[basic_client-example_stream_download]
-  '''
-  
-  # running: example_stream_download
-  {'chunks': 5, 'total_bytes': 500}
-  
-  '''
-# ---
-# name: test_examples[basic_client-example_stream_upload]
-  '''
-  
-  # running: example_stream_upload
-  {'status': 200, 'data': 'data:application/octet-stream;base64,cGFydC0wX3BhcnQtMV9wYXJ0LTJfcGFydC0zX3BhcnQtNF8='}
-  
-  '''
-# ---
-# name: test_examples[basic_client-example_timeouts]
-  '''
-  
-  # running: example_timeouts
-  {'error': "('connection timeout', {'causes': [{'message': 'error sending request for url (http://localhost:<PORT>/delay/2)'}, {'message': 'operation timed out'}]})"}
-  
-  '''
-# ---
 # name: test_examples[basic_client-example_url_usage]
   '''
   
   # running: example_url_usage
   {'args': {'q': ['pyreqwest']}, 'url': 'http://localhost:<PORT>/get?q=pyreqwest'}
+  
+  '''
+# ---
+# name: test_examples[cookies-example_cookie_store]
+  '''
+  
+  # running: example_cookie_store
+  {'sent_cookies': {'cookie1': 'val1'}}
+  {'cookie_store': [Cookie('cookie1=val1')]}
+  
+  '''
+# ---
+# name: test_examples[cookies-example_cookies]
+  '''
+  
+  # running: example_cookies
+  {'set_cookies': {'cookie1': 'val1', 'cookie2': 'val2'}}
+  {'sent_cookies': {'cookie1': 'val1', 'cookie2': 'val2'}}
   
   '''
 # ---
@@ -173,6 +185,22 @@
   
   # running: example_simple
   {'request_header': ['val1'], 'response_header': 'val2'}
+  
+  '''
+# ---
+# name: test_examples[stream-example_stream_download]
+  '''
+  
+  # running: example_stream_download
+  {'chunks': 5, 'total_bytes': 500}
+  
+  '''
+# ---
+# name: test_examples[stream-example_stream_upload]
+  '''
+  
+  # running: example_stream_upload
+  {'status': 200, 'data': 'data:application/octet-stream;base64,cGFydC0wX3BhcnQtMV9wYXJ0LTJfcGFydC0zX3BhcnQtNF8='}
   
   '''
 # ---
