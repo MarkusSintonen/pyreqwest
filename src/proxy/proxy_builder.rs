@@ -45,6 +45,7 @@ impl ProxyBuilder {
         let proxy = reqwest::Proxy::custom(move |url| {
             match Self::handle_custom_proxy(&fun, url) {
                 Ok(res) => res,
+                #[allow(clippy::panic)]
                 Err(err) => panic_any(err), // No better way to handle this in reqwest custom proxy
             }
         });

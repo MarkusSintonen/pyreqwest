@@ -27,12 +27,13 @@ impl Stream for BodyStream {
             };
         }
 
-        let poll_res = match self.cur_waiter.as_mut().unwrap() {
-            StreamWaiter::Async(waiter) => waiter.poll_unpin(cx),
-            StreamWaiter::Sync(obj) => Poll::Ready(
+        let poll_res = match self.cur_waiter.as_mut() {
+            Some(StreamWaiter::Async(waiter)) => waiter.poll_unpin(cx),
+            Some(StreamWaiter::Sync(obj)) => Poll::Ready(
                 obj.take()
                     .ok_or_else(|| PyRuntimeError::new_err("Unexpected missing stream value")),
             ),
+            None => unreachable!("cur_waiter should be Some here"),
         };
 
         match poll_res {

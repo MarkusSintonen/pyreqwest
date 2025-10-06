@@ -94,11 +94,17 @@ impl HeaderValue {
         Ok(Cow::Borrowed(v))
     }
 }
+impl FromStr for HeaderValue {
+    type Err = PyErr;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let val = http::HeaderValue::from_str(value).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(HeaderValue(val))
+    }
+}
 impl TryFrom<&str> for HeaderValue {
     type Error = PyErr;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let val = http::HeaderValue::from_str(value).map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(HeaderValue(val))
+        Ok(HeaderValue(value.parse::<HeaderValue>()?.0))
     }
 }
 impl Ord for HeaderValue {

@@ -93,13 +93,12 @@ impl Runtime {
                 .enable_all()
                 .build()
                 .map_err(|e| {
-                    handle_tx  // :NOCOV_START:
-                        .send(Err(PyRuntimeError::new_err(format!("Failed to create tokio runtime: {}", e))))
-                        .unwrap()
+                    let _ = // :NOCOV_START:
+                        handle_tx.send(Err(PyRuntimeError::new_err(format!("Failed to create tokio runtime: {}", e))));
                 }) // :NOCOV_END:
                 .map(|rt| {
                     rt.block_on(async {
-                        handle_tx.send(Ok(tokio::runtime::Handle::current())).unwrap();
+                        let _ = handle_tx.send(Ok(tokio::runtime::Handle::current()));
                     });
                     let _ = rt.block_on(close_rx.recv());
                     rt.shutdown_background()

@@ -72,20 +72,20 @@ impl BodyReader {
                 return Ok(None); // No body receiver, fully consumed
             };
 
-            let buffer = tokio::select! {
+            let chunks_buffer = tokio::select! {
                 res = body_rx.recv() => res,
                 _ = cancel.cancelled().fuse() => Err(CancelledError::new_err("Read was cancelled")),
             };
-            let Some(buffer) = buffer? else {
+            let Some(chunks_buffer) = chunks_buffer? else {
                 return Ok(None); // No more data
             };
 
-            let mut buffer_iter = buffer.into_iter();
-            let first_chunk = buffer_iter.next().unwrap();
+            let mut buffer_iter = chunks_buffer.into_iter();
+            let first_chunk = buffer_iter.next();
             for rest_chunk in buffer_iter {
                 this.chunks.push_back(rest_chunk);
             }
-            Ok(Some(first_chunk))
+            Ok(first_chunk)
         }
 
         match next(self, cancel).await {

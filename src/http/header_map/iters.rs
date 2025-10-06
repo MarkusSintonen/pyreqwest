@@ -1,6 +1,6 @@
 use crate::http::header_map::header_map::HeaderMap;
 use crate::internal::types::{HeaderName, HeaderValue};
-use pyo3::exceptions::PyStopIteration;
+use pyo3::exceptions::{PyRuntimeError, PyStopIteration};
 use pyo3::prelude::*;
 use std::collections::VecDeque;
 
@@ -26,12 +26,16 @@ impl HeaderMapItemsIter {
             }
         }
 
-        let value = self.cur_values.pop_front().unwrap();
+        let value = self
+            .cur_values
+            .pop_front()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected iter value"))?;
         let key = if self.cur_values.is_empty() {
-            self.keys.pop_front().unwrap() // Go to next key
+            self.keys.pop_front() // Go to next key
         } else {
-            self.keys.front().unwrap().clone()
+            self.keys.front().cloned()
         };
+        let key = key.ok_or_else(|| PyRuntimeError::new_err("Expected iter key"))?;
         Ok((key, value))
     }
 }

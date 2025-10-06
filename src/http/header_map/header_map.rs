@@ -328,7 +328,10 @@ impl HeaderMap {
             Ok(Entry::Occupied(entry)) => {
                 let mut vals = entry.remove_entry_mult().1;
                 // Remove the first value, add back the rest (pop first)
-                (HeaderValue(vals.next().unwrap()), vals.collect::<Vec<_>>())
+                let first = vals
+                    .next()
+                    .ok_or_else(|| PyRuntimeError::new_err("Expected at least one value"))?;
+                (HeaderValue(first), vals.collect::<Vec<_>>())
             }
             Ok(Entry::Vacant(entry)) => return default.res(entry.into_key().to_string()),
             Err(e) => return Err(PyRuntimeError::new_err(e.to_string())),
@@ -358,7 +361,12 @@ impl HeaderMap {
                     prev_k = Some(k.clone());
                     map.try_append(k, v)
                 }
-                None => map.try_append(prev_k.clone().unwrap(), v),
+                None => {
+                    let k = prev_k
+                        .as_ref()
+                        .ok_or_else(|| PyRuntimeError::new_err("Expected prev key"))?;
+                    map.try_append(k.clone(), v)
+                }
             }
             .map(|_| ())
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;

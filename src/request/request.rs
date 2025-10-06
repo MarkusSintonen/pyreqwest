@@ -96,7 +96,10 @@ impl Request {
         if inner.request.extensions.is_none() {
             inner.request.extensions = Some(Extensions(PyDict::new(py).unbind()));
         }
-        Ok(inner.request.extensions.as_ref().unwrap().0.clone_ref(py))
+        match inner.request.extensions.as_ref() {
+            Some(Extensions(dict)) => Ok(dict.clone_ref(py)),
+            None => unreachable!("inner.request.extensions was just set to Some"),
+        }
     }
 
     #[setter]

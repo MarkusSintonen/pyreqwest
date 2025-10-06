@@ -72,7 +72,7 @@ impl ResponseBuilder {
         slf.body = Some(RequestBody::from(Bytes::from(bytes)));
         slf.mut_head()?
             .headers
-            .try_append(CONTENT_TYPE, "application/json".parse().unwrap())
+            .try_append(CONTENT_TYPE, "application/json".parse::<HeaderValue>()?.0)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(slf)
     }

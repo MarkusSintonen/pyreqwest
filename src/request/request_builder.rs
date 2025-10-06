@@ -116,11 +116,10 @@ impl BaseRequestBuilder {
 
     fn body_json<'py>(mut slf: PyRefMut<'py, Self>, data: Py<PyAny>, py: Python) -> PyResult<PyRefMut<'py, Self>> {
         slf.check_inner()?;
-        let bytes = if slf.json_handler.as_ref().is_some_and(|v| v.has_dumps()) {
-            slf.json_handler
-                .as_ref()
-                .unwrap()
-                .call_dumps(py, JsonDumpsContext { data })?
+        let bytes = if let Some(handler) = slf.json_handler.as_ref()
+            && handler.has_dumps()
+        {
+            handler.call_dumps(py, JsonDumpsContext { data })?
         } else {
             let json_val: JsonValue = data.bind(py).extract()?;
             slf.py().detach(|| {

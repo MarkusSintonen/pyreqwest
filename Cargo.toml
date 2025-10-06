@@ -43,3 +43,12 @@ pyo3-build-config = "=0.26.0"
 lto = "fat"
 codegen-units = 1
 strip = true
+
+[lints.clippy]
+all = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+unwrap_in_result = "deny"
+ok_expect = "deny"

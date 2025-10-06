@@ -141,7 +141,12 @@ impl BaseResponse {
                     headers: self.get_headers(py)?,
                     extensions: self.get_extensions(py)?,
                 };
-                let coro = self.ref_inner()?.json_handler.as_ref().unwrap().call_loads(py, ctx)?;
+                let coro = self
+                    .ref_inner()?
+                    .json_handler
+                    .as_ref()
+                    .ok_or_else(|| PyRuntimeError::new_err("Expected json_handler"))?
+                    .call_loads(py, ctx)?;
                 py_coro_waiter(coro, &task_local, Some(cancel))
             })?;
             AllowThreads(coro).await
@@ -281,8 +286,8 @@ impl BaseResponse {
         if inner.body_reader.is_none() {
             return Err(PyRuntimeError::new_err("Response body reader is closed"));
         };
-        if let RespReader::Reader(_) = inner.body_reader.as_ref().unwrap()
-            && let RespReader::Reader(reader) = inner.body_reader.take().unwrap()
+        if let Some(RespReader::Reader(_)) = inner.body_reader.as_ref()
+            && let Some(RespReader::Reader(reader)) = inner.body_reader.take()
         {
             let py_body_reader = if is_blocking {
                 SyncResponseBodyReader::new_py(py, reader)?
@@ -378,20 +383,20 @@ impl SyncResponse {
     }
 
     fn json(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<PyAny>> {
-        let json_handler = slf.as_super().ref_inner()?.json_handler.as_ref();
-        if json_handler.is_some_and(|v| v.has_loads()) {
-            let json_handler = json_handler.unwrap().clone_ref(py);
-            let ctx = JsonLoadsContext {
-                headers: slf.as_super().get_headers(py)?,
-                extensions: slf.as_super().get_extensions(py)?,
-                body_reader: SyncResponse::get_body_reader(slf, py)?
-                    .cast_into::<BaseResponseBodyReader>()?
-                    .unbind(),
-            };
-            Ok(json_handler.call_loads(py, ctx)?.unbind())
-        } else {
-            Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json_inner(CancelHandle::new()))
-        }
+        let json_handler = match slf.as_super().ref_inner()?.json_handler.as_ref() {
+            Some(h) if h.has_loads() => h.clone_ref(py),
+            _ => {
+                return Self::runtime(slf.as_ref())?.blocking_spawn(slf.into_super().json_inner(CancelHandle::new()));
+            }
+        };
+        let ctx = JsonLoadsContext {
+            headers: slf.as_super().get_headers(py)?,
+            extensions: slf.as_super().get_extensions(py)?,
+            body_reader: SyncResponse::get_body_reader(slf, py)?
+                .cast_into::<BaseResponseBodyReader>()?
+                .unbind(),
+        };
+        Ok(json_handler.call_loads(py, ctx)?.unbind())
     }
 
     fn text(slf: PyRefMut<Self>) -> PyResult<String> {

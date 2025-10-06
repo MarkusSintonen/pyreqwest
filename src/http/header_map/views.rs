@@ -103,13 +103,13 @@ impl HeaderMapItemsView {
         self.0.ref_map(|map| {
             let iter = map.iter().map(|(k, v)| {
                 let v = if v.is_sensitive() {
-                    HeaderValue::try_from("Sensitive").unwrap()
+                    HeaderValue::try_from("Sensitive")
                 } else {
-                    HeaderValue(v.clone())
-                };
-                (HeaderName(k.clone()), v)
+                    Ok(HeaderValue(v.clone()))
+                }?;
+                Ok((HeaderName(k.clone()), v))
             });
-            Ok(iter.collect())
+            iter.collect::<PyResult<Vec<_>>>()
         })
     }
 }
@@ -246,12 +246,12 @@ impl HeaderMapValuesView {
         self.0.ref_map(|map| {
             let iter = map.iter().map(|(_, v)| {
                 if v.is_sensitive() {
-                    HeaderValue::try_from("Sensitive").unwrap()
+                    HeaderValue::try_from("Sensitive")
                 } else {
-                    HeaderValue(v.clone())
+                    Ok(HeaderValue(v.clone()))
                 }
             });
-            Ok(iter.collect())
+            iter.collect::<PyResult<Vec<_>>>()
         })
     }
 }

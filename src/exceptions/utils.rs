@@ -115,6 +115,7 @@ fn error_causes_matches(err: &reqwest::Error, pattern: &RegexSet) -> bool {
 // Reqwest does not provide a good way to exhaustively check for connection errors.
 // Its "err.is_connect" check is not good enough. Neither are hypers checks.
 static CONNECTION_ERROR_PATTERN: LazyLock<RegexSet> = LazyLock::new(|| {
+    #[allow(clippy::expect_used)]
     RegexSet::new([
         r"(?i)connection error",
         r"(?i)connection closed",
@@ -134,5 +135,7 @@ static CONNECTION_ERROR_PATTERN: LazyLock<RegexSet> = LazyLock::new(|| {
     .expect("invalid connection error regex")
 });
 
-static TIMEOUT_ERROR_PATTERN: LazyLock<RegexSet> =
-    LazyLock::new(|| RegexSet::new([r"(?i)timed out", r"(?i)timeout"]).expect("invalid timeout error regex"));
+static TIMEOUT_ERROR_PATTERN: LazyLock<RegexSet> = LazyLock::new(|| {
+    #[allow(clippy::expect_used)]
+    RegexSet::new([r"(?i)timed out", r"(?i)timeout"]).expect("invalid timeout error regex")
+});

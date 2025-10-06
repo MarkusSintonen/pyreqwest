@@ -44,9 +44,7 @@ impl Next {
     }
 
     pub async fn run_inner(&self, request: &Py<PyAny>, cancel: CancelHandle) -> PyResult<BaseResponse> {
-        let middleware = self.inner.current_middleware();
-
-        if let Some(middleware) = middleware {
+        if let Some(middleware) = self.inner.current_middleware()? {
             let next_waiter = Python::attach(|py| self.call_next(py, middleware, request, cancel))?;
             let resp = AllowThreads(next_waiter).await?;
             Python::attach(|py| {
@@ -116,7 +114,7 @@ impl SyncNext {
     }
 
     fn call_next<'py>(&self, request: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let Some(middleware) = self.0.current_middleware() else {
+        let Some(middleware) = self.0.current_middleware()? else {
             return Ok(None); // No more middlewares
         };
 
@@ -138,11 +136,15 @@ impl NextInner {
         })
     }
 
-    fn current_middleware(&self) -> Option<&Py<PyAny>> {
+    fn current_middleware(&self) -> PyResult<Option<&Py<PyAny>>> {
         if let Some(override_middlewares) = self.override_middlewares.as_ref() {
-            override_middlewares.get(self.current)
+            Ok(override_middlewares.get(self.current))
         } else {
-            self.middlewares.as_ref().unwrap().get(self.current)
+            Ok(self
+                .middlewares
+                .as_ref()
+                .ok_or_else(|| PyRuntimeError::new_err("Expected middlewares"))?
+                .get(self.current))
         }
     }
 
@@ -162,7 +164,10 @@ impl NextInner {
             assert!(self.override_middlewares.is_none());
             self.override_middlewares = Some(orig.iter().map(|m| m.clone_ref(middleware.py())).collect());
         }
-        self.override_middlewares.as_mut().unwrap().push(middleware.unbind());
+        self.override_middlewares
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("Expected override_middlewares"))?
+            .push(middleware.unbind());
         Ok(())
     }
 
