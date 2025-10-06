@@ -1,6 +1,6 @@
 # pyreqwest - Powerful and fast Rust based HTTP client
 
-#### Inspired by and using [reqwest](https://github.com/seanmonstar/reqwest).
+#### Built on top of and inspired by [reqwest](https://github.com/seanmonstar/reqwest)
 
 ### Feature-rich
 - High performance - 100% Rust codebase (no `unsafe` code, no Python dependencies)
