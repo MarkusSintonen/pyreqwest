@@ -1,4 +1,4 @@
-"""Basic usage examples for pyreqwest.
+"""Basic usage.
 
 Run directly:
     uv run python -m examples.basic_client
@@ -19,25 +19,26 @@ async def example_simple_get() -> None:
     async with ClientBuilder().error_for_status(True).build() as client:
         resp = await client.get(httpbin_url() / "get").query({"q": "pyreqwest"}).build().send()
         data = await resp.json()
-        print({"args": data.get("args"), "url": data.get("url"), "status": resp.status})
+        print({"args": data["args"], "url": data["url"], "status": resp.status})
 
 
 def example_simple_get_sync() -> None:
     """Simple sync GET"""
     with SyncClientBuilder().error_for_status(True).build() as client:
         data = client.get(httpbin_url() / "get").query({"q": "pyreqwest"}).build().send().json()
-        print({"args": data.get("args"), "url": data.get("url")})
+        print({"args": data["args"], "url": data["url"]})
 
 
 async def example_url_usage() -> None:
     """Url class usage (can be used to pass query params also)"""
-    httpbin = Url(str(httpbin_url()))  # Contruct from str
+    httpbin = Url(str(httpbin_url()))  # Construct from str
     with_path = httpbin / "get"  # Append path
     url = with_path.with_query({"q": "pyreqwest"})  # Add query params
+
     async with ClientBuilder().error_for_status(True).build() as client:
         resp = await client.get(url).build().send()
         data = await resp.json()
-        print({"args": data.get("args"), "url": data.get("url")})
+        print({"args": data["args"], "url": data["url"]})
 
 
 async def example_error_for_status() -> None:
@@ -93,13 +94,13 @@ async def example_headers() -> None:
         req = client.get(httpbin_url() / "headers").headers({"X-Req": "req_value"}).build()
         req.headers["X-Req2"] = "req2_value"  # Can also modify directly
         data = await (await req.send()).json()
-        headers = data.get("headers", {})
+        headers = data["headers"]
         print(
             {
-                "x_client": headers.get("X-Client"),
-                "x_req": headers.get("X-Req"),
-                "x_req2": headers.get("X-Req2"),
-                "user_agent": headers.get("User-Agent"),
+                "X-Client": headers["X-Client"],
+                "X-Req": headers["X-Req"],
+                "X-Req2": headers["X-Req2"],
+                "User-Agent": headers["User-Agent"],
             }
         )
 

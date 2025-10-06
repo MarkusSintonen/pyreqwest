@@ -1,4 +1,4 @@
-"""Streaming usage examples for pyreqwest.
+"""Streaming usage.
 
 Run directly:
     uv run python -m examples.stream

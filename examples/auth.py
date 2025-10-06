@@ -1,4 +1,4 @@
-"""Auth usage examples for pyreqwest.
+"""Auth usage.
 
 Run directly:
     uv run python -m examples.auth
@@ -18,7 +18,7 @@ async def example_basic_auth() -> None:
     async with ClientBuilder().error_for_status(True).build() as client:
         resp = await client.get(httpbin_url() / "basic-auth/user/passwd").basic_auth("user", "passwd").build().send()
         data = await resp.json()
-        print({"authenticated": data.get("authenticated"), "user": data.get("user")})
+        print({"authorized": data["authorized"], "user": data["user"]})
 
     # Wrong credentials
     async with ClientBuilder().error_for_status(True).build() as client:
@@ -36,7 +36,7 @@ async def example_bearer_auth() -> None:
     async with ClientBuilder().error_for_status(True).build() as client:
         resp = await client.get(httpbin_url() / "bearer").bearer_auth("mytoken").build().send()
         data = await resp.json()
-        print({"authenticated": data.get("authenticated"), "token": data.get("token")})
+        print({"authenticated": data["authenticated"], "token": data["token"]})
 
     # No token
     async with ClientBuilder().error_for_status(True).build() as client:

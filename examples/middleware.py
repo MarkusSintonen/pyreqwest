@@ -1,4 +1,4 @@
-"""Middleware usage examples for pyreqwest.
+"""Middleware usage.
 
 Run directly:
     uv run python -m examples.middleware
@@ -94,7 +94,7 @@ async def example_retry_middleware() -> None:
         resp = await client.get(httpbin_url() / "delay/2").build().send()  # First timeouts
         assert resp.extensions["retried"] is True
         data = await resp.json()
-        print({"url": data.get("url"), "status": resp.status, "retried": resp.extensions["retried"]})
+        print({"url": data["url"], "status": resp.status, "retried": resp.extensions["retried"]})
 
 
 async def example_middleware_modify_request_body() -> None:

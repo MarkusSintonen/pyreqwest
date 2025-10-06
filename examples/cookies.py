@@ -1,4 +1,4 @@
-"""Auth usage examples for pyreqwest.
+"""Auth usage.
 
 Run directly:
     uv run python -m examples.cookies

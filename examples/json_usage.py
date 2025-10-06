@@ -1,4 +1,4 @@
-"""JSON usage examples for pyreqwest.
+"""JSON usage.
 
 Run directly:
     uv run python -m examples.json_usage
@@ -21,10 +21,8 @@ async def example_post_json() -> None:
     async with ClientBuilder().error_for_status(True).build() as client:
         resp = await client.post(httpbin_url() / "post").body_json({"message": "hello"}).build().send()
         data = await resp.json()
-        assert data.get("headers").get("Content-Type") == ["application/json"]  # Set by default
-        print(
-            {"status": resp.status, "echo": data.get("json"), "content_type": data.get("headers").get("Content-Type")}
-        )
+        assert data["headers"]["Content-Type"] == ["application/json"]  # Set by default
+        print({"status": resp.status, "echo": data["json"], "content_type": data["headers"]["Content-Type"]})
 
 
 async def example_custom_json_dumps() -> None:
@@ -41,8 +39,8 @@ async def example_custom_json_dumps() -> None:
     async with ClientBuilder().json_handler(dumps=dumps).error_for_status(True).build() as client:
         resp = await client.post(httpbin_url() / "post").body_json({"value": b"foo"}).build().send()
         data = await resp.json()
-        assert data.get("json") == {"value": "Zm9v"}
-        print({"status": resp.status, "json": data.get("json")})
+        assert data["json"] == {"value": "Zm9v"}
+        print({"status": resp.status, "json": data["json"]})
 
 
 async def example_custom_json_loads() -> None:
@@ -59,8 +57,8 @@ async def example_custom_json_loads() -> None:
     async with ClientBuilder().json_handler(loads=loads).error_for_status(True).build() as client:
         resp = await client.post(httpbin_url() / "post").body_json({"value": "Zm9v"}).build().send()
         data = await resp.json()
-        assert data.get("json") == {"value": b"foo"}
-        print({"status": resp.status, "json": data.get("json")})
+        assert data["json"] == {"value": b"foo"}
+        print({"status": resp.status, "json": data["json"]})
 
 
 if __name__ == "__main__":

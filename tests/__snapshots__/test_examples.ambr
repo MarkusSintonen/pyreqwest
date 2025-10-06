@@ -3,7 +3,7 @@
   '''
   
   # running: example_basic_auth
-  {'authenticated': None, 'user': 'user'}
+  {'authorized': True, 'user': 'user'}
   {'error': "('HTTP status client error', {'status': 401})"}
   
   '''
@@ -38,7 +38,7 @@
   '''
   
   # running: example_headers
-  {'x_client': ['client_value'], 'x_req': ['req_value'], 'x_req2': ['req2_value'], 'user_agent': ['ua-example/1.0']}
+  {'X-Client': ['client_value'], 'X-Req': ['req_value'], 'X-Req2': ['req2_value'], 'User-Agent': ['ua-example/1.0']}
   
   '''
 # ---
@@ -185,6 +185,30 @@
   
   # running: example_simple
   {'request_header': ['val1'], 'response_header': 'val2'}
+  
+  '''
+# ---
+# name: test_examples[multipart-example_multipart_file_upload]
+  '''
+  
+  # running: example_multipart_file_upload
+  {'form': {'description': ['demo']}, 'file': ['file-content']}
+  
+  '''
+# ---
+# name: test_examples[multipart-example_multipart_streaming_part]
+  '''
+  
+  # running: example_multipart_streaming_part
+  {'form': {'description': ['streamed']}, 'file': ['streamed-file-content']}
+  
+  '''
+# ---
+# name: test_examples[multipart-example_multipart_text]
+  '''
+  
+  # running: example_multipart_text
+  {'form': {'name': ['John'], 'email': ['john@example.com']}}
   
   '''
 # ---
