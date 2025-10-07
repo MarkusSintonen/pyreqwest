@@ -10,7 +10,7 @@ Also, simple types and immutable types like `Url`, `HeaderMap`, `Bytes`, `Mime`,
 
 Builder classes are not thread-safe and should not be shared across threads.
 (For example `ClientBuilder` and `SyncClientBuilder`.)
-Multiple threads should mutate the same builder object concurrently.
+Multiple threads should not mutate the same builder object concurrently.
 
 Also, request and response types are not thread-safe.
 (For example `ConsumedRequest`, `Response`, `SyncConsumedRequest`, `SyncResponse`.)

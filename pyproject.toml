@@ -40,6 +40,9 @@ dev = [
     "types-docker==7.1.0.20250916",
 ]
 
+[tool.uv]
+required-version = ">=0.8.24"
+
 [tool.maturin]
 module-name = "pyreqwest._pyreqwest"
 python-source = "python"

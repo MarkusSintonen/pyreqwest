@@ -72,7 +72,7 @@ testcov:
 .PHONY: docs
 docs:
 	uv run maturin develop --uv
-	uv run pdoc -o ./docs/site --no-show-source pyreqwest.client.types pyreqwest
+	uv run pdoc -o $(outdir) --no-show-source pyreqwest.client.types pyreqwest
 
 .PHONY: docs-browser
 docs-browser:

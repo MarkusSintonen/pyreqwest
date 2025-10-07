@@ -3,7 +3,7 @@
 #### Built on top of and inspired by [reqwest](https://github.com/seanmonstar/reqwest)
 
 ### Feature-rich
-- High performance - 100% Rust codebase (no `unsafe` code, no Python dependencies)
+- High performance - 100% Rust codebase (zero-copy bodies, no `unsafe` code, no Python dependencies)
 - Asynchronous and synchronous HTTP clients
 - Customizable via middlewares and custom JSON serializers
 - Ergonomic as `reqwest`
