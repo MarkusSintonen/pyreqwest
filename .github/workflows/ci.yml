@@ -1,0 +1,371 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request: {}
+
+env:
+  COLUMNS: 150
+  UV_PYTHON: 3.13
+  CI: 1
+  PYTEST_ADDOPTS: '--capture=no'
+
+jobs:
+  test-python:
+    name: test ${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+          - "3.14t"
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - run: uv sync
+      - run: make test
+
+  test-os:
+    name: test on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, macos, windows]
+
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync
+      - run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+
+      - run: make static-checks
+
+  # https://github.com/marketplace/actions/alls-green#why used for branch protection checks
+  check:
+    if: always()
+    needs:
+      [
+        test-python,
+        test-os,
+        lint,
+      ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
+
+  build-sdist:
+    name: build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          rust-toolchain: stable
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi_files_sdist
+          path: dist
+
+  build:
+    name: build on ${{ matrix.os }} (${{ matrix.target }} - ${{ matrix.interpreter || 'all' }}${{ matrix.os == 'linux' && format(' - {0}', matrix.manylinux == 'auto' && 'manylinux' || matrix.manylinux) || '' }})
+    # only run on push to main and on release
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'Full Build')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, macos, windows]
+        target: [x86_64, aarch64]
+        manylinux: [auto]
+        include:
+          # manylinux for various platforms, plus x86_64 pypy
+          - os: linux
+            manylinux: auto
+            target: i686
+          - os: linux
+            manylinux: auto
+            target: aarch64
+            interpreter: 3.11 3.12 3.13 3.14 pypy3.10 pypy3.11 graalpy3.11 graalpy3.12
+          - os: linux
+            manylinux: auto
+            target: armv7
+            interpreter: 3.11 3.12 3.13 3.14
+          - os: linux
+            manylinux: auto
+            target: ppc64le
+            interpreter: 3.11 3.12 3.13 3.14
+          - os: linux
+            manylinux: auto
+            target: s390x
+            interpreter: 3.11 3.12 3.13 3.14
+          - os: linux
+            manylinux: auto
+            target: x86_64
+            interpreter: pypy3.10 pypy3.11
+          - os: linux
+            manylinux: auto
+            target: x86_64
+            interpreter: graalpy3.11 graalpy3.12
+
+          # musllinux
+          - os: linux
+            manylinux: musllinux_1_1
+            target: x86_64
+          - os: linux
+            manylinux: musllinux_1_1
+            target: aarch64
+          - os: linux
+            manylinux: musllinux_1_1
+            target: armv7
+
+          # macos;
+          # all versions x86_64
+          # arm pypy and older pythons which can't be run on the arm hardware
+          - os: macos
+            target: x86_64
+            interpreter: 3.11 3.12 3.13 3.14 pypy3.10 pypy3.11 graalpy3.11 graalpy3.12
+          - os: macos
+            target: aarch64
+            interpreter: pypy3.11 graalpy3.11 graalpy3.12
+
+          # windows;
+          # i686 not supported by pypy
+          - os: windows
+            target: x86_64
+            interpreter: pypy3.10 pypy3.11
+          - os: windows
+            target: i686
+            python-architecture: x86
+            interpreter: 3.11 3.12 3.13 3.14
+          - os: windows
+            target: aarch64
+            interpreter: 3.11 3.12 3.13 3.14
+
+        exclude:
+          # See above; disabled for now.
+          - os: windows
+            target: aarch64
+
+    runs-on: ${{ (matrix.os == 'linux' && 'ubuntu') || matrix.os }}-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: set up python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python-architecture || 'x64' }}
+
+      - run: pip install -U twine 'ruff==0.14.0'
+
+      - name: build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist --interpreter ${{ matrix.interpreter || '3.11 3.12 3.13 3.14 pypy3.10 pypy3.11' }}
+          rust-toolchain: stable
+          docker-options: -e CI
+          before-script-linux: sudo apt-get update && sudo apt-get install -y libclang-dev cmake
+
+      - run: ${{ (matrix.os == 'windows' && 'dir') || 'ls -lh' }} dist/
+
+      - run: twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi_files_${{ matrix.os }}_${{ matrix.target }}_${{ matrix.interpreter || 'all' }}_${{ matrix.manylinux }}
+          path: dist
+
+  inspect-pypi-assets:
+    needs: [build, build-sdist]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: get dist artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: pypi_files_*
+          merge-multiple: true
+          path: dist
+
+      - name: list dist files
+        run: |
+          ls -lh dist/
+          ls -l dist/
+          echo "`ls dist | wc -l` files"
+
+      - name: extract and list sdist file
+        run: |
+          mkdir sdist-files
+          tar -xvf dist/*.tar.gz -C sdist-files
+          tree -a sdist-files
+
+      - name: extract and list wheel file
+        run: |
+          ls dist/*cp310-manylinux*x86_64.whl | head -n 1
+          python -m zipfile --list `ls dist/*cp310-manylinux*x86_64.whl | head -n 1`
+
+  test-builds-arch:
+    name: test build on ${{ matrix.target }}-${{ matrix.distro }}
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [armv7, s390x, ppc64le]
+        distro: ["ubuntu22.04"]
+        include:
+          - target: aarch64
+            distro: alpine_latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: get dist artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: pypi_files_linux_*
+          merge-multiple: true
+          path: dist
+
+      - uses: uraimo/run-on-arch-action@v3.0.1
+        name: install & test
+        with:
+          arch: ${{ matrix.target }}
+          distro: ${{ matrix.distro }}
+          githubToken: ${{ github.token }}
+          install: |
+            set -x
+            if command -v apt-get &> /dev/null; then
+              echo "installing python & pip with apt-get..."
+              apt-get update
+              apt-get install -y --no-install-recommends python3 python3-pip python3-venv git curl
+            else
+              echo "installing python & pip with apk..."
+              apk update
+              apk add python3 py3-pip git curl
+            fi
+          env: |
+            UV_NO_PROGRESS: '1'
+          run: |
+            set -x
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            source $HOME/.local/bin/env
+            uv sync --frozen --group testing --no-install-project
+            uv pip install pyreqwest --no-index --no-deps --find-links dist --force-reinstall
+            uv run --no-sync pytest
+
+  test-builds-os:
+    name: test build on ${{ matrix.platform.os }}
+    needs: [build]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          [
+            { os: linux, runs-on: ubuntu-latest },
+            { os: linux_aarch64, runs-on: ubuntu-24.04-arm },
+            { os: windows, runs-on: windows-latest },
+            { os: windows_aarch64, runs-on: windows-11-arm },
+            { os: macos, runs-on: macos-latest },
+          ]
+
+    runs-on: ${{ matrix.platform.runs-on }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: get dist artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: pypi_files_*
+          merge-multiple: true
+          path: dist
+
+      - run: uv sync
+      - run: uv pip install pyreqwest --no-index --no-deps --find-links dist --force-reinstall
+      - run: uv run pytest
+
+#  release:
+#    needs: [test-builds-arch, test-builds-os, build-sdist, check]
+#    if: always() && startsWith(github.ref, 'refs/tags/')
+#    runs-on: ubuntu-latest
+#
+#    environment:
+#      name: release
+#
+#    permissions:
+#      id-token: write
+#      contents: write
+#
+#    steps:
+#      - uses: actions/checkout@v5
+#
+#      - uses: astral-sh/setup-uv@v6
+#
+#      - name: check package version
+#        run: uv run .github/check_version.py
+#
+#      - name: get dist artifacts
+#        uses: actions/download-artifact@v5
+#        with:
+#          pattern: pypi_files_*
+#          merge-multiple: true
+#          path: dist
+#
+#      - run: uv publish --trusted-publishing always
+#
+#      - name: get wasm dist artifacts
+#        uses: actions/download-artifact@v5
+#        with:
+#          name: wasm_wheels
+#          path: wasm
+#
+#      - name: upload to github release
+#        uses: softprops/action-gh-release@v2
+#        with:
+#          files: |
+#            wasm/*.whl
+#          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}

@@ -6,7 +6,7 @@ import sys
 import time
 import weakref
 from asyncio import Task
-from collections.abc import AsyncGenerator, AsyncIterator, Buffer, Iterator, MutableMapping
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator, MutableMapping
 from typing import Any
 
 import orjson
@@ -396,6 +396,8 @@ async def test_bytes_buffer_abc(client: Client, echo_body_parts_server: Subproce
     buf = await resp.bytes()
     assert type(buf) is Bytes
     if sys.version_info >= (3, 12):
+        from collections.abc import Buffer
+
         assert isinstance(buf, Buffer) and issubclass(type(buf), Buffer)
 
 

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import queue
 import random
 import socket
@@ -6,6 +7,7 @@ import time
 from asyncio import AbstractEventLoop
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable
 from contextlib import asynccontextmanager, closing, suppress
+from dataclasses import dataclass
 from datetime import timedelta
 from functools import cached_property
 from pathlib import Path
@@ -14,16 +16,35 @@ from typing import Any, Protocol, Self
 
 from granian.constants import HTTPModes, Interfaces
 from granian.server.embed import Server as GranianServer
-from pydantic import BaseModel
 from pyreqwest.client import ClientBuilder
 from pyreqwest.http import Url
 
 
-class ServerConfig(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class ServerConfig:
     ssl_cert: Path | None = None
     ssl_key: Path | None = None
     ssl_ca: Path | None = None
     http: HTTPModes = HTTPModes.auto
+
+    @classmethod
+    def parse_json(cls, raw: str) -> Self:
+        data = json.loads(raw)
+        return cls(
+            ssl_cert=Path(data["ssl_cert"]) if data.get("ssl_cert") else None,
+            ssl_key=Path(data["ssl_key"]) if data.get("ssl_key") else None,
+            ssl_ca=Path(data["ssl_ca"]) if data.get("ssl_ca") else None,
+            http=HTTPModes(data.get("http", HTTPModes.auto.value)),
+        )
+
+    def dump_json(self) -> str:
+        data = {
+            "ssl_cert": str(self.ssl_cert) if self.ssl_cert else None,
+            "ssl_key": str(self.ssl_key) if self.ssl_key else None,
+            "ssl_ca": str(self.ssl_ca) if self.ssl_ca else None,
+            "http": self.http.value,
+        }
+        return json.dumps(data)
 
     @property
     def is_https(self) -> bool:

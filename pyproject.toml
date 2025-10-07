@@ -1,10 +1,36 @@
 [project]
 name = "pyreqwest"
+description = "Powerful and fast Rust based HTTP client. Based on reqwest."
 version = "0.1.0"
 authors = [{ name = "Markus Sintonen", email = "pyreqwest@gmail.com" }]
+readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python :: Implementation :: GraalPy",
+    "Programming Language :: Rust",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Typing :: Typed",
+]
 dependencies = [] # Pure Rust project, no Python dependencies
+
+[project.urls]
+Homepage = "https://github.com/MarkusSintonen/pyreqwest"
+Source = "https://github.com/MarkusSintonen/pyreqwest"
 
 [project.entry-points.pytest11]
 pyreqwest = "pyreqwest.pytest_plugin.plugin"
@@ -17,12 +43,11 @@ dev = [
     "granian==2.4.1",
     "asgi-types==0.1.0",
     "trustme==1.2.1",
-    "orjson==3.10.18",
+    "orjson==3.11.3",
     "requests-toolbelt==1.0.0",
     "syrupy==4.9.1",
     "ruff==0.12.10",
     "mypy==1.17.1",
-    "pydantic==2.11.9",
     # Compatibility checks with other libraries
     "dirty-equals==0.9.0",
     "yarl==1.20.1",
@@ -41,7 +66,9 @@ dev = [
 ]
 
 [tool.uv]
-required-version = ">=0.8.24"
+# this ensures that `uv run` doesn't actually build the package; a `make` command is needed to build
+package = false
+required-version = ">=0.8.4"
 
 [tool.maturin]
 module-name = "pyreqwest._pyreqwest"
@@ -55,6 +82,7 @@ build-backend = "maturin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--snapshot-warn-unused"
 asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "session"
 asyncio_default_fixture_loop_scope = "session"
@@ -117,6 +145,7 @@ max-args = 8
     "BLE001",
     "T201",
     "SLF001",
+    "PLC0415",
 ]
 "./tests/bench/*" = ["T201", "EM102", "PLC0415", "TC002"]
 "./examples/*" = ["D104", "T201", "TRY003", "EM101", "PLR2004", "PT017"]

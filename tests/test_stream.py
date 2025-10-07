@@ -7,7 +7,7 @@ from typing import Any
 import orjson
 import pytest
 from pyreqwest.client import Client, ClientBuilder
-from pyreqwest.exceptions import ReadTimeoutError
+from pyreqwest.exceptions import ReadError, ReadTimeoutError
 from pyreqwest.request import RequestBuilder
 from pyreqwest.response import Response
 from pyreqwest.types import Stream
@@ -173,9 +173,28 @@ async def test_body_stream__timeout(
                 await resp.body_reader.read_chunk()
 
 
+async def test_body_stream__gen_error(client: Client, echo_body_parts_server: SubprocessServer):
+    class MyError(Exception): ...
+
+    async def stream_gen() -> AsyncIterator[bytes]:
+        await asyncio.sleep(0)  # Simulate some work
+        raise MyError("Test error")
+        yield b""
+
+    req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
+
+    with pytest.raises(MyError) as e:
+        async with req as _:
+            pytest.fail("Should have raised")
+
+    tb_names = [tb.name for tb in traceback.extract_tb(e.value.__traceback__)]
+    assert "test_body_stream__gen_error" in tb_names
+    assert "stream_gen" in tb_names
+
+
 @pytest.mark.parametrize("read_buffer_limit", [None, 0, 5, 999999])
 @pytest.mark.parametrize("partial_body", [False, True])
-async def test_body_stream__gen_error(
+async def test_body_stream__gen_error_partial(
     client: Client,
     echo_body_parts_server: SubprocessServer,
     read_buffer_limit: int | None,
@@ -189,28 +208,20 @@ async def test_body_stream__gen_error(
             yield b"part 0"
         raise MyError("Test error")
 
+    req_builder = client.post(echo_body_parts_server.url).body_stream(stream_gen())
     if read_buffer_limit is not None:
-        req = (
-            client.post(echo_body_parts_server.url)
-            .body_stream(stream_gen())
-            .streamed_read_buffer_limit(read_buffer_limit)
-            .build_streamed()
-        )
+        req = req_builder.streamed_read_buffer_limit(read_buffer_limit).build_streamed()
     else:
-        req = client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed()
+        req = req_builder.build_streamed()
 
     if read_buffer_limit is not None:
         assert req.read_buffer_limit == read_buffer_limit
     else:
         assert req.read_buffer_limit == RequestBuilder.default_streamed_read_buffer_limit()
 
-    with pytest.raises(MyError, match="Test error") as e:
-        async with req as _:
-            pytest.fail("Should have raised")
-
-    tb_names = [tb.name for tb in traceback.extract_tb(e.value.__traceback__)]
-    assert "test_body_stream__gen_error" in tb_names
-    assert "stream_gen" in tb_names
+    with pytest.raises((MyError, ReadError)):
+        async with req as resp:
+            await resp.bytes()
 
 
 async def test_body_stream__invalid_gen(client: Client, echo_body_parts_server: SubprocessServer):

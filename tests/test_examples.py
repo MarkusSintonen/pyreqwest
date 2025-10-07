@@ -10,6 +10,7 @@ from pyreqwest.http import Url
 from syrupy import SnapshotAssertion  # type: ignore[attr-defined]
 
 from examples._utils import CallableExample, collect_examples, run_example
+from tests.utils import IS_CI, IS_OSX, IS_WINDOWS
 
 EXAMPLE_FUNCS: list[tuple[str, CallableExample]] = [
     (p.stem, func)
@@ -54,6 +55,7 @@ def httpbin() -> Generator[Url, None, None]:
 
 
 @pytest.mark.parametrize(("module", "func"), EXAMPLE_FUNCS)
+@pytest.mark.skipif(IS_CI and (IS_OSX or IS_WINDOWS), reason="No docker setup in CI for OSX/Windows")
 async def test_examples(
     capsys: pytest.CaptureFixture[str],
     httpbin: Url,

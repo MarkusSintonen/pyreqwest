@@ -1,8 +1,10 @@
 import asyncio
 import importlib
 import sys
+from typing import TYPE_CHECKING
 
-from pyreqwest.http import Url
+if TYPE_CHECKING:
+    from pyreqwest.http import Url
 
 from .server import ASGIApp, EmbeddedServer, ServerConfig, wait_for_server
 
@@ -24,7 +26,7 @@ class SubprocessServer:
             "tests.servers.server_subprocess",
             f"{server_type.__module__}.{server_type.__name__}",
             str(port),
-            config.model_dump_json(),
+            config.dump_json(),
         )
         server = SubprocessServer(server_type, config, port, process)
         await wait_for_server(server.url, ca_pem=config.ca_pem_bytes)
@@ -32,7 +34,9 @@ class SubprocessServer:
         return server
 
     @property
-    def url(self) -> Url:
+    def url(self) -> "Url":
+        from pyreqwest.http import Url
+
         proto = "https" if self.config.is_https else "http"
         return Url(f"{proto}://localhost:{self.port}")
 
@@ -58,6 +62,6 @@ if __name__ == "__main__":
     asgi_class = getattr(importlib.import_module(module_path), class_name)
 
     port = int(sys.argv[2])
-    config = ServerConfig.model_validate_json(sys.argv[3])
+    config = ServerConfig.parse_json(sys.argv[3])
 
     asyncio.run(EmbeddedServer(asgi_class(), port, config).serve())

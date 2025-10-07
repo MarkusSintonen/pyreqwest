@@ -13,7 +13,7 @@ default-features = false
 features = ["rustls-tls-native-roots", "http2", "cookies", "gzip", "zstd", "brotli", "deflate", "multipart", "stream", "socks"]
 
 [dependencies]
-pyo3 = { version = "=0.26.0", features = ["extension-module", "experimental-async", "time"] }
+pyo3 = { version = "=0.26.0", features = ["extension-module", "experimental-async", "time", "generate-import-lib"] }
 pyo3-bytes = "=0.4.0"
 pythonize = "=0.26.0"
 hyper = { version = "1.7.0", features = ["client", "http1", "http2"] }

@@ -15,7 +15,7 @@ class ServerPool:
 
     @asynccontextmanager
     async def use_server(self, server_type: type[ASGIApp], config: ServerConfig) -> AsyncGenerator[SubprocessServer]:
-        pool = self._pools[(server_type, config.model_dump_json())]
+        pool = self._pools[(server_type, config.dump_json())]
 
         server = await self._pop_server(pool, server_type, config)
         try:
@@ -60,7 +60,6 @@ class ServerPool:
 
     async def __aexit__(self, *args: object) -> None:
         for server_queue in self._pools.values():
-            server_queue.shutdown()
             while not server_queue.empty():
                 server = await server_queue.get()
                 await server.kill()
