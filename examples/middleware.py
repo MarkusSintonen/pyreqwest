@@ -8,6 +8,7 @@ import asyncio
 import sys
 from collections.abc import AsyncIterator
 from datetime import timedelta
+from typing import Self
 
 from pyreqwest.client import ClientBuilder
 from pyreqwest.exceptions import ConnectTimeoutError
@@ -73,28 +74,72 @@ async def example_extensions() -> None:
         print({"mws": [headers["X-Mw1"], headers["X-Mw2"]], "extensions": resp.extensions})
 
 
+async def retry_middleware(request: Request, next_handler: Next) -> Response:
+    """A simple retry middleware that retries once on ConnectTimeoutError"""
+    request2 = request.copy()  # Copy before first send
+
+    try:
+        await next_handler.run(request)
+        raise RuntimeError("should have raised")
+    except ConnectTimeoutError:
+        pass
+
+    request2.url = request2.url.with_path("delay/0")  # Succeeds
+    response2 = await next_handler.run(request2)
+    response2.extensions["retried"] = True  # Just to show it was retried
+    return response2
+
+
 async def example_retry_middleware() -> None:
-    """Retry by re-running handler with a copied request"""
-
-    async def retry_mw(request: Request, next_handler: Next) -> Response:
-        request2 = request.copy()  # Copy before first send
-        try:
-            await next_handler.run(request)
-            raise RuntimeError("should have raised")
-        except ConnectTimeoutError:
-            pass
-        request2.url = request2.url.with_path("delay/0")  # Succeeds
-        r2 = await next_handler.run(request2)
-        r2.extensions["retried"] = True
-        return r2
-
+    """Retry in a middleware"""
     async with (
-        ClientBuilder().with_middleware(retry_mw).timeout(timedelta(seconds=1)).error_for_status(True).build() as client
+        ClientBuilder()
+        .with_middleware(retry_middleware)
+        .timeout(timedelta(seconds=1))
+        .error_for_status(True)
+        .build() as client
     ):
         resp = await client.get(httpbin_url() / "delay/2").build().send()  # First timeouts
         assert resp.extensions["retried"] is True
         data = await resp.json()
         print({"url": data["url"], "status": resp.status, "retried": resp.extensions["retried"]})
+
+
+async def example_retry_middleware_with_stream() -> None:
+    """Retry in a middleware with streamed body"""
+
+    # Custom stream must support __copy__ to be retryable
+    class MyStream:
+        def __init__(self, copied: bool = False) -> None:
+            self.copied = copied
+
+        def __aiter__(self) -> AsyncIterator[bytes]:
+            if self.copied:
+
+                async def stream() -> AsyncIterator[bytes]:
+                    yield b"hello"
+                    yield b"_world"
+            else:
+
+                async def stream() -> AsyncIterator[bytes]:
+                    yield b"not_used"
+
+            return stream()
+
+        def __copy__(self) -> Self:
+            return self.__class__(copied=True)
+
+    async with (
+        ClientBuilder()
+        .with_middleware(retry_middleware)
+        .timeout(timedelta(seconds=1))
+        .error_for_status(True)
+        .build() as client
+    ):
+        resp = await client.put(httpbin_url() / "delay/2").body_stream(MyStream()).build().send()  # First timeouts
+        body = parse_data_uri((await resp.json())["data"])
+        assert body == "hello_world"
+        print({"data": body, "status": resp.status})
 
 
 async def example_middleware_modify_request_body() -> None:

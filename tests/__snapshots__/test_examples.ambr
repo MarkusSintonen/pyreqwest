@@ -180,6 +180,14 @@
   
   '''
 # ---
+# name: test_examples[middleware-example_retry_middleware_with_stream]
+  '''
+  
+  # running: example_retry_middleware_with_stream
+  {'data': 'hello_world', 'status': 200}
+  
+  '''
+# ---
 # name: test_examples[middleware-example_simple]
   '''
   
