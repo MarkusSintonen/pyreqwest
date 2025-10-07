@@ -29,4 +29,6 @@
 
 ### Documentation
 
+See [docs](https://markussintonen.github.io/pyreqwest/pyreqwest.html)
+
 See [examples](https://github.com/MarkusSintonen/pyreqwest/tree/main/examples)
