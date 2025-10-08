@@ -1,10 +1,8 @@
 import asyncio
 import importlib
 import sys
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from pyreqwest.http import Url
+from pyreqwest.http import Url
 
 from .server import ASGIApp, EmbeddedServer, ServerConfig, wait_for_server
 
@@ -21,7 +19,7 @@ class SubprocessServer:
     @staticmethod
     async def start(server_type: type[ASGIApp], config: ServerConfig, port: int) -> "SubprocessServer":
         process = await asyncio.create_subprocess_exec(
-            "python",
+            sys.executable,
             "-m",
             "tests.servers.server_subprocess",
             f"{server_type.__module__}.{server_type.__name__}",
@@ -34,9 +32,7 @@ class SubprocessServer:
         return server
 
     @property
-    def url(self) -> "Url":
-        from pyreqwest.http import Url
-
+    def url(self) -> Url:
         proto = "https" if self.config.is_https else "http"
         return Url(f"{proto}://localhost:{self.port}")
 

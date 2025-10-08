@@ -118,7 +118,7 @@ static CONNECTION_ERROR_PATTERN: LazyLock<RegexSet> = LazyLock::new(|| {
     #[allow(clippy::expect_used)]
     RegexSet::new([
         r"(?i)connection error",
-        r"(?i)connection closed",
+        r"(?i)connection(.*) closed",
         r"(?i)connection refused",
         r"(?i)connection reset",
         r"(?i)connection aborted",

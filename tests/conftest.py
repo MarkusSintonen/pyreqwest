@@ -1,9 +1,10 @@
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import pytest
 import trustme
+
+from tests.utils import temp_file
 
 from .servers.echo_body_parts_server import EchoBodyPartsServer
 from .servers.echo_server import EchoServer
@@ -39,10 +40,8 @@ def cert_authority() -> trustme.CA:
 
 @pytest.fixture(scope="session")
 def cert_authority_pem(cert_authority: trustme.CA) -> Generator[Path, None, None]:
-    with NamedTemporaryFile(suffix=".pem") as tmp:
-        tmp.write(cert_authority.cert_pem.bytes())
-        tmp.flush()
-        yield Path(tmp.name)
+    with temp_file(cert_authority.cert_pem.bytes(), suffix=".pem") as tmp:
+        yield tmp
 
 
 @pytest.fixture(scope="session")
@@ -52,18 +51,14 @@ def localhost_cert(cert_authority: trustme.CA) -> trustme.LeafCert:
 
 @pytest.fixture(scope="session")
 def cert_pem_file(localhost_cert: trustme.LeafCert) -> Generator[Path, None, None]:
-    with NamedTemporaryFile(suffix=".pem") as tmp:
-        tmp.write(localhost_cert.cert_chain_pems[0].bytes())
-        tmp.flush()
-        yield Path(tmp.name)
+    with temp_file(localhost_cert.cert_chain_pems[0].bytes(), suffix=".pem") as tmp:
+        yield tmp
 
 
 @pytest.fixture(scope="session")
 def cert_private_key_file(localhost_cert: trustme.LeafCert) -> Generator[Path, None, None]:
-    with NamedTemporaryFile(suffix=".pem") as tmp:
-        tmp.write(localhost_cert.private_key_pem.bytes())
-        tmp.flush()
-        yield Path(tmp.name)
+    with temp_file(localhost_cert.private_key_pem.bytes(), suffix=".pem") as tmp:
+        yield tmp
 
 
 @pytest.fixture

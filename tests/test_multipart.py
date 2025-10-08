@@ -1,7 +1,5 @@
 import re
-import tempfile
 from collections.abc import AsyncGenerator, Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,6 +10,7 @@ from pyreqwest.multipart import FormBuilder, PartBuilder
 from requests_toolbelt import MultipartDecoder  # type: ignore[import-untyped]
 
 from tests.servers.server_subprocess import SubprocessServer
+from tests.utils import temp_file
 
 
 @pytest.fixture
@@ -66,39 +65,35 @@ async def test_multipart_with_custom_part(client: Client, echo_server: Subproces
 @pytest.mark.parametrize("file", ["async", "sync"])
 @pytest.mark.parametrize("req", ["async", "sync"])
 async def test_multipart_with_file_upload(echo_server: SubprocessServer, file: str, req: str):
-    test_content = "This is test file content\nWith multiple lines"
+    test_content = "This is test file content"
+    form = FormBuilder().text("title", "File Upload Test")
 
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
-        tmp.write(test_content)
-        tmp.flush()
-        tmp_path = Path(tmp.name)
-
-        form = FormBuilder().text("title", "File Upload Test")
+    with temp_file(test_content.encode(), suffix=".txt") as tmp_path:
         if file == "async":
             form = await form.file("document", tmp_path)
         else:
             assert file == "sync"
             form = form.sync_file("document", tmp_path)
 
-        if req == "async":
-            async with ClientBuilder().error_for_status(True).build() as client:
-                resp = await client.post(echo_server.url).multipart(form).build().send()
-                response_data = await resp.json()
-        else:
-            assert req == "sync"
-            with SyncClientBuilder().error_for_status(True).build() as client:
-                response_data = client.post(echo_server.url).multipart(form).build().send().json()
+    if req == "async":
+        async with ClientBuilder().error_for_status(True).build() as client:
+            resp = await client.post(echo_server.url).multipart(form).build().send()
+            response_data = await resp.json()
+    else:
+        assert req == "sync"
+        with SyncClientBuilder().error_for_status(True).build() as client:
+            response_data = client.post(echo_server.url).multipart(form).build().send().json()
 
-        decoder = decode_multipart(response_data)
+    decoder = decode_multipart(response_data)
 
-        assert len(decoder.parts) == 2
+    assert len(decoder.parts) == 2
 
-        title_part = next(p for p in decoder.parts if b'name="title"' in p.headers[b"content-disposition"])
-        doc_part = next(p for p in decoder.parts if b'name="document"' in p.headers[b"content-disposition"])
+    title_part = next(p for p in decoder.parts if b'name="title"' in p.headers[b"content-disposition"])
+    doc_part = next(p for p in decoder.parts if b'name="document"' in p.headers[b"content-disposition"])
 
-        assert title_part.content == b"File Upload Test"
-        assert doc_part.content.decode("utf-8") == test_content
-        assert tmp_path.name.encode() in doc_part.headers[b"content-disposition"]
+    assert title_part.content == b"File Upload Test"
+    assert doc_part.content.decode() == test_content
+    assert tmp_path.name.encode() in doc_part.headers[b"content-disposition"]
 
 
 @pytest.mark.parametrize("file", ["async", "sync"])
@@ -106,39 +101,35 @@ async def test_multipart_with_file_upload(echo_server: SubprocessServer, file: s
 async def test_multipart_with_part_file(echo_server: SubprocessServer, file: str, req: str):
     test_content = "Part file content with special chars: àáâãäåæç"
 
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as tmp:
-        tmp.write(test_content)
-        tmp.flush()
-
+    with temp_file(test_content.encode(), suffix=".txt") as tmp:
         if file == "async":
-            file_part = await PartBuilder.from_file(Path(tmp.name))
+            file_part = (await PartBuilder.from_file(tmp)).mime("text/plain; charset=utf-8")
         else:
             assert file == "sync"
-            file_part = PartBuilder.from_sync_file(Path(tmp.name))
-        file_part = file_part.mime("text/plain; charset=utf-8")
+            file_part = PartBuilder.from_sync_file(tmp).mime("text/plain; charset=utf-8")
 
-        form = FormBuilder().text("description", "Using Part.file").part("attachment", file_part)
+    form = FormBuilder().text("description", "Using Part.file").part("attachment", file_part)
 
-        if req == "async":
-            async with ClientBuilder().error_for_status(True).build() as client:
-                resp = await client.post(echo_server.url).multipart(form).build().send()
-                response_data = await resp.json()
-        else:
-            assert req == "sync"
-            with SyncClientBuilder().error_for_status(True).build() as client:
-                response_data = client.post(echo_server.url).multipart(form).build().send().json()
+    if req == "async":
+        async with ClientBuilder().error_for_status(True).build() as client:
+            resp = await client.post(echo_server.url).multipart(form).build().send()
+            response_data = await resp.json()
+    else:
+        assert req == "sync"
+        with SyncClientBuilder().error_for_status(True).build() as client:
+            response_data = client.post(echo_server.url).multipart(form).build().send().json()
 
-        decoder = decode_multipart(response_data)
+    decoder = decode_multipart(response_data)
 
-        assert len(decoder.parts) == 2
+    assert len(decoder.parts) == 2
 
-        desc_part = next(p for p in decoder.parts if b'name="description"' in p.headers[b"content-disposition"])
-        file_part = next(p for p in decoder.parts if b'name="attachment"' in p.headers[b"content-disposition"])
+    desc_part = next(p for p in decoder.parts if b'name="description"' in p.headers[b"content-disposition"])
+    file_part = next(p for p in decoder.parts if b'name="attachment"' in p.headers[b"content-disposition"])
 
-        assert desc_part.content == b"Using Part.file"
-        assert file_part.content.decode("utf-8") == test_content
-        assert Path(tmp.name).name.encode() in file_part.headers[b"content-disposition"]
-        assert file_part.headers[b"content-type"] == b"text/plain; charset=utf-8"
+    assert desc_part.content == b"Using Part.file"
+    assert file_part.content.decode("utf-8") == test_content
+    assert tmp.name.encode() in file_part.headers[b"content-disposition"]
+    assert file_part.headers[b"content-type"] == b"text/plain; charset=utf-8"
 
 
 @pytest.mark.parametrize("sync", [False, True])

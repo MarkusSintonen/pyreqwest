@@ -103,7 +103,7 @@ jobs:
           path: dist
 
   build:
-    name: build on ${{ matrix.os }} (${{ matrix.target }} - ${{ matrix.interpreter || 'all' }}${{ matrix.os == 'linux' && format(' - {0}', matrix.manylinux == 'auto' && 'manylinux' || matrix.manylinux) || '' }})
+    name: build on ${{ matrix.os }} (${{ matrix.target }}${{ matrix.os == 'linux' && format(' - {0}', matrix.manylinux == 'auto' && 'manylinux' || matrix.manylinux) || '' }})
     # only run on push to main and on release
     if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'Full Build')
     strategy:
@@ -113,34 +113,19 @@ jobs:
         target: [x86_64, aarch64]
         manylinux: [auto]
         include:
-          # manylinux for various platforms, plus x86_64 pypy
+          # manylinux for various platforms
+          - os: linux
+            manylinux: auto
+            target: armv7
           - os: linux
             manylinux: auto
             target: i686
           - os: linux
             manylinux: auto
-            target: aarch64
-            interpreter: 3.11 3.12 3.13 3.14 pypy3.10 pypy3.11 graalpy3.11 graalpy3.12
-          - os: linux
-            manylinux: auto
-            target: armv7
-            interpreter: 3.11 3.12 3.13 3.14
-          - os: linux
-            manylinux: auto
             target: ppc64le
-            interpreter: 3.11 3.12 3.13 3.14
           - os: linux
             manylinux: auto
             target: s390x
-            interpreter: 3.11 3.12 3.13 3.14
-          - os: linux
-            manylinux: auto
-            target: x86_64
-            interpreter: pypy3.10 pypy3.11
-          - os: linux
-            manylinux: auto
-            target: x86_64
-            interpreter: graalpy3.11 graalpy3.12
 
           # musllinux
           - os: linux
@@ -153,35 +138,14 @@ jobs:
             manylinux: musllinux_1_1
             target: armv7
 
-          # macos;
-          # all versions x86_64
-          # arm pypy and older pythons which can't be run on the arm hardware
-          - os: macos
-            target: x86_64
-            interpreter: 3.11 3.12 3.13 3.14 pypy3.10 pypy3.11 graalpy3.11 graalpy3.12
-          - os: macos
-            target: aarch64
-            interpreter: pypy3.11 graalpy3.11 graalpy3.12
-
-          # windows;
-          # i686 not supported by pypy
-          - os: windows
-            target: x86_64
-            interpreter: pypy3.10 pypy3.11
-          - os: windows
-            target: i686
-            python-architecture: x86
-            interpreter: 3.11 3.12 3.13 3.14
-          - os: windows
-            target: aarch64
-            interpreter: 3.11 3.12 3.13 3.14
-
-        exclude:
-          # See above; disabled for now.
-          - os: windows
-            target: aarch64
-
-    runs-on: ${{ (matrix.os == 'linux' && 'ubuntu') || matrix.os }}-latest
+    #runs-on: ${{ (matrix.os == 'linux' && 'ubuntu') || matrix.os }}-latest
+    runs-on: ${{ (matrix.os == 'linux' && matrix.target == 'aarch64' && 'ubuntu-24.04-arm') ||
+                  (matrix.os == 'macos' && matrix.target == 'aarch64' && 'macos-15') ||
+                  (matrix.os == 'windows' && matrix.target == 'aarch64' && 'windows-11-arm') ||
+                  (matrix.os == 'linux' && matrix.target == 'x86_64' && 'ubuntu-24.04') ||
+                  (matrix.os == 'macos' && matrix.target == 'x86_64' && 'macos-15-intel') ||
+                  (matrix.os == 'windows' && matrix.target == 'x86_64' && 'windows-2025') ||
+                  'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -189,7 +153,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          architecture: ${{ matrix.python-architecture || 'x64' }}
 
       - run: pip install -U twine 'ruff==0.14.0'
 
@@ -198,7 +161,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
-          args: --release --out dist --interpreter ${{ matrix.interpreter || '3.11 3.12 3.13 3.14 pypy3.10 pypy3.11' }}
+          args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
           rust-toolchain: stable
           docker-options: -e CI
           before-script-linux: sudo apt-get update && sudo apt-get install -y libclang-dev cmake
@@ -209,7 +172,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: pypi_files_${{ matrix.os }}_${{ matrix.target }}_${{ matrix.interpreter || 'all' }}_${{ matrix.manylinux }}
+          name: pypi_files_${{ matrix.os }}_${{ matrix.target }}_${{ matrix.manylinux }}
           path: dist
 
   inspect-pypi-assets:

@@ -1,11 +1,10 @@
 import asyncio
 import gzip
+import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl
-
-import orjson
 
 from .server import receive_all
 
@@ -79,4 +78,4 @@ def json_dump(obj: Any) -> bytes:
             return val.decode("utf-8")
         raise TypeError
 
-    return orjson.dumps(obj, default=default)
+    return json.dumps(obj, default=default).encode()

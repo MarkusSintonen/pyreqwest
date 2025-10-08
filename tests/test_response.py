@@ -9,14 +9,12 @@ from asyncio import Task
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator, MutableMapping
 from typing import Any
 
-import orjson
 import pytest
 import trustme
 from pyreqwest.bytes import Bytes
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import BodyDecodeError, JSONDecodeError, StatusError
 from pyreqwest.http import HeaderMap
-from pyreqwest.request import RequestBuilder
 from pyreqwest.response import ResponseBuilder
 
 from tests.servers.server_subprocess import SubprocessServer
@@ -288,13 +286,23 @@ async def test_error_for_status(echo_server: SubprocessServer) -> None:
 
 @pytest.mark.parametrize("read", ["bytes", "text", "json", "reader_bytes", "read", "read_chunk"])
 async def test_response_read_cancel(client: Client, echo_body_parts_server: SubprocessServer, read: str) -> None:
-    full_buf = "a" * (RequestBuilder.default_streamed_read_buffer_limit() * 2)
+    buf_size = 1024
+    full_buf = "a" * (buf_size * 2)
+    max_cancel_delay = 1.0
 
     async def stream_gen() -> AsyncGenerator[bytes, None]:
         for _ in range(10):
-            yield orjson.dumps({"sleep": 0.1, "data": full_buf})
+            await asyncio.sleep(0)
+            yield json.dumps({"sleep": 0.2, "data": full_buf}).encode()
 
-    async with client.post(echo_body_parts_server.url).body_stream(stream_gen()).build_streamed() as resp:
+    req = (
+        client.post(echo_body_parts_server.url)
+        .body_stream(stream_gen())
+        .streamed_read_buffer_limit(buf_size)
+        .build_streamed()
+    )
+
+    async with req as resp:
         if read == "bytes":
             task: Task[Any] = asyncio.create_task(resp.bytes())
         elif read == "text":
@@ -306,7 +314,7 @@ async def test_response_read_cancel(client: Client, echo_body_parts_server: Subp
         elif read == "read":
 
             async def reader() -> None:
-                while await resp.body_reader.read(65536) is not None:
+                while await resp.body_reader.read(buf_size) is not None:
                     pass
                 raise RuntimeError("Should not reach here")
 
@@ -322,11 +330,11 @@ async def test_response_read_cancel(client: Client, echo_body_parts_server: Subp
             task = asyncio.create_task(reader())
 
         start = time.time()
-        await asyncio.sleep(0.25)  # Allow the request to start processing
+        await asyncio.sleep(0.1)  # Allow the request to start processing
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert time.time() - start < 1
+        assert time.time() - start < max_cancel_delay
 
 
 async def test_response_builder():

@@ -1,10 +1,9 @@
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from json import JSONDecodeError
 from typing import Any
 from urllib.parse import parse_qsl
-
-import orjson
 
 from .server import receive_all
 
@@ -42,7 +41,7 @@ class EchoBodyPartsServer:
 
 def try_json(data: bytes) -> dict[str, Any] | None:
     try:
-        val = orjson.loads(data)
+        val = json.loads(data)
         return val if isinstance(val, dict) else None
-    except JSONDecodeError:
+    except (JSONDecodeError, UnicodeDecodeError):
         return None

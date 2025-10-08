@@ -1,10 +1,10 @@
 import asyncio
+import json
 import traceback
 from collections.abc import AsyncGenerator, AsyncIterator, Generator
 from datetime import timedelta
 from typing import Any
 
-import orjson
 import pytest
 from pyreqwest.client import Client, ClientBuilder
 from pyreqwest.exceptions import ReadError, ReadTimeoutError
@@ -13,6 +13,7 @@ from pyreqwest.response import Response
 from pyreqwest.types import Stream
 
 from tests.servers.server_subprocess import SubprocessServer
+from tests.utils import IS_CI
 
 
 @pytest.fixture
@@ -138,18 +139,21 @@ async def test_body_stream__timeout(
     read_buffer_limit: int | None,
     sleep_kind: str,
 ):
+    timeout = 0.5 if IS_CI else 0.05
+    sleep = timeout * 2
+
     async def stream_gen() -> AsyncGenerator[bytes]:
         await asyncio.sleep(0)  # Simulate some work
-        yield orjson.dumps({"sleep": 0.0})
+        yield json.dumps({"sleep": 0.0}).encode()
         if sleep_kind == "server":
             await asyncio.sleep(0)
-            yield orjson.dumps({"sleep": 0.1})
+            yield json.dumps({"sleep": sleep}).encode()
         else:
             assert sleep_kind == "stream"
-            await asyncio.sleep(0.1)
-            yield orjson.dumps({"sleep": 0.0})
+            await asyncio.sleep(sleep)
+            yield json.dumps({"sleep": 0.0}).encode()
 
-    req_builder = client.post(echo_body_parts_server.url).timeout(timedelta(seconds=0.05)).body_stream(stream_gen())
+    req_builder = client.post(echo_body_parts_server.url).timeout(timedelta(seconds=timeout)).body_stream(stream_gen())
     if read_buffer_limit is not None:
         req_builder = req_builder.streamed_read_buffer_limit(read_buffer_limit)
 
@@ -168,7 +172,7 @@ async def test_body_stream__timeout(
                 pytest.fail("Should have raised")
     else:
         async with req as resp:
-            assert (await resp.body_reader.read_chunk()) == orjson.dumps({"sleep": 0.0})
+            assert (await resp.body_reader.read_chunk()) == json.dumps({"sleep": 0.0}).encode()
             with pytest.raises(ReadTimeoutError):
                 await resp.body_reader.read_chunk()
 
@@ -245,11 +249,11 @@ async def test_body_consumed(client: Client, echo_server: SubprocessServer):
     assert (await resp.json()) == first
 
     first = await resp.text()
-    assert '"path":"/"' in first
+    assert '"path": "/"' in first
     assert await resp.text() == first
 
     first = await resp.bytes()
-    assert b'"path":"/"' in first
+    assert b'"path": "/"' in first
     assert await resp.bytes() == first
 
     assert (await resp.body_reader.read_chunk()) is None

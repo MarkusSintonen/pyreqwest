@@ -28,6 +28,8 @@ from pyreqwest.http import HeaderMap, Url
 from pyreqwest.request import BaseRequestBuilder, ConsumedRequest, Request, RequestBuilder
 from pyreqwest.response import BaseResponse, Response, ResponseBodyReader
 
+from tests.utils import IS_CI
+
 from .servers.server import find_free_port
 from .servers.server_subprocess import SubprocessServer
 
@@ -94,9 +96,12 @@ async def test_max_connections_pool_timeout(
 
 
 async def test_max_connections_full_timeout(echo_server: SubprocessServer):
-    url = echo_server.url.with_query({"sleep_start": 0.01})
+    timeout = 0.5 if IS_CI else 0.05
+    sleep = 0.1 if IS_CI else 0.01
 
-    builder = ClientBuilder().max_connections(1).timeout(timedelta(seconds=0.05)).error_for_status(True)
+    url = echo_server.url.with_query({"sleep_start": sleep})
+
+    builder = ClientBuilder().max_connections(1).timeout(timedelta(seconds=timeout)).error_for_status(True)
 
     async with builder.build() as client:
         coros = [client.get(url).build().send() for _ in range(10)]
@@ -109,17 +114,20 @@ async def test_max_connections_full_timeout(echo_server: SubprocessServer):
 @pytest.mark.parametrize("sleep_kind", ["sleep_start", "sleep_body"])
 @pytest.mark.parametrize("timeout_kind", ["total", "read", "connect"])
 async def test_timeout(echo_server: SubprocessServer, timeout_value: float | None, sleep_kind: str, timeout_kind: str):
-    url = echo_server.url.with_query({sleep_kind: 0.1})
+    timeout = timeout_value * 10 if IS_CI and timeout_value else timeout_value
+    sleep = 1 if IS_CI else 0.1
+
+    url = echo_server.url.with_query({sleep_kind: sleep})
 
     builder = ClientBuilder().error_for_status(True)
-    if timeout_value is not None:
+    if timeout is not None:
         if timeout_kind == "total":
-            builder = builder.timeout(timedelta(seconds=timeout_value))
+            builder = builder.timeout(timedelta(seconds=timeout))
         elif timeout_kind == "read":
-            builder = builder.read_timeout(timedelta(seconds=timeout_value))
+            builder = builder.read_timeout(timedelta(seconds=timeout))
         else:
             assert timeout_kind == "connect"
-            builder = builder.connect_timeout(timedelta(seconds=timeout_value))
+            builder = builder.connect_timeout(timedelta(seconds=timeout))
 
     async with builder.build() as client:
         req = client.get(url).build()
@@ -161,6 +169,7 @@ async def test_connection_failure__while_client_send(echo_server: SubprocessServ
 async def test_connection_failure__while_client_read(echo_body_parts_server: SubprocessServer):
     async def stream_gen() -> Any:
         for i in range(10):
+            await asyncio.sleep(0.1)
             yield str(i).encode() * 65536
 
     async with (
@@ -170,12 +179,12 @@ async def test_connection_failure__while_client_read(echo_body_parts_server: Sub
         .streamed_read_buffer_limit(0)
         .build_streamed() as resp,
     ):
-        await resp.body_reader.read_chunk()
+        await resp.body_reader.read(65536)
 
         await echo_body_parts_server.kill()
 
         with pytest.raises(ReadError, match="response body connection error") as e:  # noqa: PT012
-            while await resp.body_reader.read_chunk():
+            while await resp.body_reader.read(65536):
                 pass
         assert e.value.details and {"message": "error reading a body from connection"} in e.value.details["causes"]
 

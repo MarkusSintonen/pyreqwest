@@ -29,7 +29,7 @@ async def example_multipart_file_upload() -> None:
     """Multipart file upload (custom part)"""
     with NamedTemporaryFile() as fp:
         fp.write(b"file-content")
-        fp.seek(0)
+        fp.flush()
         path = Path(fp.name)
         part = (await PartBuilder.from_file(path)).mime("text/plain").file_name("demo.txt")  # Filename for temp file
 

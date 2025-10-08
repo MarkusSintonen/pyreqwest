@@ -10,6 +10,7 @@ from pyreqwest.http import HeaderMap
 from pyreqwest.request import RequestBuilder
 
 from tests.servers.server_subprocess import SubprocessServer
+from tests.utils import IS_CI
 
 
 @pytest.fixture
@@ -110,9 +111,12 @@ async def test_body_stream(client: Client, echo_body_parts_server: SubprocessSer
 
 @pytest.mark.parametrize("server_sleep", [0.1, 0.01, None])
 async def test_timeout(client: Client, echo_server: SubprocessServer, server_sleep: float | None):
-    url = echo_server.url.with_query({"sleep_start": server_sleep or 0})
+    timeout = 0.5 if IS_CI else 0.05
+    sleep = server_sleep * 10 if IS_CI and server_sleep else server_sleep
 
-    req = client.get(url).timeout(timedelta(seconds=0.05)).build()
+    url = echo_server.url.with_query({"sleep_start": sleep or 0})
+
+    req = client.get(url).timeout(timedelta(seconds=timeout)).build()
     if server_sleep and server_sleep > 0.05:
         with pytest.raises(ConnectTimeoutError):
             await req.send()
