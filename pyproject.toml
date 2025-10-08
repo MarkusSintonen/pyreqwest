@@ -52,22 +52,24 @@ dev = [
     "yarl==1.20.1",
     "multidict==6.6.3",
     "starlette==0.47.3",
-    # Perf comparison
+    # Examples
+    "docker==7.1.0",  # For go-httpbin (python httpbin is not great)
+    "types-docker==7.1.0.20250916",
+    # Documentation
+    "pdoc==15.0.4",
+]
+bench = [
     "aiohttp==3.12.15",
     "httpx==0.28.1",
     "urllib3==2.5.0",
     "matplotlib==3.10.6",
-    # Documentation
-    "pdoc==15.0.4",
-    # Examples
-    "docker==7.1.0",  # For go httpbin (python httpbin is not great)
-    "types-docker==7.1.0.20250916",
 ]
 
 [tool.uv]
-# this ensures that `uv run` doesn't actually build the package; a `make` command is needed to build
+# this ensures that `uv run` doesn't actually build the package; "maturin develop" is needed
 package = false
 required-version = ">=0.8.4"
+default-groups = ["dev", "bench"]
 
 [tool.maturin]
 module-name = "pyreqwest._pyreqwest"
@@ -81,7 +83,7 @@ build-backend = "maturin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--snapshot-warn-unused"
+addopts = "--snapshot-warn-unused --strict-markers"
 asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "session"
 asyncio_default_fixture_loop_scope = "session"

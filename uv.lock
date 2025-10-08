@@ -1465,14 +1465,17 @@ version = "0.1.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
-dev = [
+bench = [
     { name = "aiohttp" },
+    { name = "httpx" },
+    { name = "matplotlib" },
+    { name = "urllib3" },
+]
+dev = [
     { name = "asgi-types" },
     { name = "dirty-equals" },
     { name = "docker" },
     { name = "granian" },
-    { name = "httpx" },
-    { name = "matplotlib" },
     { name = "maturin" },
     { name = "multidict" },
     { name = "mypy" },
@@ -1485,21 +1488,23 @@ dev = [
     { name = "syrupy" },
     { name = "trustme" },
     { name = "types-docker" },
-    { name = "urllib3" },
     { name = "yarl" },
 ]
 
 [package.metadata]
 
 [package.metadata.requires-dev]
-dev = [
+bench = [
     { name = "aiohttp", specifier = "==3.12.15" },
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "matplotlib", specifier = "==3.10.6" },
+    { name = "urllib3", specifier = "==2.5.0" },
+]
+dev = [
     { name = "asgi-types", specifier = "==0.1.0" },
     { name = "dirty-equals", specifier = "==0.9.0" },
     { name = "docker", specifier = "==7.1.0" },
     { name = "granian", specifier = "==2.4.1" },
-    { name = "httpx", specifier = "==0.28.1" },
-    { name = "matplotlib", specifier = "==3.10.6" },
     { name = "maturin", specifier = "==1.9.4" },
     { name = "multidict", specifier = "==6.6.3" },
     { name = "mypy", specifier = "==1.17.1" },
@@ -1512,7 +1517,6 @@ dev = [
     { name = "syrupy", specifier = "==4.9.1" },
     { name = "trustme", specifier = "==1.2.1" },
     { name = "types-docker", specifier = "==7.1.0.20250916" },
-    { name = "urllib3", specifier = "==2.5.0" },
     { name = "yarl", specifier = "==1.20.1" },
 ]
 

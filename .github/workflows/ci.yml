@@ -7,12 +7,12 @@ on:
     tags:
       - 'v*'
   pull_request: {}
+  workflow_dispatch: {}
 
 env:
   COLUMNS: 150
   UV_PYTHON: 3.13
   CI: 1
-  PYTEST_ADDOPTS: '--capture=no'
 
 jobs:
   test-python:
@@ -29,7 +29,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
@@ -37,7 +37,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - run: uv sync
-      - run: make test
+      - run: make test-release
 
   test-os:
     name: test on ${{ matrix.os }}
@@ -48,7 +48,26 @@ jobs:
 
     runs-on: ${{ matrix.os }}-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync
+      - run: make test-release
+
+  # test with a debug build as it picks up errors which optimised release builds do not
+  test-debug:
+    name: test-debug ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.13"
+
+    steps:
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
@@ -59,7 +78,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -88,7 +107,7 @@ jobs:
     name: build sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -156,6 +175,13 @@ jobs:
 
       - run: pip install -U twine 'ruff==0.14.0'
 
+      # https://aws.github.io/aws-lc-rs/faq.html#can-i-run-aws-lc-rs-on-x-platform-or-architecture
+      - name: Setup aws-lc-rs
+        if: matrix.target == 'armv7' || matrix.target == 'ppc64le' || matrix.target == 's390x'
+        run: |
+          echo "REQUIRES_BINDGEN=1" >> $GITHUB_ENV
+          cargo add aws-lc-rs --features bindgen
+
       - name: build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -164,7 +190,8 @@ jobs:
           args: --release --out dist --interpreter 3.11 3.12 3.13 3.14
           rust-toolchain: stable
           docker-options: -e CI
-          before-script-linux: sudo apt-get update && sudo apt-get install -y libclang-dev cmake
+          before-script-linux: |
+            [ "${{ env.REQUIRES_BINDGEN }}" == "1" ] && sudo apt-get update && sudo apt-get install -y gcc-multilib
 
       - run: ${{ (matrix.os == 'windows' && 'dir') || 'ls -lh' }} dist/
 
@@ -203,14 +230,13 @@ jobs:
 
       - name: extract and list wheel file
         run: |
-          ls dist/*cp310-manylinux*x86_64.whl | head -n 1
-          python -m zipfile --list `ls dist/*cp310-manylinux*x86_64.whl | head -n 1`
+          ls dist/*cp311-manylinux*x86_64.whl | head -n 1
+          python -m zipfile --list `ls dist/*cp311-manylinux*x86_64.whl | head -n 1`
 
   test-builds-arch:
     name: test build on ${{ matrix.target }}-${{ matrix.distro }}
     needs: [build]
     runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix:
@@ -253,14 +279,13 @@ jobs:
             set -x
             curl -LsSf https://astral.sh/uv/install.sh | sh
             source $HOME/.local/bin/env
-            uv sync --frozen --group testing --no-install-project
+            uv sync --frozen --no-group bench --no-install-project
             uv pip install pyreqwest --no-index --no-deps --find-links dist --force-reinstall
-            uv run --no-sync pytest
+            uv run --no-sync pytest --ignore=tests/test_examples.py
 
   test-builds-os:
     name: test build on ${{ matrix.platform.os }}
     needs: [build]
-
     strategy:
       fail-fast: false
       matrix:
@@ -276,9 +301,7 @@ jobs:
     runs-on: ${{ matrix.platform.runs-on }}
     steps:
       - uses: actions/checkout@v5
-
-      - name: install uv
-        uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v6
 
       - name: get dist artifacts
         uses: actions/download-artifact@v5
@@ -305,7 +328,6 @@ jobs:
 #
 #    steps:
 #      - uses: actions/checkout@v5
-#
 #      - uses: astral-sh/setup-uv@v6
 #
 #      - name: check package version

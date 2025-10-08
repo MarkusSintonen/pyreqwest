@@ -1,15 +1,11 @@
-.PHONY: install
-install:
-	uv sync
-
-.PHONY: build
-build:
-	uv sync
-	uv run maturin develop --uv
-
 .PHONY: test
 test:
 	uv run maturin develop --uv
+	uv run pytest
+
+.PHONY: test-release
+test-release:
+	uv run maturin develop --uv --release
 	uv run pytest
 
 .PHONY: lint
