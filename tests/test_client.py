@@ -1,5 +1,6 @@
 import asyncio
 import json
+import tomllib
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -540,3 +541,10 @@ async def test_types(echo_server: SubprocessServer) -> None:
     assert type(req) is ConsumedRequest and isinstance(req, Request)
     resp = await req.send()
     assert type(resp) is Response and isinstance(resp, BaseResponse)
+
+
+def test_version() -> None:
+    from pyreqwest import __version__
+
+    cargo_toml = tomllib.loads((Path(__file__).parent.parent / "Cargo.toml").read_text())
+    assert cargo_toml["package"]["version"] == __version__

@@ -19,6 +19,11 @@ use pyo3::{PyTypeInfo, intern};
 mod pyreqwest {
     use super::*;
 
+    #[pymodule_init]
+    fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+        module.add("__version__", env!("CARGO_PKG_VERSION"))
+    }
+
     #[pymodule]
     mod client {
         use super::*;

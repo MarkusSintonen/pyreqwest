@@ -1,7 +1,6 @@
 [project]
 name = "pyreqwest"
-description = "Powerful and fast Rust based HTTP client. Based on reqwest."
-version = "0.1.0"
+description = "Powerful and fast Rust based HTTP client"
 authors = [{ name = "Markus Sintonen", email = "pyreqwest@gmail.com" }]
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -27,6 +26,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [] # Pure Rust project, no Python dependencies
+dynamic = ["version"] # Version is provided by Cargo.toml
 
 [project.urls]
 Homepage = "https://github.com/MarkusSintonen/pyreqwest"
