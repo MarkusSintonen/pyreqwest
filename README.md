@@ -1,9 +1,35 @@
-# pyreqwest - Powerful and fast Rust based HTTP client
+<p align="center">
+    <img width="250" alt="logo2" src="https://github.com/user-attachments/assets/d93f91bd-5f2e-4fbc-80be-1b3344433853" />
+</p>
 
-#### Built on top of and inspired by [reqwest](https://github.com/seanmonstar/reqwest)
+<p align="center">
+    <em>Python HTTP client fully in Rust</em>
+</p>
 
-### Feature-rich
-- High performance - 100% Rust codebase (zero-copy bodies, no `unsafe` code, no Python dependencies)
+---
+
+pyreqwest - Powerful and fast Rust based HTTP client. Built on top of and inspired by [reqwest](https://github.com/seanmonstar/reqwest).
+
+## Why
+
+- No reinvention of the wheel - built on top of battle-tested reqwest and other Rust HTTP crates
+- Secure and fast - no C-extension code, no Python code or dependencies, no `unsafe` code
+- Ergonomic and easy to use - similar API as in reqwest, fully type-annotated
+- Testing ergonomics - mocking included, ability to connect into ASGI apps
+
+Using this is a good choice when:
+
+- You care about throughput and latency
+- You want a single solution to serve all your HTTP client needs
+
+This is not a good choice when:
+
+- You want a pure Python solution allowing debugging of the HTTP client internals
+- You use alternative Python implementations or Python version older than 3.11
+
+## Feature-rich
+
+- High performance
 - Asynchronous and synchronous HTTP clients
 - Customizable via middlewares and custom JSON serializers
 - Ergonomic as `reqwest`
@@ -13,7 +39,8 @@
 - Full test coverage
 - Free threading
 
-#### Standard HTTP features you would expect
+### Standard HTTP features you would expect
+
 - HTTPS support (using [rustls](https://github.com/rustls/rustls))
 - Request and response body streaming
 - Connection pooling
@@ -27,7 +54,29 @@
 - Authentication (Basic, Bearer)
 - Cookie management
 
-### Documentation
+## Quickstart
+
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = ["pyreqwest"]
+# ///
+
+from pyreqwest.client import ClientBuilder, SyncClientBuilder
+
+async def example_async():
+    async with ClientBuilder().error_for_status(True).build() as client:
+        response = await client.get("https://httpbun.com/get").query({"q": "val"}).build().send()
+        print(await response.json())        
+
+def example_sync():
+    with SyncClientBuilder().error_for_status(True).build() as client:
+        print(client.get("https://httpbun.com/get").query({"q": "val"}).build().send().json())
+```
+
+Context manager usage is optional, but recommended. Also `close()` methods are available.
+
+## Documentation
 
 See [docs](https://markussintonen.github.io/pyreqwest/pyreqwest.html)
 
