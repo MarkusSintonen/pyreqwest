@@ -19,15 +19,16 @@
 # name: test_assert_called_custom_matcher_and_handler
   '''
   Expected exactly 3 request(s) but received 1 to: "POST /admin". Diff with last unmatched request:
-  assert {'custom': 'No match with request {\'method\': \'POST\', \'path\': \'/admin\', \'query\': None, \'headers\': \'Content-Type: application/json\', \'body\': \'{"action":"view","role":"user"}\'}'} == {'custom': 'Custom matcher: is_admin_request'}
+  assert {'custom': 'No match with request {\'method\': \'POST\', \'url\': \'http://api.example.invalid/admin\', \'path\': \'/admin\', \'query\': None, \'headers\': \'Content-Type: application/json\', \'body\': \'{"action":"view","role":"user"}\'}'} == {'custom': 'Custom matcher: is_admin_request'}
     
     Differing items:
-    {'custom': 'No match with request {\'method\': \'POST\', \'path\': \'/admin\', \'query\': None, \'headers\': \'Content-Type: application/json\', \'body\': \'{"action":"view","role":"user"}\'}'} != {'custom': 'Custom matcher: is_admin_request'}
+    {'custom': 'No match with request {\'method\': \'POST\', \'url\': \'http://api.example.invalid/admin\', \'path\': \'/admin\', \'query\': None, \'headers\': \'Content-Type: application/json\', \'body\': \'{"action":"view","role":"user"}\'}'} != {'custom': 'Custom matcher: is_admin_request'}
     
     Full diff:
       {
     -     'custom': 'Custom matcher: is_admin_request',
-    +     'custom': "No match with request {'method': 'POST', 'path': '/admin', 'query': None, "
+    +     'custom': "No match with request {'method': 'POST', 'url': "
+    +     "'http://api.example.invalid/admin', 'path': '/admin', 'query': None, "
     +     "'headers': 'Content-Type: application/json', 'body': "
     +     '\'{"action":"view","role":"user"}\'}',
       }

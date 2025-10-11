@@ -18,6 +18,7 @@ from pyreqwest.pytest_plugin.types import (
     JsonMatcher,
     Matcher,
     MethodMatcher,
+    PathMatcher,
     QueryMatcher,
     UrlMatcher,
 )
@@ -30,10 +31,13 @@ _R = TypeVar("_R", bound=BaseResponse)
 class Mock:
     """Class representing a single mock rule."""
 
-    def __init__(self, method: MethodMatcher | None = None, path: UrlMatcher | None = None) -> None:
+    def __init__(
+        self, method: MethodMatcher | None = None, *, path: PathMatcher | None = None, url: UrlMatcher | None = None
+    ) -> None:
         """Do not use directly. Instead, use ClientMocker.mock()."""
         self._method_matcher = InternalMatcher(method) if method is not None else None
         self._path_matcher = InternalMatcher(path) if path is not None else None
+        self._url_matcher = InternalMatcher(url) if url is not None else None
         self._query_matcher: dict[str, InternalMatcher] | InternalMatcher | None = None
         self._header_matchers: dict[str, InternalMatcher] = {}
         self._body_matcher: tuple[InternalMatcher, Literal["content", "json"]] | None = None
@@ -90,7 +94,7 @@ class Mock:
         self._matched_requests.clear()
 
     def match_query(self, query: QueryMatcher) -> Self:
-        """Set a matcher to match the entire query string or specific query parameters."""
+        """Set a matcher to match the entire query string or query parameters."""
         if isinstance(query, dict):
             self._query_matcher = {k: InternalMatcher(v) for k, v in query.items()}
         else:
@@ -163,6 +167,7 @@ class Mock:
     def _handle_common_matchers(self, request: Request) -> dict[str, bool]:
         return {
             "method": self._matches_method(request),
+            "url": self._matches_url(request),
             "path": self._matches_path(request),
             "query": self._match_query(request),
             "headers": self._match_headers(request),
@@ -234,6 +239,9 @@ class Mock:
 
     def _matches_method(self, request: Request) -> bool:
         return self._method_matcher is None or self._method_matcher.matches(request.method)
+
+    def _matches_url(self, request: Request) -> bool:
+        return self._url_matcher is None or self._url_matcher.matches(request.url)
 
     def _matches_path(self, request: Request) -> bool:
         return self._path_matcher is None or self._path_matcher.matches(request.url.path)
@@ -313,6 +321,28 @@ class Mock:
         assert res is None or isinstance(res, SyncResponse)
         return res
 
+    def __repr__(self) -> str:
+        """Return a string representation of the mock for debugging purposes."""
+        parts = []
+        if self._method_matcher is not None:
+            parts.append(f"method={self._method_matcher!r}")
+        if self._url_matcher is not None:
+            parts.append(f"url={self._url_matcher!r}")
+        if self._path_matcher is not None:
+            parts.append(f"path={self._path_matcher!r}")
+        if self._query_matcher is not None:
+            parts.append(f"query={self._query_matcher!r}")
+        if self._header_matchers:
+            parts.append(f"headers={self._header_matchers!r}")
+        if self._body_matcher is not None:
+            matcher, kind = self._body_matcher
+            parts.append(f"body.{kind}={matcher!r}")
+        if self._custom_matcher is not None:
+            parts.append(f"custom_matcher={self._custom_matcher!r}")
+        if self._custom_handler is not None:
+            parts.append(f"custom_handler={self._custom_handler!r}")
+        return "<Mock " + ", ".join(parts) + ">"
+
 
 class ClientMocker:
     """Main class for mocking HTTP requests."""
@@ -345,39 +375,41 @@ class ClientMocker:
 
         return mocker
 
-    def mock(self, method: MethodMatcher | None = None, path: UrlMatcher | None = None) -> Mock:
-        """Add a mock rule for requests matching the given criteria."""
-        mock = Mock(method, path)
+    def mock(
+        self, method: MethodMatcher | None = None, *, path: PathMatcher | None = None, url: UrlMatcher | None = None
+    ) -> Mock:
+        """Add a mock rule for method and path or URL."""
+        mock = Mock(method, path=path, url=url)
         self._mocks.append(mock)
         return mock
 
-    def get(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock GET requests to the given URL."""
-        return self.mock("GET", path)
+    def get(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock GET requests to the given path or URL."""
+        return self.mock("GET", path=path, url=url)
 
-    def post(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock POST requests to the given URL."""
-        return self.mock("POST", path)
+    def post(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock POST requests to the given path or URL."""
+        return self.mock("POST", path=path, url=url)
 
-    def put(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock PUT requests to the given URL."""
-        return self.mock("PUT", path)
+    def put(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock PUT requests to the given path or URL."""
+        return self.mock("PUT", path=path, url=url)
 
-    def patch(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock PATCH requests to the given URL."""
-        return self.mock("PATCH", path)
+    def patch(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock PATCH requests to the given path or URL."""
+        return self.mock("PATCH", path=path, url=url)
 
-    def delete(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock DELETE requests to the given URL."""
-        return self.mock("DELETE", path)
+    def delete(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock DELETE requests to the given path or URL."""
+        return self.mock("DELETE", path=path, url=url)
 
-    def head(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock HEAD requests to the given URL."""
-        return self.mock("HEAD", path)
+    def head(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock HEAD requests to the given path or URL."""
+        return self.mock("HEAD", path=path, url=url)
 
-    def options(self, path: UrlMatcher | None = None) -> Mock:
-        """Mock OPTIONS requests to the given URL."""
-        return self.mock("OPTIONS", path)
+    def options(self, *, path: PathMatcher | None = None, url: UrlMatcher | None = None) -> Mock:
+        """Mock OPTIONS requests to the given path or URL."""
+        return self.mock("OPTIONS", path=path, url=url)
 
     def strict(self, enabled: bool = True) -> Self:
         """Enable strict mode - unmatched requests will raise an error."""

@@ -54,6 +54,7 @@ def _format_counts_assert_message(
 def format_unmatched_request_parts(request: Request, unmatched: set[str]) -> dict[str, str | None]:
     req_parts: dict[str, str | None] = {
         "method": request.method,
+        "url": str(request.url),
         "path": request.url.path,
         "query": None,
         "headers": None,
@@ -76,13 +77,13 @@ def format_unmatched_request_parts(request: Request, unmatched: set[str]) -> dic
         else:
             req_parts["body"] = repr(request.body)
 
-    parts: dict[str, str | None] = {
+    fmt_parts: dict[str, str | None] = {
         "custom": f"No match with request {req_parts}",
         "handler": f"No match with request {req_parts}",
     }
-    parts = {**req_parts, **parts}
+    fmt_parts = {**req_parts, **fmt_parts}
 
-    return {k: v for k, v in parts.items() if k in unmatched}
+    return {k: v for k, v in fmt_parts.items() if k in unmatched}
 
 
 def _format_mock_matchers_parts(mock: Mock, unmatched: set[str] | None) -> dict[str, str | None]:

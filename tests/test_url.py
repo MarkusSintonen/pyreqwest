@@ -18,12 +18,26 @@ def test_parse():
     assert url.scheme == "http"
     assert url.host_str == "example.com"
 
+    with pytest.raises(ValueError, match="invalid international domain name"):
+        Url.parse("http://exa mple.com")
+    with pytest.raises(ValueError, match="relative URL without a base"):
+        Url.parse("/path")
+
 
 def test_parse_with_params():
     url = Url.parse_with_params("http://example.com", {"key": "value"})
     assert url.scheme == "http"
     assert url.host_str == "example.com"
     assert url.query_string == "key=value"
+
+
+def test_is_valid():
+    assert Url.is_valid("http://example.com")
+    assert Url.is_valid("http://example.com/path")
+    assert not Url.is_valid("http://exa mple.com")
+    assert not Url.is_valid("/path")
+    assert not Url.is_valid("path")
+    assert not Url.is_valid("")
 
 
 def test_join():

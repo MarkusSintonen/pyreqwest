@@ -29,3 +29,6 @@ class InternalMatcher:
             self.matcher_repr = f"{self.matcher.pattern} (regex)"
         else:
             self.matcher_repr = repr(self.matcher)
+
+    def __repr__(self) -> str:
+        return f"Matcher({self.matcher_repr})"

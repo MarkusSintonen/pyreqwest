@@ -236,3 +236,79 @@
   
   '''
 # ---
+# name: test_examples[testing-example_basic_mocking]
+  '''
+  
+  # running: example_basic_mocking
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 202, 'body': '{"res":43}'}
+  
+  '''
+# ---
+# name: test_examples[testing-example_body_matching]
+  '''
+  
+  # running: example_body_matching
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 200, 'body': '{"res":43}'}
+  {'status': 200, 'body': ''}
+  
+  '''
+# ---
+# name: test_examples[testing-example_custom_matcher_with_response]
+  '''
+  
+  # running: example_custom_matcher_with_response
+  {'status': 201, 'body': '{"method_was":"GET","res":42}'}
+  {'status': 201, 'body': '{"method_was":"POST","res":42}'}
+  {'status': 200, 'body': ''}
+  
+  '''
+# ---
+# name: test_examples[testing-example_custom_predicate_matcher]
+  '''
+  
+  # running: example_custom_predicate_matcher
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 200, 'body': ''}
+  
+  '''
+# ---
+# name: test_examples[testing-example_matching_compatibility]
+  '''
+  
+  # running: example_matching_compatibility
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 200, 'body': '{"res":43}'}
+  No mock rule matched request: GET https://example.invalid/api?q=B&extra=1
+  
+  '''
+# ---
+# name: test_examples[testing-example_mock_ordering]
+  '''
+  
+  # running: example_mock_ordering
+  {'status': 200, 'body': ''}
+  
+  '''
+# ---
+# name: test_examples[testing-example_path_regex_mocking]
+  '''
+  
+  # running: example_path_regex_mocking
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 200, 'body': '{"res":43}'}
+  
+  '''
+# ---
+# name: test_examples[testing-example_query_mocking]
+  '''
+  
+  # running: example_query_mocking
+  {'status': 200, 'body': '{"res":42}'}
+  {'status': 200, 'body': '{"res":43}'}
+  {'status': 200, 'body': '{"res":42}'}
+  
+  '''
+# ---

@@ -30,7 +30,7 @@ def client() -> Client:
 
 
 async def test_assert_called_default_exactly_once_success(client_mocker: ClientMocker, client: Client) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     await client.get("http://api.example.invalid/test").build().send()
 
@@ -40,8 +40,8 @@ async def test_assert_called_default_exactly_once_success(client_mocker: ClientM
 async def test_assert_called_default_exactly_once_failure(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
-    client_mocker.get("/different").with_body_text("different response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
+    client_mocker.get(path="/different").with_body_text("different response")
 
     await client.get("http://api.example.invalid/different").build().send()
 
@@ -52,7 +52,7 @@ async def test_assert_called_default_exactly_once_failure(
 
 
 async def test_assert_called_exact_count_success(client_mocker: ClientMocker, client: Client) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     for _ in range(3):
         await client.get("http://api.example.invalid/test").build().send()
@@ -64,15 +64,15 @@ async def test_assert_called_exact_count_failure(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = (
-        client_mocker.post("/users")
+        client_mocker.post(path="/users")
         .match_header("Authorization", "Bearer token123")
         .match_body_json({"name": "John", "age": 30})
         .with_status(201)
         .with_body_json({"id": 1})
     )
 
-    client_mocker.post("/users").with_status(403).with_body_text("Forbidden")
-    client_mocker.get("/users").with_body_json({"users": []})
+    client_mocker.post(path="/users").with_status(403).with_body_text("Forbidden")
+    client_mocker.get(path="/users").with_body_json({"users": []})
 
     res = (
         await client.post("http://api.example.invalid/users")
@@ -102,7 +102,7 @@ async def test_assert_called_exact_count_failure(
 
 
 async def test_assert_called_min_count_success(client_mocker: ClientMocker, client: Client) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     for _ in range(5):
         await client.get("http://api.example.invalid/test").build().send()
@@ -113,9 +113,9 @@ async def test_assert_called_min_count_success(client_mocker: ClientMocker, clie
 async def test_assert_called_min_count_failure(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/endpoint").match_query({"filter": "active"}).with_body_json({"data": []})
+    mock = client_mocker.get(path="/endpoint").match_query({"filter": "active"}).with_body_json({"data": []})
 
-    client_mocker.get("/endpoint").with_body_json({"data": ["inactive"]})
+    client_mocker.get(path="/endpoint").with_body_json({"data": ["inactive"]})
 
     await client.get("http://api.example.invalid/endpoint?filter=active").build().send()
     await client.get("http://api.example.invalid/endpoint?filter=inactive").build().send()
@@ -127,7 +127,7 @@ async def test_assert_called_min_count_failure(
 
 
 async def test_assert_called_max_count_success(client_mocker: ClientMocker, client: Client) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     for _ in range(2):
         await client.get("http://api.example.invalid/test").build().send()
@@ -138,7 +138,7 @@ async def test_assert_called_max_count_success(client_mocker: ClientMocker, clie
 async def test_assert_called_max_count_failure(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     for _ in range(5):
         await client.get("http://api.example.invalid/test").build().send()
@@ -150,7 +150,7 @@ async def test_assert_called_max_count_failure(
 
 
 async def test_assert_called_min_max_range_success(client_mocker: ClientMocker, client: Client) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     for _ in range(3):
         await client.get("http://api.example.invalid/test").build().send()
@@ -161,7 +161,7 @@ async def test_assert_called_min_max_range_success(client_mocker: ClientMocker, 
 async def test_assert_called_min_max_range_failure(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     await client.get("http://api.example.invalid/test").build().send()
 
@@ -175,7 +175,7 @@ async def test_assert_called_complex_mock_with_all_matchers(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
     mock = (
-        client_mocker.post("/complex")
+        client_mocker.post(path="/complex")
         .match_header("Authorization", re.compile(r"Bearer \w+"))
         .match_header("Content-Type", "application/json")
         .match_query({"action": "create", "version": re.compile(r"v\d+")})
@@ -183,8 +183,8 @@ async def test_assert_called_complex_mock_with_all_matchers(
         .with_status(201)
     )
 
-    client_mocker.get("/complex").with_status(405).with_body_text("Method not allowed")
-    client_mocker.post("/complex").with_status(400).with_body_text("Bad request")
+    client_mocker.get(path="/complex").with_status(405).with_body_text("Method not allowed")
+    client_mocker.post(path="/complex").with_status(400).with_body_text("Bad request")
 
     requests_to_make = [
         # Wrong method
@@ -238,9 +238,9 @@ async def test_assert_called_custom_matcher_and_handler(
     async def admin_handler(_request: Request) -> Response:
         return await ResponseBuilder().status(200).body_json({"message": "Admin access granted"}).build()
 
-    mock = client_mocker.post("/admin").match_request(is_admin_request).match_request_with_response(admin_handler)
+    mock = client_mocker.post(path="/admin").match_request(is_admin_request).match_request_with_response(admin_handler)
 
-    client_mocker.post("/admin").with_status(403).with_body_text("Forbidden")
+    client_mocker.post(path="/admin").with_status(403).with_body_text("Forbidden")
 
     res = (
         await client.post("http://api.example.invalid/admin")
@@ -267,10 +267,10 @@ async def test_assert_called_custom_matcher_and_handler(
 async def test_assert_called_with_matched_and_unmatched_requests(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/users").match_query({"active": "true"}).with_body_json({"users": []})
+    mock = client_mocker.get(path="/users").match_query({"active": "true"}).with_body_json({"users": []})
 
-    client_mocker.get("/users").with_body_json({"users": ["inactive"]})
-    client_mocker.get("/posts").with_body_json({"posts": []})
+    client_mocker.get(path="/users").with_body_json({"users": ["inactive"]})
+    client_mocker.get(path="/posts").with_body_json({"posts": []})
 
     for i in range(2):
         await client.get(f"http://api.example.invalid/users?active=true&page={i}").build().send()
@@ -293,9 +293,9 @@ async def test_assert_called_with_matched_and_unmatched_requests(
 async def test_assert_called_many_unmatched_requests_truncation(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/specific").with_body_text("response")
+    mock = client_mocker.get(path="/specific").with_body_text("response")
 
-    client_mocker.get(re.compile(r"/different/.*")).with_body_text("different response")
+    client_mocker.get(path=re.compile(r"/different/.*")).with_body_text("different response")
 
     for i in range(8):
         await client.get(f"http://api.example.invalid/different/{i}").header("X-Request-ID", f"req-{i}").build().send()
@@ -315,14 +315,14 @@ async def test_assert_called_regex_matchers_display(
     body_pattern = re.compile(r'.*"action":\s*"(create|update)".*')
 
     mock = (
-        client_mocker.put(path_pattern)
+        client_mocker.put(path=path_pattern)
         .match_query(query_pattern)
         .match_header("Authorization", header_pattern)
         .match_body(body_pattern)
         .with_status(200)
     )
 
-    client_mocker.put("/users/abc").with_status(400).with_body_text("Bad request")
+    client_mocker.put(path="/users/abc").with_status(400).with_body_text("Bad request")
 
     await (
         client.put("http://api.example.invalid/users/abc")
@@ -339,8 +339,8 @@ async def test_assert_called_regex_matchers_display(
 
 
 async def test_assert_called_zero_count_success(client_mocker: ClientMocker, client: Client) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
-    client_mocker.get("/different").with_body_text("different response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
+    client_mocker.get(path="/different").with_body_text("different response")
 
     await client.get("http://api.example.invalid/different").build().send()
 
@@ -350,7 +350,7 @@ async def test_assert_called_zero_count_success(client_mocker: ClientMocker, cli
 async def test_assert_called_zero_count_failure(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/test").with_body_text("response")
+    mock = client_mocker.get(path="/test").with_body_text("response")
 
     await client.get("http://api.example.invalid/test").build().send()
 
@@ -363,10 +363,10 @@ async def test_assert_called_zero_count_failure(
 async def test_dirty_equals_matcher_repr(
     client_mocker: ClientMocker, client: Client, snapshot: SnapshotAssertion
 ) -> None:
-    mock = client_mocker.get("/test").match_query(
+    mock = client_mocker.get(path="/test").match_query(
         IsPartialDict({"values": IsInstance(list) & Contains("admin", "user")}),
     )
-    others = client_mocker.get("/test")
+    others = client_mocker.get(path="/test")
 
     await client.get("http://api.example.invalid/test").build().send()
     await client.get("http://api.example.invalid/test?values=foo&values=admin&values=user").build().send()

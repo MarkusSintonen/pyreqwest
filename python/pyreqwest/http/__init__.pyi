@@ -22,6 +22,10 @@ class Url:
     def parse_with_params(url: str, params: QueryParams) -> "Url":
         """Parse an absolute URL from a string and add params to its query string. Existing params are not removed."""
 
+    @staticmethod
+    def is_valid(value: str) -> bool:
+        """Check is given value a valid absolute URL."""
+
     def join(self, join_input: str) -> Self:
         """Parse a string as a URL, with this URL as the base URL. The inverse of this is make_relative.
 

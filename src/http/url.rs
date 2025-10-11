@@ -36,6 +36,11 @@ impl Url {
         Ok(Url::from(url))
     }
 
+    #[staticmethod]
+    pub fn is_valid(raw: &str) -> bool {
+        url::Url::parse(raw).is_ok()
+    }
+
     pub fn join(&self, input: &str) -> PyResult<Self> {
         let url = self.url.join(input).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Url::new(url))

@@ -57,10 +57,7 @@ This is not a good choice when:
 ## Quickstart
 
 ```python
-#!/usr/bin/env -S uv run --script
-# /// script
-# dependencies = ["pyreqwest"]
-# ///
+# uv add pyreqwest
 
 from pyreqwest.client import ClientBuilder, SyncClientBuilder
 
