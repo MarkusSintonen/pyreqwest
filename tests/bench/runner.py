@@ -275,7 +275,7 @@ class Runner:
         return res
 
     async def run_ry_concurrent(self, body: bytes, concurrency: int) -> list[float]:
-        import ry
+        import ry  # type: ignore[import-not-found]
 
         url_str = str(self.url)
         # for fairness w/ pyreqwest which uses its `pyreqwest.Url` wrapper, use the ry.URL struct
