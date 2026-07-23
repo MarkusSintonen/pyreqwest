@@ -23,6 +23,7 @@ macro_rules! define_exception {
         );
 
         impl $name {
+            #[allow(unused)]
             fn type_object_raw(py: Python<'_>) -> *mut pyo3::ffi::PyTypeObject {
                 static TYPE_OBJECT: PyOnceLock<Py<PyType>> = PyOnceLock::new();
                 TYPE_OBJECT

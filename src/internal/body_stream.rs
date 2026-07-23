@@ -125,9 +125,9 @@ impl BodyStream {
         if res.is(Self::sentinel(py)?) {
             return Ok(None); // End of stream
         }
-        let py_bytes = match res.extract::<PyBytes>() {
-            Ok(b) => b.into_inner(),
-            Err(err) => return Err(err),
+        let py_bytes = {
+            let b = res.extract::<PyBytes>()?;
+            b.into_inner()
         };
         let bytes = Bytes::copy_from_slice(&py_bytes);
         // Drop of PyBytes and backing PyBuffer requires GIL, so do it before returning from GIL context. This avoids

@@ -174,9 +174,6 @@ jobs:
             target: i686
           - os: linux
             manylinux: auto
-            target: ppc64le
-          - os: linux
-            manylinux: auto
             target: s390x
 
           # musllinux
@@ -218,17 +215,6 @@ jobs:
           args: --release --out dist ${{ env.FEATURES }} --interpreter ${{ env.PYTHON_VERSIONS }}
           rust-toolchain: stable
           docker-options: -e CI
-          # https://github.com/aws/aws-lc-rs/issues/1022#issuecomment-4489349281
-          before-script-linux: |
-            if [ "${{ matrix.target }}" = "ppc64le" ]; then
-              apt-get update
-              apt-get install -y \
-                pkg-config \
-                gcc-powerpc64le-linux-gnu \
-                g++-powerpc64le-linux-gnu \
-                binutils-powerpc64le-linux-gnu \
-                libc6-dev-ppc64el-cross
-            fi
 
       - run: ${{ (matrix.os == 'windows' && 'dir') || 'ls -lh' }} dist/
 
