@@ -26,7 +26,7 @@ format:
 
 .PHONY: type-check
 type-check:
-	uv sync --all-groups
+	uv sync --all-groups --no-group build
 	uv run mypy .
 
 .PHONY: static-checks

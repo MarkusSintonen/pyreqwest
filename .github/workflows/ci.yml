@@ -151,7 +151,7 @@ jobs:
           path: dist
 
   build:
-    name: build on ${{ matrix.os }} (${{ matrix.target }}${{ matrix.os == 'linux' && format(' - {0}', matrix.manylinux == 'auto' && 'manylinux' || matrix.manylinux) || '' }})
+    name: build on ${{ matrix.os }} (${{ matrix.target }}${{ matrix.os == 'linux' && format(', manylinux={0}', matrix.manylinux) || '' }})
     # only run on push to main and on release
     if: |
       startsWith(github.ref, 'refs/tags/') ||
@@ -172,6 +172,9 @@ jobs:
           - os: linux
             manylinux: auto
             target: i686
+          - os: linux
+            manylinux: 2_28  # https://github.com/aws/aws-lc-rs/issues/1022
+            target: ppc64le
           - os: linux
             manylinux: auto
             target: s390x
@@ -197,10 +200,11 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: false
 
-      - run: |
-          pip install -U packaging
-          pip install -U twine 'ruff==0.14.0'
+      - run: uv sync --only-group build
 
       - name: Select features
         if: ${{ !(matrix.target == 'armv7' || matrix.target == 'ppc64le' || matrix.target == 's390x') }}
@@ -218,7 +222,7 @@ jobs:
 
       - run: ${{ (matrix.os == 'windows' && 'dir') || 'ls -lh' }} dist/
 
-      - run: twine check --strict dist/*
+      - run: uv run --no-sync twine check --strict dist/*
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
