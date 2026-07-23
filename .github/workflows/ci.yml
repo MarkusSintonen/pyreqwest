@@ -205,13 +205,6 @@ jobs:
           pip install -U packaging
           pip install -U twine 'ruff==0.14.0'
 
-      # https://aws.github.io/aws-lc-rs/faq.html#can-i-run-aws-lc-rs-on-x-platform-or-architecture
-      - name: Setup aws-lc-rs
-        if: ${{ matrix.target == 'armv7' || matrix.target == 'ppc64le' || matrix.target == 's390x' }}
-        run: |
-          echo "REQUIRES_BINDGEN=1" >> $GITHUB_ENV
-          cargo add aws-lc-rs --features bindgen
-
       - name: Select features
         if: ${{ !(matrix.target == 'armv7' || matrix.target == 'ppc64le' || matrix.target == 's390x') }}
         run: |
@@ -225,8 +218,17 @@ jobs:
           args: --release --out dist ${{ env.FEATURES }} --interpreter ${{ env.PYTHON_VERSIONS }}
           rust-toolchain: stable
           docker-options: -e CI
+          # https://github.com/aws/aws-lc-rs/issues/1022#issuecomment-4489349281
           before-script-linux: |
-            [ "${{ env.REQUIRES_BINDGEN }}" == "1" ] && sudo apt-get update && sudo apt-get install -y gcc-multilib
+            if [ "${{ matrix.target }}" = "ppc64le" ]; then
+              apt-get update
+              apt-get install -y \
+                pkg-config \
+                gcc-powerpc64le-linux-gnu \
+                g++-powerpc64le-linux-gnu \
+                binutils-powerpc64le-linux-gnu \
+                libc6-dev-ppc64el-cross
+            fi
 
       - run: ${{ (matrix.os == 'windows' && 'dir') || 'ls -lh' }} dist/
 
