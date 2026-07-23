@@ -17,7 +17,7 @@ def assert_fail(
     msg = _format_counts_assert_message(mock, count, min_count, max_count)
 
     if mock._unmatched_requests_repr_parts:
-        not_matched = {*mock._unmatched_requests_repr_parts[-1].keys()}
+        not_matched = [*mock._unmatched_requests_repr_parts[-1].keys()]
         assert not_matched
 
         msg = f"{msg}. Diff with last unmatched request:"
@@ -86,7 +86,7 @@ def format_unmatched_request_parts(request: Request, unmatched: set[str]) -> dic
     return {k: v for k, v in fmt_parts.items() if k in unmatched}
 
 
-def _format_mock_matchers_parts(mock: Mock, unmatched: set[str] | None) -> dict[str, str | None]:
+def _format_mock_matchers_parts(mock: Mock, unmatched: list[str]) -> dict[str, str | None]:
     parts: dict[str, str | None] = {
         "method": mock._method_matcher.matcher_repr if mock._method_matcher is not None else None,
         "path": mock._path_matcher.matcher_repr if mock._path_matcher is not None else None,
@@ -96,7 +96,7 @@ def _format_mock_matchers_parts(mock: Mock, unmatched: set[str] | None) -> dict[
         "custom": f"Custom matcher: {mock._custom_matcher.__name__}" if mock._custom_matcher is not None else None,
         "handler": f"Custom handler: {mock._custom_handler.__name__}" if mock._custom_handler is not None else None,
     }
-    return {k: v for k, v in parts.items() if unmatched is None or k in unmatched}
+    return {k: parts[k] for k in unmatched if k in parts}
 
 
 def _format_query_matcher(query_matcher: dict[str, InternalMatcher] | InternalMatcher) -> str:

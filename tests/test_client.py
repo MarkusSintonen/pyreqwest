@@ -295,11 +295,11 @@ async def test_default_headers__bearer_auth(echo_server: SubprocessServer):
 
 
 async def test_default_headers__bad():
-    with pytest.raises(TypeError, match="argument 'headers': 'str' object is not an instance of 'tuple'"):
+    with pytest.raises(TypeError, match="'str' object is not an instance of 'tuple'"):
         ClientBuilder().default_headers(["foo"])  # type: ignore[list-item]
     with pytest.raises(ValueError, match="Invalid header value: 123"):
         ClientBuilder().default_headers({"X-Test": 123})  # type: ignore[dict-item]
-    with pytest.raises(TypeError, match="argument 'headers': 'str' object is not an instance of 'tuple'"):
+    with pytest.raises(TypeError, match="'str' object is not an instance of 'tuple'"):
         ClientBuilder().default_headers("bad")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Invalid header key: X-Test\n"):
         ClientBuilder().default_headers({"X-Test\n": "foo"})

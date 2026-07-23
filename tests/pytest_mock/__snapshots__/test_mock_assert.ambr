@@ -63,14 +63,14 @@
     
     Full diff:
       {
-    -     'body': '{"name":"John","age":30}',
-    -     'headers': 'Authorization: Bearer token123',
-    +     'body': None,
-    +     'headers': None,
     -     'method': 'POST',
     ?                ^^^
     +     'method': 'GET',
     ?                ^^
+    -     'headers': 'Authorization: Bearer token123',
+    -     'body': '{"name":"John","age":30}',
+    +     'headers': None,
+    +     'body': None,
       }
   '''
 # ---
@@ -124,16 +124,16 @@
     
     Full diff:
       {
-    -     'body': '.*"action":\\s*"(create|update)".* (regex)',
-    +     'body': '{"action": "delete"}',
-    -     'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)',
-    ?                                       ^^^^^^^^^^^^^^^^^^ ^^^^^
-    +     'headers': 'Authorization: Bearer short',
-    ?                                       ^^^ ^
     -     'path': '/users/\\d+ (regex)',
     -     'query': '.*token=\\w+.* (regex)',
     +     'path': '/users/abc',
     +     'query': None,
+    -     'headers': 'Authorization: Bearer [a-zA-Z0-9]{10,} (regex)',
+    ?                                       ^^^^^^^^^^^^^^^^^^ ^^^^^
+    +     'headers': 'Authorization: Bearer short',
+    ?                                       ^^^ ^
+    -     'body': '.*"action":\\s*"(create|update)".* (regex)',
+    +     'body': '{"action": "delete"}',
       }
   '''
 # ---

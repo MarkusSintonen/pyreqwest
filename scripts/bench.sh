@@ -13,7 +13,7 @@ libs=(
   "urllib3"
   "httpx"
   "rnet"
-  "ry"
+  # "ry"
   "niquests"
   "curl_cffi"
 )
