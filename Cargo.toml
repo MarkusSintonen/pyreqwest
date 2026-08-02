@@ -49,8 +49,14 @@ pin-project = "=1.1.13"
 time = "=0.3.54"
 regex = "=1.13.1"
 log = "=0.4.33"
-mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"], optional = true }
 base64 = "=0.22.1"
+
+# Not on macOS. mimalloc finds its per-thread heap through hardcoded pthread TSD slots there, so a
+# second static copy in the same process collides with the first — and pyarrow ships one, statically
+# linked, as its default memory pool on macOS. Loading this module after pyarrow then corrupts every
+# buffer pyarrow allocates afterwards. Other platforms use ordinary per-DSO TLS and are unaffected.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"], optional = true }
 
 [build-dependencies]
 pyo3-build-config = "=0.29.0"

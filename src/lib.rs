@@ -18,7 +18,10 @@ use crate::internal::module_utils::{register_collections_abc, register_submodule
 use crate::internal::types::Method;
 use crate::request::{OneOffRequestBuilder, SyncOneOffRequestBuilder};
 
-#[cfg(feature = "mimalloc")]
+// See the target-gated mimalloc dependency in Cargo.toml: on macOS a second static mimalloc copy
+// collides with pyarrow's over mimalloc's hardcoded pthread TSD slots, so the dependency is not
+// compiled there and enabling the feature is a no-op.
+#[cfg(all(feature = "mimalloc", not(target_os = "macos")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
