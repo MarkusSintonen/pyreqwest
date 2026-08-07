@@ -51,6 +51,7 @@ regex = "=1.13.1"
 log = "=0.4.33"
 base64 = "=0.22.1"
 
+# TODO: remove target_os after https://github.com/purpleprotocol/mimalloc_rust/pull/169
 # Not on macOS. mimalloc finds its per-thread heap through hardcoded pthread TSD slots there, so a
 # second static copy in the same process collides with the first — and pyarrow ships one, statically
 # linked, as its default memory pool on macOS. Loading this module after pyarrow then corrupts every
