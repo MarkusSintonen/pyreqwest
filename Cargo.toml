@@ -60,23 +60,10 @@ base64 = "=0.22.1"
 mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-mimalloc = {
-    optional = true,
-    version = "=0.1.52",
-    features = [
-        "win_direct_tls",
-    ]
-}
+mimalloc = {version = "0.1.52", default-features = false, features = ["win_direct_tls"], optional = true }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
-mimalloc = {
-    optional = true,
-    version = "=0.1.52",
-    features = [
-        "override",
-        "local_dynamic_tls",
-    ]
-}
+mimalloc = {version = "0.1.52", default-features = false, features = ["override", "local_dynamic_tls"], optional = true }
 
 [build-dependencies]
 pyo3-build-config = "=0.29.0"
