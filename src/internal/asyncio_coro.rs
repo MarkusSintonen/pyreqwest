@@ -82,11 +82,12 @@ impl<T> BridgeInner<T> {
             extractor(py, task_res)
         })();
 
-        self.tx
+        let _ = self
+            .tx
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("Task was cancelled"))?
-            .send(res)
-            .or_else(|e| e.map(|_| ()))
+            .send(res);
+        Ok(())
     }
 
     fn cancel(&mut self, py: Python) -> PyResult<()> {
