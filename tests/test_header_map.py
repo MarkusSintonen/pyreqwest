@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable, ItemsView, KeysView, Mapping, MutableMapping, ValuesView
+from collections.abc import Callable, ItemsView, Iterator, KeysView, Mapping, MutableMapping, Sequence, ValuesView
 from copy import copy
 from typing import Any
 
@@ -7,6 +7,45 @@ import pytest
 from dirty_equals import Contains, IsPartialDict
 from multidict import CIMultiDict
 from pyreqwest.http import HeaderMap, HeaderMapItemsView, HeaderMapKeysView, HeaderMapValuesView
+
+
+class DictWithCustomItems(dict[str, str]):
+    def items(self) -> Any:
+        return [(key, value.upper()) for key, value in super().items()]
+
+
+class ListWithCustomIter(list[tuple[str, str]]):
+    def __iter__(self) -> Any:
+        return iter([(key, value.upper()) for key, value in super().__iter__()])
+
+
+class TupleSubclass(tuple[tuple[str, str], ...]):
+    __slots__ = ()
+
+
+class CustomMapping(Mapping[str, str]):
+    def __init__(self, pairs: list[tuple[str, str]]) -> None:
+        self._data = dict(pairs)
+
+    def __getitem__(self, key: str) -> str:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+
+class CustomSequence(Sequence[tuple[str, str]]):
+    def __init__(self, pairs: list[tuple[str, str]]) -> None:
+        self._pairs = list(pairs)
+
+    def __getitem__(self, index: Any) -> Any:
+        return self._pairs[index]
+
+    def __len__(self) -> int:
+        return len(self._pairs)
 
 
 def test_init__empty():
@@ -31,8 +70,6 @@ def test_init__args(pairs: list[tuple[str, str]], kind: Callable[[list[Any]], An
 def test_init__bad():
     with pytest.raises(TypeError, match="'str' object is not an instance of 'tuple'"):
         HeaderMap("invalid")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="'int' object is not an instance of 'Mapping'"):
-        HeaderMap(1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="'str' object is not an instance of 'tuple'"):
         HeaderMap(["a"])  # type: ignore[list-item]
     with pytest.raises(ValueError, match="Invalid header value: 1"):
@@ -41,6 +78,42 @@ def test_init__bad():
         HeaderMap({"a": "a\n"})
     with pytest.raises(ValueError, match="Invalid header key: a\n"):
         HeaderMap({"a\n": "a"})
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [list, tuple, dict, TupleSubclass, CustomMapping, CustomSequence, CIMultiDict, HeaderMap],
+)
+def test_init__container_kinds(kind: Callable[[list[Any]], Any]):
+    pairs = [("a", "v1"), ("b", "v2")]
+    assert HeaderMap(kind(pairs)) == CIMultiDict(pairs)
+    assert len(HeaderMap(kind([]))) == 0
+
+
+@pytest.mark.parametrize(
+    ("kind", "pairs"),
+    [
+        pytest.param(DictWithCustomItems, {"a": "v1"}, id="dict-items"),
+        pytest.param(ListWithCustomIter, [("a", "v1")], id="list-iter"),
+    ],
+)
+def test_init__subclass_protocol_overrides(kind: Callable[[Any], Any], pairs: Any):
+    assert HeaderMap(kind(pairs)) == {"a": "V1"}
+
+
+@pytest.mark.parametrize(
+    ("value", "type_name"),
+    [
+        (1, "int"),
+        (object(), "object"),
+        ({("a", "v1")}, "set"),
+        ((pair for pair in [("a", "v1")]), "generator"),
+    ],
+)
+def test_init__unsupported_types(value: Any, type_name: str):
+    msg = f"'{type_name}' object is not a Mapping or a Sequence of (key, value) pairs"
+    with pytest.raises(TypeError, match=re.escape(msg)):
+        HeaderMap(value)
 
 
 def test_getitem():

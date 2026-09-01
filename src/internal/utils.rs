@@ -2,9 +2,9 @@ use crate::internal::types::HeaderValue;
 use base64::prelude::BASE64_STANDARD;
 use base64::write::EncoderWriter;
 use bytes::Bytes;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyEllipsis, PyList, PyMapping, PySequence, PyTuple};
+use pyo3::types::{PyDict, PyEllipsis, PyList, PyMapping, PySequence, PyTuple};
 use std::io::Write;
 use std::str::FromStr;
 
@@ -12,13 +12,53 @@ pub fn ellipsis() -> Py<PyEllipsis> {
     Python::attach(|py| PyEllipsis::get(py).to_owned().unbind())
 }
 
-#[derive(FromPyObject)]
 pub enum KeyValPairs<'py> {
     Mapping(Bound<'py, PyMapping>),
     List(Bound<'py, PyList>),
     Tuple(Bound<'py, PyTuple>),
     Sequence(Bound<'py, PySequence>),
 }
+
+impl<'py> FromPyObject<'_, 'py> for KeyValPairs<'py> {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(v) = obj.cast_exact::<PyDict>() {
+            return Ok(KeyValPairs::Mapping(v.as_mapping().clone()));
+        }
+        if let Ok(v) = obj.cast_exact::<PyList>() {
+            return Ok(KeyValPairs::List(v.to_owned()));
+        }
+        if let Ok(v) = obj.cast_exact::<PyTuple>() {
+            return Ok(KeyValPairs::Tuple(v.to_owned()));
+        }
+        if let Ok(v) = obj.cast::<PyMapping>() {
+            return Ok(KeyValPairs::Mapping(v.to_owned()));
+        }
+        if let Ok(v) = obj.cast::<PyList>() {
+            return Ok(KeyValPairs::List(v.to_owned()));
+        }
+        if let Ok(v) = obj.cast::<PyTuple>() {
+            return Ok(KeyValPairs::Tuple(v.to_owned()));
+        }
+        if let Ok(v) = obj.cast::<PySequence>() {
+            return Ok(KeyValPairs::Sequence(v.to_owned()));
+        }
+        Err(invalid_key_val_pairs(obj))
+    }
+}
+
+#[cold]
+fn invalid_key_val_pairs(obj: Borrowed<'_, '_, PyAny>) -> PyErr {
+    let type_name = obj.get_type();
+    let type_name = match type_name.name() {
+        Ok(name) => name.to_string(),
+        Err(e) => return e,
+    };
+    PyTypeError::new_err(format!(
+        "failed to extract key-value pairs, '{type_name}' object is not a Mapping or a Sequence of (key, value) pairs"
+    ))
+}
+
 impl<'py> KeyValPairs<'py> {
     pub fn for_each<F, K, V>(self, ctx: &str, mut f: F) -> PyResult<()>
     where
@@ -61,6 +101,9 @@ impl<'py> KeyValPairs<'py> {
 
         match self {
             KeyValPairs::Mapping(v) => v.items()?.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
+            KeyValPairs::List(v) if v.as_any().is_exact_instance_of::<PyList>() => {
+                v.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?))
+            }
             KeyValPairs::List(v) => v.try_iter()?.try_for_each(|v| f(kv::<K, V>(v?, ctx)?)),
             KeyValPairs::Tuple(v) => v.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
             KeyValPairs::Sequence(v) => v.try_iter()?.try_for_each(|v| f(kv::<K, V>(v?, ctx)?)),
