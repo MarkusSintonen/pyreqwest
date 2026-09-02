@@ -13,9 +13,10 @@ pub fn ellipsis() -> Py<PyEllipsis> {
 }
 
 pub enum KeyValPairs<'py> {
-    Mapping(Bound<'py, PyMapping>),
+    Dict(Bound<'py, PyDict>),
     List(Bound<'py, PyList>),
     Tuple(Bound<'py, PyTuple>),
+    Mapping(Bound<'py, PyMapping>),
     Sequence(Bound<'py, PySequence>),
 }
 
@@ -23,7 +24,7 @@ impl<'py> FromPyObject<'_, 'py> for KeyValPairs<'py> {
     type Error = PyErr;
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(v) = obj.cast_exact::<PyDict>() {
-            return Ok(KeyValPairs::Mapping(v.as_mapping().clone()));
+            return Ok(KeyValPairs::Dict(v.to_owned()));
         }
         if let Ok(v) = obj.cast_exact::<PyList>() {
             return Ok(KeyValPairs::List(v.to_owned()));
@@ -34,12 +35,6 @@ impl<'py> FromPyObject<'_, 'py> for KeyValPairs<'py> {
         if let Ok(v) = obj.cast::<PyMapping>() {
             return Ok(KeyValPairs::Mapping(v.to_owned()));
         }
-        if let Ok(v) = obj.cast::<PyList>() {
-            return Ok(KeyValPairs::List(v.to_owned()));
-        }
-        if let Ok(v) = obj.cast::<PyTuple>() {
-            return Ok(KeyValPairs::Tuple(v.to_owned()));
-        }
         if let Ok(v) = obj.cast::<PySequence>() {
             return Ok(KeyValPairs::Sequence(v.to_owned()));
         }
@@ -49,8 +44,7 @@ impl<'py> FromPyObject<'_, 'py> for KeyValPairs<'py> {
 
 #[cold]
 fn invalid_key_val_pairs(obj: Borrowed<'_, '_, PyAny>) -> PyErr {
-    let type_name = obj.get_type();
-    let type_name = match type_name.name() {
+    let type_name = match obj.get_type().name() {
         Ok(name) => name.to_string(),
         Err(e) => return e,
     };
@@ -100,12 +94,10 @@ impl<'py> KeyValPairs<'py> {
         }
 
         match self {
-            KeyValPairs::Mapping(v) => v.items()?.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
-            KeyValPairs::List(v) if v.as_any().is_exact_instance_of::<PyList>() => {
-                v.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?))
-            }
-            KeyValPairs::List(v) => v.try_iter()?.try_for_each(|v| f(kv::<K, V>(v?, ctx)?)),
+            KeyValPairs::Dict(v) => v.items().iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
+            KeyValPairs::List(v) => v.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
             KeyValPairs::Tuple(v) => v.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
+            KeyValPairs::Mapping(v) => v.items()?.iter().try_for_each(|v| f(kv::<K, V>(v, ctx)?)),
             KeyValPairs::Sequence(v) => v.try_iter()?.try_for_each(|v| f(kv::<K, V>(v?, ctx)?)),
         }
     }
@@ -125,6 +117,7 @@ impl<'py> KeyValPairs<'py> {
 
     pub fn len(&self) -> PyResult<usize> {
         match self {
+            KeyValPairs::Dict(v) => Ok(v.len()),
             KeyValPairs::Mapping(v) => v.len(),
             KeyValPairs::List(v) => Ok(v.len()),
             KeyValPairs::Tuple(v) => Ok(v.len()),
