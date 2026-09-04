@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "pyreqwest"
-version = "0.12.4"
+version = "0.13.0"
 dependencies = [
  "base64 0.23.1",
  "bytes",
