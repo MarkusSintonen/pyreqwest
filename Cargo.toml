@@ -26,30 +26,30 @@ features = [
 ]
 
 [dependencies]
-pyo3 = { version = "=0.29.0", features = ["extension-module", "experimental-async", "time", "generate-import-lib"] }
+pyo3 = { version = "=0.29.2", features = ["extension-module", "experimental-async", "time", "generate-import-lib"] }
 pyo3-bytes = "=0.7.1"
 pythonize = "=0.29.0"
-hyper = { version = "=1.11.0", features = ["client", "http1", "http2"] }
-rustls = "=0.23.42"
-http = "=1.4.2"
+hyper = { version = "=1.11.1", features = ["client", "http1", "http2"] }
+rustls = "=0.23.43"
+http = "=1.5.0"
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 tokio-util = "=0.7.19"
-futures-util = "=0.3.33"
+futures-util = "=0.3.34"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 serde_urlencoded = "=0.7.1"
 bytes = "=1.12.1"
 url = { version = "=2.5.8", features = ["serde"] }
 mime = "=0.3.17"
-cookie = "=0.18.1"
+cookie = "=0.18.2"
 cookie_store = { version = "=0.22.1", features = ["preserve_order"] }
 encoding_rs = "=0.8.35"
-http-body-util = "=0.1.4"
+http-body-util = "=0.1.5"
 pin-project = "=1.1.13"
-time = "=0.3.54"
+time = "=0.3.55"
 regex = "=1.13.1"
-log = "=0.4.33"
-base64 = "=0.22.1"
+log = "=0.4.34"
+base64 = "=0.23.1"
 
 # TODO: remove target_os after https://github.com/purpleprotocol/mimalloc_rust/pull/169
 # Not on macOS. mimalloc finds its per-thread heap through hardcoded pthread TSD slots there, so a
@@ -60,7 +60,7 @@ base64 = "=0.22.1"
 mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"], optional = true }
 
 [build-dependencies]
-pyo3-build-config = "=0.29.0"
+pyo3-build-config = "=0.29.2"
 
 [features]
 mimalloc = ["dep:mimalloc"]

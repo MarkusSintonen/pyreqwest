@@ -59,10 +59,12 @@ This is not a good choice when:
 
 from pyreqwest.client import ClientBuilder, SyncClientBuilder
 
+
 async def example_async():
     async with ClientBuilder().error_for_status(True).build() as client:
         response = await client.get("https://httpbun.com/get").query({"q": "val"}).build().send()
-        print(await response.json())        
+        print(await response.json())
+
 
 def example_sync():
     with SyncClientBuilder().error_for_status(True).build() as client:
@@ -76,6 +78,7 @@ Context manager usage is optional, but recommended. Also `close()` methods are a
 ```python
 from pyreqwest.client import ClientBuilder
 from pyreqwest.pytest_plugin import ClientMocker
+
 
 async def test_client(client_mocker: ClientMocker) -> None:
     client_mocker.get(path="/api").with_body_text("Hello Mock")
@@ -96,6 +99,7 @@ connections and has other optimizations.
 ```python
 # Sync example
 from pyreqwest.simple.sync_request import pyreqwest_get
+
 response = pyreqwest_get("https://httpbun.com/get").query({"q": "val"}).send()
 print(response.json())
 ```
@@ -103,6 +107,7 @@ print(response.json())
 ```python
 # Async example
 from pyreqwest.simple.request import pyreqwest_get
+
 response = await pyreqwest_get("https://httpbun.com/get").query({"q": "val"}).send()
 print(await response.json())
 ```

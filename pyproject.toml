@@ -40,16 +40,16 @@ dev = [
     "maturin==1.14.1",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "granian==2.7.9",
+    "granian==2.8.2",
     "asgi-types==0.2.0",
     "trustme==1.2.1",
     "requests-toolbelt==1.0.0",
-    "syrupy==5.5.3",
-    "ruff==0.15.22",
-    "mypy==2.3.0",
-    "packaging==26.2",
-    "pydantic==2.13.4",
-    "cryptography==49.0.0",
+    "syrupy==6.0.0",
+    "ruff==0.16.6",
+    "mypy==2.3.1",
+    "packaging==26.3",
+    "pydantic==2.13.5",
+    "cryptography==50.0.1",
     # Compatibility checks with other libraries
     "dirty-equals==0.11",
     "yarl==1.24.5",
@@ -58,7 +58,7 @@ dev = [
     "httpx==0.28.1",
     # Examples
     "docker==7.2.0", # For go-httpbin (python httpbin is not great)
-    "types-docker==7.2.0.20260720",
+    "types-docker==7.2.0.20260827",
     # Documentation
     "pdoc==16.0.0",
 ]
@@ -125,6 +125,7 @@ ignore = [
     "COM812",  # Formatter conflict
     "TRY300",
     "RUF022",  # Explicit ordering for docs
+    "CPY001",
 ]
 
 [tool.ruff.lint.pydocstyle]
