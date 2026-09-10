@@ -131,12 +131,24 @@ impl RuntimeHandle {
             .get_or_init(|| InnerRuntime::new(multithreaded))
             .as_ref()
             .map_err(|e| Python::attach(|py| e.clone_ref(py)))?;
+
+        if runtime.owner_pid != std::process::id() {
+            return Err(PyRuntimeError::new_err(
+                "A pyreqwest runtime was initialized before fork(). \
+                 The Tokio async runtime cannot be safely reused or restarted in a \
+                 forked child process. To avoid this: do not create pyreqwest clients \
+                 before forking, or use Python's 'spawn' multiprocessing start method \
+                 instead of 'fork'.",
+            ));
+        }
+
         Ok(&runtime.handle)
     }
 }
 
 struct InnerRuntime {
     handle: RuntimeHandle,
+    owner_pid: u32,
     close_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 impl InnerRuntime {
@@ -165,6 +177,7 @@ impl InnerRuntime {
 
         Ok(Self {
             handle: RuntimeHandle(handle),
+            owner_pid: std::process::id(),
             close_tx: Some(close_tx),
         })
     }
