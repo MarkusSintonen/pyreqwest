@@ -304,6 +304,10 @@ impl BaseClientBuilder {
         Err(PyValueError::new_err("tcp_user_timeout is not supported on this platform"))
     } // :NOCOV_END
 
+    fn tls_certs_only(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+        Self::apply(slf, false, |builder| Ok(builder.tls_certs_only([])))
+    }
+
     fn add_root_certificate_der(slf: PyRefMut<Self>, cert: PyBytes) -> PyResult<PyRefMut<Self>> {
         Self::apply(slf, true, |builder| {
             let cert =

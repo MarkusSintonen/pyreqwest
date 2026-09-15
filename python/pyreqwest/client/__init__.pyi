@@ -283,6 +283,9 @@ class BaseClientBuilder:
     def tcp_user_timeout(self, timeout: timedelta | None) -> Self:
         """Set TCP_USER_TIMEOUT (how long data may remain unacknowledged before the connection is force-closed)."""
 
+    def tls_certs_only(self) -> Self:
+        """Trust only explicitly added roots, excluding system and built-in roots."""
+
     def add_root_certificate_der(self, cert: bytes) -> Self:
         """Trust additional DER root certificate."""
 
