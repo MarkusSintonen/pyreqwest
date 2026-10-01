@@ -225,6 +225,7 @@ jobs:
 
       # Installed only after the GIL-enabled builds: on Windows setup-python's free-threaded install takes over
       # `py -3.14` (python.exe is swapped to the free-threaded binary), which maturin uses to resolve "3.14"
+      # https://github.com/actions/setup-python/issues/1079#issuecomment-5938251443
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.14t
