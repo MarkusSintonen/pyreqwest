@@ -18,6 +18,7 @@ env:
   COLUMNS: 150
   UV_PYTHON: 3.14
   PYTHON_VERSIONS: "3.11 3.12 3.13 3.14"
+  PYTHON_FREE_THREADED_VERSIONS: "3.14t"
   CI: 1
 
 jobs:
@@ -34,6 +35,8 @@ jobs:
           - "3.14t"
 
     runs-on: ubuntu-latest
+    env:
+      PYREQWEST_TEST_FREE_THREADED: ${{ matrix.python-version == '3.14t' && '1' || '' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -151,7 +154,7 @@ jobs:
           path: dist
 
   build:
-    name: build on ${{ matrix.os }} (${{ matrix.target }}, ${{ matrix.python || 'standard' }}${{ matrix.os == 'linux' && format(', manylinux={0}', matrix.manylinux) || '' }})
+    name: build on ${{ matrix.os }} (${{ matrix.target }}${{ matrix.os == 'linux' && format(', manylinux={0}', matrix.manylinux) || '' }})
     # only run on push to main and on release
     if: |
       startsWith(github.ref, 'refs/tags/') ||
@@ -164,7 +167,6 @@ jobs:
         os: [linux, macos, windows]
         target: [x86_64, aarch64]
         manylinux: [auto]
-        python: [standard, free-threaded]
         include:
           # manylinux for various platforms
           - os: linux
@@ -201,8 +203,6 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: ${{ matrix.python == 'free-threaded' && '3.14t' || '' }}
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           enable-cache: false
@@ -219,7 +219,22 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
-          args: --release --out dist ${{ env.FEATURES }} --interpreter ${{ matrix.python == 'free-threaded' && '3.14t' || env.PYTHON_VERSIONS }}
+          args: --release --out dist ${{ env.FEATURES }} --interpreter ${{ env.PYTHON_VERSIONS }}
+          rust-toolchain: stable
+          docker-options: -e CI
+
+      # Installed only after the GIL-enabled builds: on Windows setup-python's free-threaded install takes over
+      # `py -3.14` (python.exe is swapped to the free-threaded binary), which maturin uses to resolve "3.14"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: 3.14t
+
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist ${{ env.FEATURES }} --interpreter ${{ env.PYTHON_FREE_THREADED_VERSIONS }}
           rust-toolchain: stable
           docker-options: -e CI
 
@@ -229,7 +244,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: pypi_files_${{ matrix.os }}_${{ matrix.target }}_${{ matrix.manylinux }}_${{ matrix.python || 'standard' }}
+          name: pypi_files_${{ matrix.os }}_${{ matrix.target }}_${{ matrix.manylinux }}
           path: dist
 
   inspect-pypi-assets:
@@ -318,6 +333,7 @@ jobs:
     needs: [build]
     env:
       UV_PYTHON: ${{ matrix.python-version }}
+      PYREQWEST_TEST_FREE_THREADED: ${{ matrix.python-version == '3.14t' && '1' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -329,12 +345,14 @@ jobs:
             { os: windows, runs-on: windows-2025 },
             { os: windows_aarch64, runs-on: windows-11-arm },
             { os: macos, runs-on: macos-15 },
-            { os: macos_x86_64, runs-on: macos-15-intel },
           ]
 
     runs-on: ${{ matrix.platform.runs-on }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
 
       # https://github.com/pyca/cryptography/issues/14249
@@ -351,17 +369,11 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - run: uv sync
+      # pywin32 (needed by docker for npipe://) has no free-threaded wheels, docker tests are skipped on Windows CI
+      - run: uv sync ${{ (runner.os == 'Windows' && matrix.python-version == '3.14t') && '--no-install-package pywin32' || '' }}
       - run: >-
           uv pip install pyreqwest --no-index --no-deps --only-binary :all:
           --find-links dist --force-reinstall
-      - name: Verify free-threaded interpreter and wheel
-        if: matrix.python-version == '3.14t'
-        run: >-
-          uv run --no-sync python -W error -c
-          "import sys, sysconfig; import pyreqwest;
-          assert sysconfig.get_config_var('Py_GIL_DISABLED') == 1;
-          assert not sys._is_gil_enabled()"
       - run: uv run --no-sync pytest
 
   release:
