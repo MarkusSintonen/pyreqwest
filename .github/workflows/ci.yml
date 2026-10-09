@@ -17,8 +17,8 @@ on:
 env:
   COLUMNS: 150
   UV_PYTHON: 3.14
-  PYTHON_VERSIONS: "3.11 3.12 3.13 3.14"
-  PYTHON_FREE_THREADED_VERSIONS: "3.14t"
+  PYTHON_VERSIONS: "3.11 3.12 3.13 3.14 3.15"
+  PYTHON_FREE_THREADED_VERSIONS: "3.14t 3.15t"
   CI: 1
 
 jobs:
@@ -33,10 +33,12 @@ jobs:
           - "3.13"
           - "3.14"
           - "3.14t"
+          - "3.15"
+          - "3.15t"
 
     runs-on: ubuntu-latest
     env:
-      PYREQWEST_TEST_FREE_THREADED: ${{ matrix.python-version == '3.14t' && '1' || '' }}
+      PYREQWEST_TEST_FREE_THREADED: ${{ endsWith(matrix.python-version, 't') && '1' || '' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -203,6 +205,12 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          # not preinstalled on the macOS/Windows runners (Linux builds use the manylinux interpreters)
+          python-version: |
+            3.15
+            3.14
+          allow-prereleases: true
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           enable-cache: false
@@ -224,11 +232,14 @@ jobs:
           docker-options: -e CI
 
       # Installed only after the GIL-enabled builds: on Windows setup-python's free-threaded install takes over
-      # `py -3.14` (python.exe is swapped to the free-threaded binary), which maturin uses to resolve "3.14"
+      # `py -3.X` (python.exe is swapped to the free-threaded binary), which maturin uses to resolve "3.X"
       # https://github.com/actions/setup-python/issues/1079#issuecomment-5938251443
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: 3.14t
+          python-version: |
+            3.14t
+            3.15t
+          allow-prereleases: true
 
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
@@ -334,11 +345,11 @@ jobs:
     needs: [build]
     env:
       UV_PYTHON: ${{ matrix.python-version }}
-      PYREQWEST_TEST_FREE_THREADED: ${{ matrix.python-version == '3.14t' && '1' || '' }}
+      PYREQWEST_TEST_FREE_THREADED: ${{ endsWith(matrix.python-version, 't') && '1' || '' }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.14", "3.14t"]
+        python-version: ["3.14", "3.14t", "3.15", "3.15t"]
         platform:
           [
             { os: linux, runs-on: ubuntu-24.04 },
@@ -354,6 +365,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
 
       # https://github.com/pyca/cryptography/issues/14249
@@ -371,7 +383,7 @@ jobs:
           path: dist
 
       # pywin32 (needed by docker for npipe://) has no free-threaded wheels, docker tests are skipped on Windows CI
-      - run: uv sync ${{ (runner.os == 'Windows' && matrix.python-version == '3.14t') && '--no-install-package pywin32' || '' }}
+      - run: uv sync ${{ (runner.os == 'Windows' && endsWith(matrix.python-version, 't')) && '--no-install-package pywin32' || '' }}
       - run: >-
           uv pip install pyreqwest --no-index --no-deps --only-binary :all:
           --find-links dist --force-reinstall
