@@ -106,6 +106,16 @@ async def test_timeout(echo_server: SubprocessServer):
             await httpx_client.get(str(echo_server.url.with_query({"sleep_start": 2.0})))
 
 
+@pytest.mark.parametrize("timeout", [None, httpx.Timeout(None), httpx.Timeout(5.0, connect=None)])
+async def test_timeout_with_disabled_phase(echo_server: SubprocessServer, timeout: httpx.Timeout | None):
+    async with (
+        ClientBuilder().build() as client,
+        httpx.AsyncClient(transport=HttpxTransport(client), timeout=timeout) as httpx_client,
+    ):
+        resp = await httpx_client.get(str(echo_server.url))
+        assert resp.status_code == 200
+
+
 async def test_connect_error(httpx_client: httpx.AsyncClient):
     with pytest.raises(httpx.ConnectError):
         await httpx_client.get(f"http://localhost:{find_free_port()}")
