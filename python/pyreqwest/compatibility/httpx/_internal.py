@@ -36,6 +36,10 @@ def build_httpx_response(
     )
 
 
+def _request_timeout(timeout: dict[str, float | None]) -> float:
+    return sum(value for value in timeout.values() if value is not None)
+
+
 def map_extensions(builder: T, request: httpx.Request) -> T:
     if not (ext := request.extensions):
         return builder
@@ -43,8 +47,8 @@ def map_extensions(builder: T, request: httpx.Request) -> T:
     # Handle timeout
     # reqwest differs https://docs.rs/reqwest/latest/reqwest/struct.RequestBuilder.html#method.timeout
     # For more granular control, users should configure the pyreqwest.Client directly.
-    if (timeout := ext.get("timeout")) and isinstance(timeout, dict) and (tot_timeout := sum(timeout.values())) > 0:
-        builder = builder.timeout(timedelta(seconds=tot_timeout))
+    if isinstance(timeout := ext.get("timeout"), dict) and (total := _request_timeout(timeout)) > 0:
+        builder = builder.timeout(timedelta(seconds=total))
 
     return builder.extensions(ext)
 
