@@ -48,12 +48,12 @@ class Runner:
             return await self.run_aiohttp_concurrent(body, concurrency)
         if lib == "httpx":
             return await self.run_httpx_concurrent(body, concurrency)
+        if lib == "httpx2":
+            return await self.run_httpx2_concurrent(body, concurrency)
         if lib == "rnet":
             return await self.run_rnet_concurrent(body, concurrency)
         if lib == "niquests":
             return await self.run_niquests_concurrent(body, concurrency)
-        if lib == "ry":
-            return await self.run_ry_concurrent(body, concurrency)
         if lib == "curl_cffi":
             return await self.run_curl_cffi_concurrent(body, concurrency)
         raise ValueError(f"Unsupported comparison library: {lib}")
@@ -216,6 +216,31 @@ class Runner:
 
             return await self.meas_concurrent_batch(post_read, len(body), concurrency)
 
+    async def run_httpx2_concurrent(self, body: bytes, concurrency: int) -> list[float]:
+        import httpx2
+
+        url_str = str(self.url)
+        ssl_ctx = ssl.create_default_context(cadata=self.ca_cert.der)
+
+        async with httpx2.AsyncClient(verify=ssl_ctx, limits=httpx2.Limits(max_connections=concurrency)) as client:
+            if len(body) <= self.full_consume_size_limit:
+
+                async def post_read() -> None:
+                    response = await client.post(url_str, content=body)
+                    assert len(await response.aread()) == len(body)
+            else:
+                chunks = self.body_parts_chunks(body)
+
+                async def post_read() -> None:
+                    response = await client.post(url_str, content=self.body_parts_stream(chunks))
+                    tot = 0
+                    async for chunk in response.aiter_bytes(self.stream_read_chunk_size):
+                        assert len(chunk) <= self.stream_read_chunk_size
+                        tot += len(chunk)
+                    assert tot == len(body)
+
+            return await self.meas_concurrent_batch(post_read, len(body), concurrency)
+
     def run_urllib3_concurrent(self, body: bytes, concurrency: int) -> list[float]:
         import urllib3
 
@@ -272,37 +297,6 @@ class Runner:
 
         res = await self.meas_concurrent_batch(post_read, len(body), concurrency)
         del client  # No close or context manager in rnet. Make sure to dispose anything now.
-        return res
-
-    async def run_ry_concurrent(self, body: bytes, concurrency: int) -> list[float]:
-        import ry  # type: ignore[import-not-found]
-
-        url_str = str(self.url)
-        # for fairness w/ pyreqwest which uses its `pyreqwest.Url` wrapper, use the ry.URL struct
-        _url_ob = ry.URL(url_str)
-        client = ry.Client(
-            https_only=True,
-            tls_certs_merge=[ry.Certificate.from_der(self.ca_cert.der)],
-        )
-        if len(body) <= self.full_consume_size_limit:
-
-            async def post_read() -> None:
-                response = await client.post(_url_ob, body=body)  # noqa: F821
-                assert response.status == 200
-                assert len(await response.bytes()) == len(body)
-        else:
-            chunks = self.body_parts_chunks(body)
-
-            async def post_read() -> None:
-                response = await client.post(_url_ob, body=self.body_parts_stream(chunks))  # noqa: F821
-                assert response.status == 200
-                tot = 0
-                async for chunk in response.stream(self.stream_read_chunk_size):
-                    tot += len(chunk)
-                assert tot == len(body)
-
-        res = await self.meas_concurrent_batch(post_read, len(body), concurrency)
-        del client
         return res
 
     async def run_niquests_concurrent(self, body: bytes, concurrency: int) -> list[float]:

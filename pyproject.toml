@@ -68,12 +68,12 @@ build = [
     "twine==6.2.0",
 ]
 bench = [
-    "urllib3==2.6.3",
-    "aiohttp==3.14.4",
+    "urllib3==2.8.0",
+    "aiohttp==3.14.5",
     "rnet==2.4.2",
-    "niquests==3.17.0",
-    # "ry==0.0.78",
-    "curl-cffi==0.14.0",
+    "niquests==3.21.2",
+    "curl-cffi==0.17.0",
+    "httpx2==2.16.0",
     "matplotlib==3.11.2",
 ]
 

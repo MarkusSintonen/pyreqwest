@@ -6,7 +6,7 @@ from pyreqwest.http import Url
 from tests.bench.gc import capture_gc_stats
 from tests.bench.runner import Runner
 from tests.bench.server import CaCert, server
-from tests.bench.utils import StatsCollection, fmt_size, is_sync
+from tests.bench.utils import RunEnv, Stats, StatsCollection, fmt_size, is_sync
 
 FULL_CONSUME_SIZE_LIMIT = 1_000_000
 
@@ -53,8 +53,14 @@ class PerformanceLatency:
                     else:
                         print(f"{self.lib} N/A\n")
 
-        for body_sz, concurrency, timings in results:
-            StatsCollection.save_result(self.lib, body_sz, concurrency, timings)
+        env = RunEnv.current(self.lib)
+        collection = StatsCollection(
+            stats=[
+                Stats(lib=self.lib, body_size=body_sz, concurrency=concurrency, timings=timings, env=env)
+                for body_sz, concurrency, timings in results
+            ]
+        )
+        print(f"Results saved to '{collection.save_run(self.lib)}'")
 
 
 async def main() -> None:

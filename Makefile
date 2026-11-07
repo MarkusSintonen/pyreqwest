@@ -37,7 +37,7 @@ check: static-checks test
 
 .PHONY: bench
 bench:
-	scripts/bench.sh
+	scripts/bench.sh $(LIBS)
 
 .PHONY: clean
 clean:
