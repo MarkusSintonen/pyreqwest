@@ -39,6 +39,18 @@ pub struct Extensions(pub Py<PyDict>);
 pub struct QueryParams(pub Vec<(String, QueryValue)>);
 pub struct FormParams(pub Vec<(String, QueryValue)>);
 
+/// Flattens list values into repeated pairs (`("a", [1, 2])` -> `a=1&a=2`), which serde_urlencoded can serialize.
+pub fn query_pairs(params: &[(String, QueryValue)]) -> Vec<(&str, &QueryVal)> {
+    let mut pairs = Vec::with_capacity(params.len());
+    for (key, val) in params {
+        match val {
+            QueryValue::Array(arr) => pairs.extend(arr.iter().map(|v| (key.as_str(), v))),
+            QueryValue::Value(v) => pairs.push((key.as_str(), v)),
+        }
+    }
+    pairs
+}
+
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyString;
     type Output = Bound<'py, PyString>;
