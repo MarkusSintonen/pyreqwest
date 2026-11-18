@@ -107,7 +107,7 @@ class SyncHttpxTransport(httpx.BaseTransport):
         try:
             return builder.body_bytes(request.content)
         except httpx.RequestNotRead:
-            if isinstance(request.stream, httpx.AsyncByteStream):
+            if not isinstance(request.stream, httpx.SyncByteStream):
                 err = "Cannot use async stream in sync transport"
                 raise TypeError(err) from None
             return builder.body_stream(request.stream)
