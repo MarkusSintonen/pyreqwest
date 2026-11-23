@@ -1,4 +1,4 @@
-# Run via "test_runtime.py" for isolation
+# Run via "tests/test_isolated.py" for isolation
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager

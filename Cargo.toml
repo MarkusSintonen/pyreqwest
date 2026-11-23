@@ -1,6 +1,6 @@
 [package]
 name = "pyreqwest"
-version = "0.15.1"
+version = "0.15.2"
 edition = "2024"
 
 [lib]
@@ -51,13 +51,15 @@ regex = "=1.13.1"
 log = "=0.4.34"
 base64 = "=0.23.1"
 
-# TODO: remove target_os after https://github.com/purpleprotocol/mimalloc_rust/pull/169
-# Not on macOS. mimalloc finds its per-thread heap through hardcoded pthread TSD slots there, so a
-# second static copy in the same process collides with the first — and pyarrow ships one, statically
-# linked, as its default memory pool on macOS. Loading this module after pyarrow then corrupts every
-# buffer pyarrow allocates afterwards. Other platforms use ordinary per-DSO TLS and are unaffected.
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-mimalloc = { version = "0.1.52", default-features = false, features = ["local_dynamic_tls"], optional = true }
+# Official Rust crate from upstream mimalloc (microsoft/mimalloc, contrib/rust), used as a git dependency
+# as it is not published to crates.io. The crates.io `mimalloc` crate (purpleprotocol/mimalloc_rust) is
+# unmaintained and stuck on an old mimalloc release (v3.3.2) that misses many upstream fixes, e.g.:
+# - segfault on thread heap init (microsoft/mimalloc#1287), crashing when a thread that first loaded
+#   this module exits (#59)
+# - fixed pthread TSD slots on macOS that collide with other static mimalloc copies in the process,
+#   corrupting their memory (e.g. pyarrow). Newer versions use per-instance pthread keys instead.
+# Switch back to crates.io if the official crate gets published there.
+mimalloc = { git = "https://github.com/microsoft/mimalloc", tag = "v3.7.0", default-features = false, features = ["local_dynamic_tls"], optional = true }
 
 [build-dependencies]
 pyo3-build-config = "=0.29.3"
