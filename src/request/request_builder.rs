@@ -4,9 +4,7 @@ use crate::exceptions::BuilderError;
 use crate::http::HeaderMap;
 use crate::internal::allow_threads::AllowThreads;
 use crate::internal::json::{JsonDumpsContext, JsonHandler};
-use crate::internal::types::{
-    Extensions, FormParams, HeaderName, HeaderValue, JsonValue, Method, QueryParams, query_pairs,
-};
+use crate::internal::types::{Extensions, FormParams, HeaderName, HeaderValue, JsonValue, Method, QueryParams};
 use crate::internal::utils::{basic_auth, bearer_auth};
 use crate::middleware::NextInner;
 use crate::multipart::FormBuilder;
@@ -267,7 +265,7 @@ impl BaseRequestBuilder {
 
     fn query<'py>(slf: PyRefMut<'py, Self>, query: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
         let query = query.extract::<QueryParams>()?.0;
-        Self::apply(slf, true, |builder| Ok(builder.query(&query_pairs(&query))))
+        Self::apply(slf, true, |builder| Ok(builder.query(&query)))
     }
 
     fn timeout(slf: PyRefMut<Self>, timeout: Duration) -> PyResult<PyRefMut<Self>> {
@@ -287,7 +285,7 @@ impl BaseRequestBuilder {
 
     fn form<'py>(slf: PyRefMut<'py, Self>, form: Bound<'_, PyAny>) -> PyResult<PyRefMut<'py, Self>> {
         let form = form.extract::<FormParams>()?.0;
-        Self::apply(slf, true, |builder| Ok(builder.form(&query_pairs(&form))))
+        Self::apply(slf, true, |builder| Ok(builder.form(&form)))
     }
 
     fn extensions(mut slf: PyRefMut<'_, Self>, extensions: Extensions) -> PyResult<PyRefMut<'_, Self>> {
