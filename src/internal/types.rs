@@ -16,9 +16,8 @@ pub enum QueryVal {
     Float(f64),
     String(String),
 }
-#[derive(FromPyObject, Serialize)]
-#[serde(untagged)]
-pub enum QueryValue {
+#[derive(FromPyObject)]
+enum QueryValue {
     Value(QueryVal),
     Array(Vec<QueryVal>),
 }
