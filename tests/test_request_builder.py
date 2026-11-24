@@ -202,6 +202,9 @@ async def test_query(client: Client, echo_server: SubprocessServer):
         resp = await client.get(echo_server.url).query(val).build().send()
         assert (await resp.json())["query"] == [["foo", "bar"], ["foo", "baz"]]
 
+    assert (await send({"foo": ["bar", 1], "test": "x"})) == [["foo", "bar"], ["foo", "1"], ["test", "x"]]
+    assert (await send([("foo", ["bar", "baz"])])) == [["foo", "bar"], ["foo", "baz"]]
+
 
 async def test_form(client: Client, echo_server: SubprocessServer):
     async def send(arg: FormParams) -> str:
@@ -221,6 +224,9 @@ async def test_form(client: Client, echo_server: SubprocessServer):
         val = arg_type([("foo", "bar"), ("foo", "baz")])
         resp = await client.get(echo_server.url).form(val).build().send()
         assert "".join((await resp.json())["body_parts"]) == "foo=bar&foo=baz"
+
+    assert (await send({"foo": ["bar", 1], "test": "x"})) == "foo=bar&foo=1&test=x"
+    assert (await send([("foo", ["bar", "baz"])])) == "foo=bar&foo=baz"
 
 
 @pytest.mark.parametrize("case", ["query", "form"])

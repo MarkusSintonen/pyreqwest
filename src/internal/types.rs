@@ -16,9 +16,8 @@ pub enum QueryVal {
     Float(f64),
     String(String),
 }
-#[derive(FromPyObject, Serialize)]
-#[serde(untagged)]
-pub enum QueryValue {
+#[derive(FromPyObject)]
+enum QueryValue {
     Value(QueryVal),
     Array(Vec<QueryVal>),
 }
@@ -36,8 +35,8 @@ pub struct StatusCode(pub http::StatusCode);
 #[derive(Serialize, Deserialize)]
 pub struct JsonValue(pub serde_json::Value);
 pub struct Extensions(pub Py<PyDict>);
-pub struct QueryParams(pub Vec<(String, QueryValue)>);
-pub struct FormParams(pub Vec<(String, QueryValue)>);
+pub struct QueryParams(pub Vec<(String, QueryVal)>);
+pub struct FormParams(pub Vec<(String, QueryVal)>);
 
 impl<'py> IntoPyObject<'py> for Method {
     type Target = PyString;
@@ -140,14 +139,26 @@ impl PartialOrd for HeaderValue {
 impl<'py> FromPyObject<'_, 'py> for QueryParams {
     type Error = PyErr;
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        Ok(QueryParams(obj.extract::<KeyValPairs>()?.into_vec("query")?))
+        Ok(QueryParams(extract_query_pairs(obj, "query")?))
     }
 }
 impl<'py> FromPyObject<'_, 'py> for FormParams {
     type Error = PyErr;
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        Ok(FormParams(obj.extract::<KeyValPairs>()?.into_vec("form")?))
+        Ok(FormParams(extract_query_pairs(obj, "form")?))
     }
+}
+/// Flattens list values into repeated pairs (`("a", [1, 2])` -> `a=1&a=2`), which serde_urlencoded can serialize.
+fn extract_query_pairs(obj: Borrowed<'_, '_, PyAny>, ctx: &str) -> PyResult<Vec<(String, QueryVal)>> {
+    let params: Vec<(String, QueryValue)> = obj.extract::<KeyValPairs>()?.into_vec(ctx)?;
+    let mut pairs = Vec::with_capacity(params.len());
+    for (key, val) in params {
+        match val {
+            QueryValue::Array(arr) => pairs.extend(arr.into_iter().map(|v| (key.clone(), v))),
+            QueryValue::Value(v) => pairs.push((key, v)),
+        }
+    }
+    Ok(pairs)
 }
 
 impl<'py> IntoPyObject<'py> for Version {
