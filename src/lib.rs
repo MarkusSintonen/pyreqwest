@@ -18,8 +18,7 @@ use crate::internal::module_utils::{register_collections_abc, register_submodule
 use crate::internal::types::Method;
 use crate::request::{OneOffRequestBuilder, SyncOneOffRequestBuilder};
 
-// See the target-gated mimalloc dependency in Cargo.toml
-#[cfg(all(feature = "mimalloc", not(target_os = "macos")))]
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

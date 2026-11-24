@@ -64,6 +64,13 @@ async def test_body_stream(echo_server: SubprocessServer, httpx_client: httpx.As
     assert resp.json()["body_parts"] == ["hello ", "world"] and resp.status_code == 200
 
 
+async def test_multipart(echo_server: SubprocessServer, httpx_client: httpx.AsyncClient):
+    resp = await httpx_client.post(str(echo_server.url), files={"f": ("a.txt", b"hello")}, data={"k": "v"})
+    assert resp.status_code == 200
+    body = "".join(resp.json()["body_parts"])
+    assert 'name="f"; filename="a.txt"' in body and "hello" in body and 'name="k"' in body
+
+
 async def test_extensions(echo_server: SubprocessServer, httpx_client: httpx.AsyncClient):
     resp = await httpx_client.get(str(echo_server.url), extensions={"foo": "bar"})
     assert resp.status_code == 200
@@ -181,6 +188,13 @@ def test_sync_body_stream(echo_server: SubprocessServer, sync_httpx_client: http
 
     resp = sync_httpx_client.post(str(echo_server.url), content=body_stream())
     assert resp.json()["body_parts"] == ["hello ", "world"] and resp.status_code == 200
+
+
+def test_sync_multipart(echo_server: SubprocessServer, sync_httpx_client: httpx.Client):
+    resp = sync_httpx_client.post(str(echo_server.url), files={"f": ("a.txt", b"hello")}, data={"k": "v"})
+    assert resp.status_code == 200
+    body = "".join(resp.json()["body_parts"])
+    assert 'name="f"; filename="a.txt"' in body and "hello" in body and 'name="k"' in body
 
 
 def test_sync_extensions(echo_server: SubprocessServer, sync_httpx_client: httpx.Client):
